@@ -26,13 +26,26 @@ run_info() {
             device_info=$(mdls -name kMDItemModel -name kMDItemSoftware -name kMDItemCreator "$full_path" 2>/dev/null | awk -F' = ' '{print $2}' | tr -d '()"\n' | sed 's/null//g')
         fi
     
-        # ۲. پردازش مدیا و استخراج تگ سازنده (Encoder/Handler)
+        # 2. Extract Media Metadata (Video/Audio/Image)
         local media_info=""
         local extra_tags=""
-        if [[ "$target" =~ \.(mp4|mkv|mp3|wav|mov|avi|flv|wmv|m4a|flac|webm)$ ]]; then
-            if command -v ffprobe >/dev/null 2>&1; then
-                media_info=$(ffprobe -v error -show_entries format=duration,size -show_entries stream=width,height,codec_name,bit_rate -of default=noprint_wrappers=1 "$target")
-                # تلاش دوم: استخراج تگ‌های مخفی از داخل خود فایل
+        local ext="${target##*.}"
+        ext="${ext,,}" # lowercase
+
+        if [[ "$file_type" == *"image"* || "$file_type" == *"video"* || "$file_type" == *"audio"* ]]; then
+            # Special handling for SVG
+            if [[ "$ext" == "svg" ]]; then
+                 local w=$(grep -oE 'width="[0-9.]+"' "$target" | head -1 | cut -d'"' -f2)
+                 local h=$(grep -oE 'height="[0-9.]+"' "$target" | head -1 | cut -d'"' -f2)
+                 if [[ -z "$w" ]]; then w="Vector (Scalable)"; fi
+                 if [[ -z "$h" ]]; then h="Vector (Scalable)"; fi
+                 media_info="codec_name=svg
+width=$w
+height=$h
+pix_fmt=vector"
+            elif command -v ffprobe >/dev/null 2>&1; then
+                # Enhanced ffprobe for images (bits, pix_fmt)
+                media_info=$(ffprobe -v error -show_entries format=duration,size -show_entries stream=width,height,codec_name,bit_rate,pix_fmt,bits_per_raw_sample,color_space -of default=noprint_wrappers=1 "$target")
                 extra_tags=$(ffprobe -v error -show_entries format_tags=encoder,handler_name,com.apple.quicktime.software -of default=noprint_wrappers=1 "$target" | awk -F'=' '{print $2}' | tr '\n' ' ' | sed 's/null//g')
             fi
         fi
@@ -80,7 +93,15 @@ if media:
             elif k == 'bit_rate':
                 try: v = f"{float(v)/1_000_000:.2f} Mbps"
                 except: pass
-            print(f"  🔹 {k:12} = {v}")
+            elif k == 'pix_fmt': k = 'Pixel Fmt'
+            elif k == 'bits_per_raw_sample': 
+                k = 'Bit Depth'
+                v = f"{v} bits"
+            elif k == 'color_space': k = 'Color Space'
+            
+            # Capitalize key for display
+            k = k.replace('_', ' ').title()
+            print(f"  🔹 {k:14} = {v}")
 PYTHON_EOF
         echo "------------------------------------------"
     }
