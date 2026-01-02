@@ -1,0 +1,378 @@
+#!/bin/bash
+
+# We define compress at the top level so other scripts (like batch) can use it when sourced.
+
+stats() {
+    local learning_file="$HOME/.su6i_scripts/.amir_compress_learning"
+    
+    if [[ ! -f "$learning_file" ]]; then
+        echo "📊 No learning data found."
+        return 1
+    fi
+    
+    declare -A quality_factors
+    declare -A speed_factors
+    declare -A sample_counts
+    
+    while IFS='=' read -r key value; do
+        [[ -z "$key" || "$key" == \#* ]] && continue
+        
+        if [[ "$key" == quality_factors* ]]; then
+            local q="${key#quality_factors[}"
+            q="${q%]}"
+            quality_factors[$q]="$value"
+        elif [[ "$key" == speed_factors* ]]; then
+            local q="${key#speed_factors[}"
+            q="${q%]}"
+            speed_factors[$q]="$value"
+        elif [[ "$key" == sample_counts* ]]; then
+            local q="${key#sample_counts[}"
+            q="${q%]}"
+            sample_counts[$q]="$value"
+        fi
+    done < "$learning_file"
+    
+    echo "🤖 ADVANCED COMPRESSION AI STATISTICS"
+    echo "══════════════════════════════════════"
+    echo ""
+    
+    echo "🎯 QUALITY FACTORS (Compression Efficiency)"
+    echo "┌───────┬──────────────┬─────────────┬──────────────┬──────────┐"
+    echo "│ Qual  │ Factor       │ Est. Ratio  │ Speed Factor │ Samples  │"
+    echo "├───────┼──────────────┼─────────────┼──────────────┼──────────┤"
+    
+    for q in 40 50 55 60 65 70 75 80; do
+        local factor=${quality_factors[$q]:-1.0}
+        local speed=${speed_factors[$q]:-6}
+        local samples=${sample_counts[$q]:-0}
+        local est_ratio=$(echo "scale=1; $factor * 100" | bc)
+        
+        printf "│ %5d │ %12.4f │ %11s%% │ %12d │ %8d │\n" \
+            "$q" "$factor" "$est_ratio" "$speed" "$samples"
+    done
+    
+    echo "└───────┴──────────────┴─────────────┴──────────────┴──────────┘"
+}
+
+reset() {
+    local learning_file="$HOME/.su6i_scripts/.amir_compress_learning"
+    
+    if [[ -f "$learning_file" ]]; then
+        rm "$learning_file"
+        echo "✅ Advanced learning data reset to defaults."
+    else
+        echo "ℹ️  No learning data found."
+    fi
+}
+
+calculate_column_width() {
+    local term_width=$(tput cols 2>/dev/null || echo 120)
+    local columns=$1
+    local min_width=${2:-25}
+    local max_width=${3:-35}
+    local padding=12
+    
+    local available_width=$((term_width - padding * (columns - 1)))
+    local col_width=$((available_width / columns))
+    
+    if [[ $col_width -lt $min_width ]]; then
+        col_width=$min_width
+    elif [[ $col_width -gt $max_width ]]; then
+        col_width=$max_width
+    fi
+    
+    echo $col_width
+}
+
+load_learning_data() {
+    local learning_file="$HOME/.su6i_scripts/.amir_compress_learning"
+    
+    declare -gA quality_factors
+    declare -gA speed_factors
+    declare -gA sample_counts
+    
+    # Set defaults
+    quality_factors[40]=0.42
+    quality_factors[50]=0.60
+    quality_factors[55]=0.75
+    quality_factors[60]=1.0
+    quality_factors[65]=1.22
+    quality_factors[70]=1.3
+    quality_factors[75]=1.45
+    quality_factors[80]=1.65
+    
+    speed_factors[40]=9
+    speed_factors[50]=8
+    speed_factors[55]=7
+    speed_factors[60]=6
+    speed_factors[65]=5
+    speed_factors[70]=4
+    speed_factors[75]=4
+    speed_factors[80]=3
+    
+    for q in 40 50 55 60 65 70 75 80; do
+        sample_counts[$q]=0
+    done
+    
+    # Load from file if exists
+    if [[ -f "$learning_file" ]]; then
+        while IFS='=' read -r key value; do
+            [[ -z "$key" || "$key" == \#* ]] && continue
+            
+            if [[ "$key" == quality_factors* ]]; then
+                local q="${key#quality_factors[}"
+                q="${q%]}"
+                quality_factors[$q]="$value"
+            elif [[ "$key" == speed_factors* ]]; then
+                local q="${key#speed_factors[}"
+                q="${q%]}"
+                speed_factors[$q]="$value"
+            elif [[ "$key" == sample_counts* ]]; then
+                local q="${key#sample_counts[}"
+                q="${q%]}"
+                sample_counts[$q]="$value"
+            fi
+        done < "$learning_file"
+    fi
+}
+
+save_learning_data() {
+    local learning_file="$HOME/.su6i_scripts/.amir_compress_learning"
+    mkdir -p "$(dirname "$learning_file")"
+    
+    {
+        echo "# Advanced Compression Learning Data"
+        echo "# Updated: $(date)"
+        echo ""
+        for q in 40 50 55 60 65 70 75 80; do
+            echo "quality_factors[$q]=${quality_factors[$q]}"
+            echo "speed_factors[$q]=${speed_factors[$q]}"
+            echo "sample_counts[$q]=${sample_counts[$q]}"
+        done
+    } > "$learning_file"
+}
+
+compress() {
+    if [[ -z "$1" || ! -f "$1" ]]; then
+        echo "❌ Error: File not found."
+        return 1
+    fi
+    
+    # Basic runtime checks
+    if ! command -v ffmpeg &> /dev/null || ! command -v bc &> /dev/null; then
+        echo "❌ Critical dependencies missing."
+        echo "💡 Please run the installer: ./install.sh"
+        return 1
+    fi
+    
+    local target_h=${2:-720}
+    local quality=${3:-60}
+    local target_w=$(( target_h * 16 / 9 ))
+    local output="${1%.*}_${target_h}p_q${quality}.mp4"
+    
+    local input_size=$(ls -lh "$1" | awk '{print $5}')
+    local input_bytes=$(ls -l "$1" | awk '{print $5}')
+    local duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$1" 2>/dev/null)
+    local duration_seconds=${duration%.*}
+    local duration_formatted=$(printf '%02d:%02d:%02d' $(($duration_seconds/3600)) $(($duration_seconds%3600/60)) $(($duration_seconds%60)))
+    
+    # Hardware Detection
+    local cpu_info="Unknown"
+    local gpu_info="Unknown"
+    
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        cpu_info=$(sysctl -n machdep.cpu.brand_string 2>/dev/null)
+        gpu_info="Apple Silicon GPU"
+        [[ "$cpu_info" == *"Intel"* ]] && gpu_info="Intel GPU"
+    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        cpu_info=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)
+        gpu_info=$(lspci | grep -i vga | cut -d: -f3 | xargs 2>/dev/null || echo "Linux GPU")
+    else 
+        # Windows (Git Bash/WSL)
+        cpu_info="Windows CPU" 
+        gpu_info="Windows GPU"
+    fi
+    
+    load_learning_data
+    
+    local base_ratio=0.06
+    if [[ $input_bytes -gt 8589934592 ]]; then
+        base_ratio=0.047
+    elif [[ $input_bytes -gt 4294967296 ]]; then
+        base_ratio=0.052
+    elif [[ $input_bytes -gt 2147483648 ]]; then
+        base_ratio=0.062
+    else
+        base_ratio=0.072
+    fi
+    
+    local quality_factor=${quality_factors[$quality]:-1.0}
+    local speed_factor=${speed_factors[$quality]:-6}
+    local sample_count=${sample_counts[$quality]:-0}
+    
+    echo ""
+    echo "🎬 VIDEO COMPRESSION TOOL"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    
+    local col_width=$(calculate_column_width 3 28 35)
+    
+    printf "┌%s┬%s┬%s┐\n" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
+    
+    printf "│ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │\n" \
+        "📂 INPUT FILE" "🖥️  HARDWARE" "🎯 SETTINGS"
+    
+    printf "├%s┼%s┼%s┤\n" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
+    
+    printf "│ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │\n" \
+        "  File: $(basename "$1")" "  CPU: $cpu_info" "  Resolution: ${target_h}p"
+    printf "│ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │\n" \
+        "  Size: $input_size" "  GPU: $gpu_info" "  Quality: $quality/100"
+    printf "│ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │\n" \
+        "  Duration: $duration_formatted" "  Encoder: VideoToolbox" "  Audio: AAC 44.1kHz"
+    
+    printf "└%s┴%s┴%s┘\n" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
+    
+    echo ""
+    echo "⏳ Processing..."
+    
+    local start_time=$(date +%s)
+    
+    # Encoder selection
+    local encoder="libx265"
+    local tag_opt="-tag:v hvc1"
+    
+    # Check available encoders
+    if ffmpeg -encoders 2>/dev/null | grep -q "hevc_videotoolbox"; then
+        encoder="hevc_videotoolbox"
+    elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_nvenc"; then
+        encoder="hevc_nvenc"
+        tag_opt="" # NVENC handles tags differently often
+    elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_amf"; then
+        encoder="hevc_amf"
+        tag_opt=""
+    elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_qsv"; then
+        encoder="hevc_qsv"
+        tag_opt=""
+    fi
+    
+    # Windows/Linux fix for audio filters
+    local audio_filter="aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo"
+    
+    ffmpeg -hide_banner -loglevel error -stats -y -i "$1" \
+    -vf "fps=25,scale=${target_w}:${target_h}:force_original_aspect_ratio=decrease,pad=${target_w}:${target_h}:(ow-iw)/2:(oh-ih)/2,setsar=1" \
+    -c:v "$encoder" -q:v $quality $tag_opt \
+    -af "$audio_filter" \
+    -c:a aac -pix_fmt yuv420p -movflags +faststart "$output" 2>&1
+    
+    if [[ ! -f "$output" ]]; then
+        echo "❌ Compression failed!"
+        return 1
+    fi
+    
+    local end_time=$(date +%s)
+    local total_elapsed=$((end_time - start_time))
+    local total_elapsed_formatted=$(printf '%02d:%02d' $(($total_elapsed/60)) $(($total_elapsed%60)))
+    
+    local output_size=$(ls -lh "$output" | awk '{print $5}')
+    local output_bytes=$(ls -l "$output" | awk '{print $5}')
+    local ratio=$(echo "scale=2; $input_bytes / $output_bytes" | bc 2>/dev/null || echo "0")
+    local percent_saved=$(echo "scale=1; 100 - ($output_bytes * 100 / $input_bytes)" | bc 2>/dev/null || echo "0")
+    local actual_speed=$(echo "scale=2; $duration_seconds / $total_elapsed" | bc 2>/dev/null || echo "0")
+    
+    local actual_ratio=$(echo "scale=4; $output_bytes / $input_bytes" | bc 2>/dev/null || echo "0.05")
+    local normalized_ratio=$(echo "scale=4; $actual_ratio * 15" | bc)
+    local new_q_factor=$(echo "scale=4; ($quality_factor * 0.7) + ($normalized_ratio * 0.3)" | bc)
+    
+    [[ $(echo "$new_q_factor < 0.2" | bc) -eq 1 ]] && new_q_factor=0.2
+    [[ $(echo "$new_q_factor > 2.0" | bc) -eq 1 ]] && new_q_factor=2.0
+    
+    quality_factors[$quality]=$new_q_factor
+    speed_factors[$quality]=$(echo "scale=0; ($speed_factor * 0.8) + ($actual_speed * 0.2)" | bc)
+    sample_counts[$quality]=$((sample_count + 1))
+    
+    save_learning_data
+    
+    echo ""
+    echo "✅ COMPRESSION COMPLETE"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    
+    local col_width=$(calculate_column_width 4 22 28)
+    
+    printf "┌%s┬%s┬%s┬%s┐\n" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
+    
+    printf "│ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │\n" \
+        "📥 INPUT" "📤 OUTPUT" "📊 PERFORMANCE" "📈 COMPARISON"
+    
+    printf "├%s┼%s┼%s┼%s┤\n" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
+    
+    printf "│ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │\n" \
+        "  File: $(basename "$1")" "  File: $(basename "$output")" "  Time: $total_elapsed_formatted" "  Reduction: ${percent_saved}%"
+    printf "│ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │\n" \
+        "  Size: $input_size" "  Size: $output_size" "  Speed: ${actual_speed}x" "  Ratio: ${ratio}x smaller"
+    
+    printf "└%s┴%s┴%s┴%s┘\n" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
+    
+    echo ""
+    echo "📍 Output: $(realpath "$output")"
+}
+
+# --- Helper for Codec Info ---
+test_codec_support() {
+    local codec="$1"
+    if ffmpeg -encoders 2>/dev/null | grep -q "V..... $codec"; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+codecs_check() {
+    echo "🔍 HEVC Codec Availability:"
+    echo "═════════════════════════"
+    
+    local codecs=("libx265" "hevc_videotoolbox" "hevc_vaapi" "hevc_nvenc" "hevc_qsv")
+    
+    for codec in "${codecs[@]}"; do
+        if test_codec_support "$codec"; then
+            echo "✅ $codec: Available"
+        else
+            echo "❌ $codec: Not available"
+        fi
+    done
+    return 0
+}
+
+run_compress() {
+    if [[ "$1" == "stats" ]]; then
+        stats
+    elif [[ "$1" == "reset" ]]; then
+        reset
+    elif [[ "$1" == "codecs" ]]; then
+        codecs_check
+    else
+        compress "$@"
+    fi
+}
