@@ -103,5 +103,25 @@ else
     echo "✅ All dependencies are already met."
 fi
 
+
+# 4. Configuration (Environment Variables)
+echo "-------------------------------------"
+echo "🔧 Configuration"
+echo "Would you like to configure API keys now? (y/N)"
+read -r response
+if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
+    echo "Enter your GEMINI_API_KEY (Leave empty if none):"
+    read -r gemini_key
+    
+    if [[ -n "$gemini_key" ]]; then
+        echo "GEMINI_API_KEY=\"$gemini_key\"" > "$PROJECT_DIR/.env"
+        echo "✅ Saved to .env"
+    else
+        echo "ℹ️  Skipped."
+    fi
+else
+    echo "ℹ️  Skipped configuration. You can add .env manually later."
+fi
+
 echo "-------------------------------------"
 echo "🎉 Installation Complete! Run 'amir help' to start."
