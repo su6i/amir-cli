@@ -51,6 +51,7 @@ Amir CLI uses **Python 3** for some helper tasks (like data formatting).
 Simply run the installer to set up dependencies and API keys in one go:
 
 ```bash
+chmod +x install.sh
 ./install.sh
 ```
 
