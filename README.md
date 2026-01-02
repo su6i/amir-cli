@@ -50,7 +50,15 @@ Amir CLI uses **Python 3** for some helper tasks (like data formatting).
     - `python3` (usually pre-installed)
     - `curl` (for network tools)
 
-## 🚀 Usage
+### 3. Configuration (Optional)
+To use AI features (Gemini), run the setup script:
+
+```bash
+python3 setup_env.py
+```
+Or manually create a `.env` file with `GEMINI_API_KEY=your_key`.
+
+### 4. Usage
 
 Run `amir help` or just `amir` to see the available commands. You can also rename the executable to whatever you prefer (e.g., `assist`, `do`) to match your workflow.
 
