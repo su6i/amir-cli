@@ -1,0 +1,224 @@
+#compdef _amir amir
+
+_amir() {
+    local cur prev
+    cur="${words[CURRENT]}"
+    prev="${words[CURRENT-1]}"
+
+    # Step 1: Main commands
+    if (( CURRENT == 2 )); then
+        local -a commands
+        commands=(
+            'batch:Batch process all videos in folder'
+            'compress:Compress video with custom resolution'
+            'mp3:Extract or change audio quality'
+            'img:Resize images (logo and custom sizes)'
+            'info:Show file technical properties'
+            'transfer:Upload temporary file and get link'
+            'lock:Encrypt and lock file'
+            'unlock:Unlock encrypted file'
+            'clean:Clean system caches and trash'
+            'qr:Create smart QR Code'
+            'weather:Show weather information'
+            'short:Shorten long URLs'
+            'pass:Generate secure password'
+            'speed:Test internet speed'
+            'todo:Manage quick task list'
+            'clip:Copy text or file to clipboard'
+            'chat:Ask Gemini/Gemma anything'
+            'code:Generate code and save to file'
+        )
+        _describe -t commands 'amir commands' commands
+        return
+    fi
+
+    # Step 2: Subcommand options
+    case "${words[2]}" in
+        compress)
+            if (( CURRENT == 3 )); then
+                local -a subcmds
+                subcmds=(
+                    'stats:Show AI learning statistics'
+                    'reset:Reset AI learning data'
+                    'codecs:Check HEVC codec support'
+                )
+                _describe -t subcmds 'commands' subcmds
+                _files -g "*.(mp4|mov|mkv|avi|MP4|MOV|MKV|webm|WEBM)"
+            elif (( CURRENT == 4 )); then
+                # Resolution options (only if arg 3 was a file)
+                if [[ -f "${words[3]}" ]]; then
+                    local -a resolutions
+                    resolutions=(
+                        '1080:Excellent quality (Full HD)'
+                        '720:Good quality (Standard HD)'
+                        '480:Medium quality (Standard SD)'
+                        '240:Very low quality (Fast transfer)'
+                        '360:Medium quality (Mobile)'
+                    )
+                    _describe -t resolutions 'resolution' resolutions
+                fi
+            fi
+            ;;
+
+        mp3)
+            case $((CURRENT)) in
+                3)
+                    # Audio/video files (audio extraction)
+                    _files -g "*.(mp4|mov|mkv|avi|mp3|wav|flac|m4a|MP3|WAV|FLAC|M4A)"
+                    ;;
+                4)
+                    # Bitrate options
+                    local -a bitrates
+                    bitrates=(
+                        '320:Highest quality (standard MP3)'
+                        '256:High quality (more clarity)'
+                        '192:Very good quality (balanced)'
+                        '160:Good quality (standard)'
+                        '128:Medium quality (podcasts)'
+                        '96:Low quality (voice only)'
+                    )
+                    _describe -t bitrates 'bitrate (kbps)' bitrates
+                    ;;
+            esac
+            ;;
+
+        img)
+            case $((CURRENT)) in
+                3)
+                    # Image files
+                    _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)"
+                    ;;
+                4)
+                    # Image size presets
+                    local -a img_sizes
+                    img_sizes=(
+                        '2048:Very large size (4K)'
+                        '1024:Large size (HD)'
+                        '512:High quality (profile)'
+                        '256:Web & app size'
+                        '128:Medium logo size'
+                        '64:Small icon'
+                        '48:Standard icon'
+                        '32:Small icon'
+                        '16:Favicon'
+                    )
+                    _describe -t img_sizes 'image size (px)' img_sizes
+                    ;;
+            esac
+            ;;
+
+        batch)
+            case $((CURRENT)) in
+                3)
+                    # Batch resolution options
+                    local -a batch_res
+                    batch_res=(
+                        '1080:All videos to 1080p'
+                        '720:All videos to 720p'
+                        '480:All videos to 480p'
+                        '360:All videos to 360p'
+                        '240:All videos to 240p'
+                    )
+                    _describe -t batch_res 'batch resolution' batch_res
+                    ;;
+                4)
+                    # Target directory
+                    _files -/ # Directories only
+                    ;;
+            esac
+            ;;
+
+        info|transfer|lock|unlock|clip)
+            if (( CURRENT == 3 )); then
+                _files # Any files
+            fi
+            ;;
+
+        qr)
+            case $((CURRENT)) in
+                3) _message "Enter URL, phone number, email or text" ;;
+                4) _message "Output filename (optional)" ;;
+            esac
+            ;;
+
+        weather)
+            if (( CURRENT == 3 )); then
+                _message "City name (default: Tehran)"
+            fi
+            ;;
+
+        short)
+            case $((CURRENT)) in
+                3)
+                    _message "Enter long URL to shorten"
+                    ;;
+                4)
+                    local -a flags
+                    flags=(
+                        '--debug:Show services being tried'
+                        '-d:Show services being tried'
+                    )
+                    _describe -t flags 'options' flags
+                    ;;
+            esac
+            ;;
+
+        pass)
+            if (( CURRENT == 3 )); then
+                _message "Password length (default: 16)"
+            fi
+            ;;
+
+        speed)
+            _message "Testing internet speed..."
+            ;;
+
+        todo)
+            case $((CURRENT)) in
+                3)
+                    local -a todo_opts
+                    todo_opts=(
+                        'add:Add new task'
+                        'done:Mark task as done'
+                        'list:Show all tasks'
+                        'clear:Clear all tasks'
+                    )
+                    _describe -t todo_opts 'todo command' todo_opts
+                    ;;
+                4)
+                    if [[ "${words[3]}" == "done" ]]; then
+                        _message "Enter task number to mark done"
+                    elif [[ "${words[3]}" == "add" ]]; then
+                        _message "Enter task description"
+                    fi
+                    ;;
+            esac
+            ;;
+
+        chat)
+            if (( CURRENT == 2 )); then
+                # پیشنهاد سوییچ تاریخچه در اولین آرگومان
+                _arguments ': :(--history)'
+            else
+                # راهنمای مخصوص چت در آرگومان‌های بعدی
+                _message "💬 Ask Gemini/Gemma anything..."
+            fi
+            ;;
+
+        code)
+            if (( CURRENT == 2 )); then
+                # پیشنهاد سوییچ تاریخچه یا انتخاب فایل/کلیپ‌بورد
+                _arguments ': :(--history clip)'
+                _files
+            else
+                # راهنمای مخصوص کدنویسی
+                _message "💻 Describe the refactoring or logic you want..."
+            fi
+            ;;
+        clean)
+            _message "Cleaning system temporary files..."
+            ;;
+    esac
+}
+
+_amir "$@"
