@@ -10,7 +10,7 @@
   </a>
 </div>
 
-**Amir CLI** is a powerful, all-in-one terminal assistant designed to streamline your daily workflow. It brings together advanced video compression, system maintenance, AI integration, and file management into a single, cohesive command-line interface.
+**Amir CLI** is a powerful, all-in-one terminal assistant designed for **simplicity**, **automation**, and **productivity**. It streamlines your daily workflow by bringing together advanced video compression, system maintenance, AI integration, and file management into a single, cohesive command-line interface.
 
 Built with modularity and ease of use in mind, `amir` works seamlessly across **macOS**, **Linux**, and **Windows (via WSL/Git Bash)**.
 
@@ -52,7 +52,7 @@ Amir CLI uses **Python 3** for some helper tasks (like data formatting).
 
 ## 🚀 Usage
 
-Run `amir help` or just `amir` to see the available commands.
+Run `amir help` or just `amir` to see the available commands. You can also rename the executable to whatever you prefer (e.g., `assist`, `do`) to match your workflow.
 
 ### 🎬 Multimedia
 | Command | Description |
@@ -90,4 +90,4 @@ Run `amir help` or just `amir` to see the available commands.
 
 Contributions are welcome! Please check the issues page or submit a Pull Request.
 
-**Author:** [Su6i](https://github.com/su6i)
+
