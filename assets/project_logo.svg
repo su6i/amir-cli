@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 120">
+    <!-- Interactive Terminal Style Logo -->
+
+    <!-- Background: Dark Terminal Box -->
+    <rect x="0" y="0" width="400" height="120" rx="15" fill="#2D2D2D" />
+
+    <!-- Top Bar (Window Controls) -->
+    <circle cx="20" cy="20" r="5" fill="#FF5F56" />
+    <circle cx="40" cy="20" r="5" fill="#FFBD2E" />
+    <circle cx="60" cy="20" r="5" fill="#27C93F" />
+
+    <!-- Text: > amir -->
+    <text x="30" y="80" font-family="Courier New, monospace" font-weight="bold" font-size="50" fill="#4AF626">
+        &gt; amir
+        <animate attributeName="opacity" values="1;0;1" dur="1s" repeatCount="indefinite" begin="0s" />_
+    </text>
+
+    <!-- The underscore is the cursor, animating -->
+</svg>

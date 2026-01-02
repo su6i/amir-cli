@@ -1,0 +1,180 @@
+#!/bin/bash
+
+# ==============================================================================
+# Amir CLI - A powerful video compression and utility tool
+# Author: Su6i (Refactored)
+# ==============================================================================
+
+# Get the absolute path of the script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
+
+# ==============================================================================
+# Global Utilities (Colors & Logging)
+# ==============================================================================
+
+BOLD='\033[1m'
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+log_info() {
+    echo -e "${BLUE}ℹ️  $1${NC}"
+}
+
+log_success() {
+    echo -e "${GREEN}✅ $1${NC}"
+}
+
+log_warning() {
+    echo -e "${YELLOW}⚠️  $1${NC}"
+}
+
+log_error() {
+    echo -e "${RED}${BOLD}❌ ERROR:${NC} $1"
+}
+
+print_header() {
+    echo -e "${BOLD}${CYAN}$1${NC}"
+    echo -e "${CYAN}══════════════════════${NC}"
+}
+
+copy_to_clipboard() {
+    local response="$1"
+    
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        echo -n "$response" | pbcopy
+        echo "📋 Copied to clipboard (macOS)"
+    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        if command -v xclip &> /dev/null; then
+            echo -n "$response" | xclip -selection clipboard
+            echo "📋 Copied to clipboard (xclip)"
+        elif command -v xsel &> /dev/null; then
+            echo -n "$response" | xsel --clipboard
+            echo "📋 Copied to clipboard (xsel)"
+        fi
+    elif [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+        if command -v clip.exe &> /dev/null; then
+            echo -n "$response" | clip.exe
+            echo "📋 Copied to clipboard (Windows)"
+        fi
+    else
+        # Fallback for systems without recognized clipboard tools
+        echo "📋 (Clipboard not supported on this OS: $OSTYPE)"
+    fi
+}
+
+# ==============================================================================
+# Subcommand Dispatcher
+# ==============================================================================
+
+COMMAND="$1"
+
+case "$COMMAND" in
+
+    # install-full removed: handled by root install.sh
+    
+    # === Migrated Commands ===
+    
+    compress)
+        shift
+        if [[ -f "$LIB_DIR/commands/compress.sh" ]]; then
+            source "$LIB_DIR/commands/compress.sh"
+            run_compress "$@"
+            exit $?
+        fi
+        ;;
+    
+    mp3)
+        shift
+        if [[ -f "$LIB_DIR/commands/mp3.sh" ]]; then source "$LIB_DIR/commands/mp3.sh"; run_mp3 "$@"; exit $?; fi
+        ;;
+    batch)
+        shift
+        if [[ -f "$LIB_DIR/commands/batch.sh" ]]; then source "$LIB_DIR/commands/batch.sh"; run_batch "$@"; exit $?; fi
+        ;;
+    info)
+        shift
+        if [[ -f "$LIB_DIR/commands/info.sh" ]]; then source "$LIB_DIR/commands/info.sh"; run_info "$@"; exit $?; fi
+        ;;
+    img)
+        shift
+        if [[ -f "$LIB_DIR/commands/img.sh" ]]; then source "$LIB_DIR/commands/img.sh"; run_img "$@"; exit $?; fi
+        ;;
+    transfer)
+        shift
+        if [[ -f "$LIB_DIR/commands/transfer.sh" ]]; then source "$LIB_DIR/commands/transfer.sh"; run_transfer "$@"; exit $?; fi
+        ;;
+    lock)
+        shift
+        if [[ -f "$LIB_DIR/commands/lock.sh" ]]; then source "$LIB_DIR/commands/lock.sh"; run_lock "$@"; exit $?; fi
+        ;;
+    unlock)
+        shift
+        if [[ -f "$LIB_DIR/commands/lock.sh" ]]; then source "$LIB_DIR/commands/lock.sh"; run_unlock "$@"; exit $?; fi
+        ;;
+    clean)
+        if [[ -f "$LIB_DIR/commands/clean.sh" ]]; then source "$LIB_DIR/commands/clean.sh"; run_clean; exit $?; fi
+        ;;
+    qr)
+        shift
+        if [[ -f "$LIB_DIR/commands/qr.sh" ]]; then source "$LIB_DIR/commands/qr.sh"; run_qr "$@"; exit $?; fi
+        ;;
+    weather)
+        shift
+        if [[ -f "$LIB_DIR/commands/weather.sh" ]]; then source "$LIB_DIR/commands/weather.sh"; run_weather "$@"; exit $?; fi
+        ;;
+    short)
+        shift
+        if [[ -f "$LIB_DIR/commands/short.sh" ]]; then source "$LIB_DIR/commands/short.sh"; run_short "$@"; exit $?; fi
+        ;;
+    pass)
+        shift
+        if [[ -f "$LIB_DIR/commands/pass.sh" ]]; then source "$LIB_DIR/commands/pass.sh"; run_pass "$@"; exit $?; fi
+        ;;
+    speed)
+        if [[ -f "$LIB_DIR/commands/speed.sh" ]]; then source "$LIB_DIR/commands/speed.sh"; run_speed; exit $?; fi
+        ;;
+    todo)
+        shift
+        if [[ -f "$LIB_DIR/commands/todo.sh" ]]; then source "$LIB_DIR/commands/todo.sh"; run_todo "$@"; exit $?; fi
+        ;;
+    clip)
+        shift
+        if [[ -f "$LIB_DIR/commands/clip.sh" ]]; then source "$LIB_DIR/commands/clip.sh"; run_clip "$@"; exit $?; fi
+        ;;
+    chat)
+        shift
+        if [[ -f "$LIB_DIR/commands/chat.sh" ]]; then source "$LIB_DIR/commands/chat.sh"; run_chat "$@"; exit $?; fi
+        ;;
+    code)
+        shift
+        if [[ -f "$LIB_DIR/commands/code.sh" ]]; then source "$LIB_DIR/commands/code.sh"; run_code "$@"; exit $?; fi
+        ;;
+    dashboard)
+        if [[ -f "$LIB_DIR/commands/dashboard.sh" ]]; then source "$LIB_DIR/commands/dashboard.sh"; run_dashboard; exit $?; fi
+        ;;
+        
+    help|--help|-h)
+        if [[ -f "$LIB_DIR/commands/help.sh" ]]; then
+            source "$LIB_DIR/commands/help.sh"
+            run_help "$@"
+            exit $?
+        fi
+        ;;
+    *)
+        # Default behavior: Compression
+        # If the first argument is a file (or anything else), treat it as a compression input
+        if [[ -f "$LIB_DIR/commands/compress.sh" ]]; then
+             source "$LIB_DIR/commands/compress.sh"
+             run_compress "$@"
+             exit $?
+        else
+            echo "❌ Error: Compression module not found."
+            exit 1
+        fi
+        ;;
+esac
