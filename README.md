@@ -57,9 +57,9 @@ chmod +x install.sh
 
 During installation, you will be asked to provide the following API key for AI features:
 
-| Key | Description | Get it here |
+| Key | Purpose (Why do I need this?) | Get it here |
 | :--- | :--- | :--- |
-| **`GEMINI_API_KEY`** | Required for the `amir chat` AI features. | [Google AI Studio](https://aistudio.google.com/app/apikey) |
+| **`GEMINI_API_KEY`** | Enables the `amir chat` command, smart summaries, and intelligent help responses. | [Google AI Studio](https://aistudio.google.com/app/apikey) |
 
 
 ### 4. Other commands
