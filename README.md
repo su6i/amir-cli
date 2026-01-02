@@ -55,6 +55,13 @@ chmod +x install.sh
 ./install.sh
 ```
 
+During installation, you will be asked to provide the following API key for AI features:
+
+| Key | Description | Get it here |
+| :--- | :--- | :--- |
+| **`GEMINI_API_KEY`** | Required for the `amir chat` AI features. | [Google AI Studio](https://aistudio.google.com/app/apikey) |
+
+
 ### 4. Other commands
 
 Run `amir help` or just `amir` to see the available commands. You can also rename the executable to whatever you prefer (e.g., `assist`, `do`) to match your workflow.
