@@ -31,8 +31,9 @@ run_info() {
         local extra_tags=""
         local ext="${target##*.}"
         ext=$(echo "$ext" | tr '[:upper:]' '[:lower:]') # Bash 3.2 specific
+        local mime_type=$(file -b --mime-type "$target")
 
-        if [[ "$file_type" == *"image"* || "$file_type" == *"video"* || "$file_type" == *"audio"* ]]; then
+        if [[ "$mime_type" == *"image"* || "$mime_type" == *"video"* || "$mime_type" == *"audio"* ]]; then
             # Special handling for SVG
             if [[ "$ext" == "svg" ]]; then
                  local w=$(grep -oE 'width="[0-9.]+"' "$target" | head -1 | cut -d'"' -f2)
@@ -54,7 +55,7 @@ pix_fmt=vector"
         local final_dev="${device_info} ${extra_tags}"
     
         export PY_SIZE="$size_bytes" PY_MOD="$mod_time" PY_BIRTH="$birth_time"
-        export PY_TYPE="$file_type" PY_MEDIA="$media_info" PY_DEV="$final_dev"
+        export PY_TYPE="$file_type" PY_MIME="$mime_type" PY_MEDIA="$media_info" PY_DEV="$final_dev"
     
         python3 << 'PYTHON_EOF'
 import os
@@ -77,6 +78,7 @@ dev = os.environ.get('PY_DEV', '').strip()
 if not dev or dev == "": dev = "Unknown / Generic"
 
 print(f"📄 Type:     {os.environ.get('PY_TYPE')}")
+print(f"🧩 Mime:     {os.environ.get('PY_MIME')}")
 print(f"📏 Size:     {format_size(os.environ.get('PY_SIZE'))}")
 print(f"🐣 Created:  {os.environ.get('PY_BIRTH')}")
 print(f"📅 Modified: {os.environ.get('PY_MOD')}")
