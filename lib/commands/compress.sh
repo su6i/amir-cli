@@ -87,9 +87,10 @@ calculate_column_width() {
 load_learning_data() {
     local learning_file="$HOME/.su6i_scripts/.amir_compress_learning"
     
-    declare -gA quality_factors
-    declare -gA speed_factors
-    declare -gA sample_counts
+    # Bash 3.2 Compatible: Use indexed arrays (Global by default in function without local)
+    # quality_factors=()
+    # speed_factors=()
+    # sample_counts=()
     
     # Set defaults
     quality_factors[40]=0.42
