@@ -3,7 +3,9 @@
 # We define compress at the top level so other scripts (like batch) can use it when sourced.
 
 stats() {
-    local learning_file="$HOME/.su6i_scripts/.amir_compress_learning"
+    local config_dir="$HOME/.amir_cli"
+    mkdir -p "$config_dir"
+    local learning_file="$config_dir/learning_data"
     
     if [[ ! -f "$learning_file" ]]; then
         echo "📊 No learning data found."
@@ -56,7 +58,8 @@ stats() {
 }
 
 reset() {
-    local learning_file="$HOME/.su6i_scripts/.amir_compress_learning"
+    local config_dir="$HOME/.amir_cli"
+    local learning_file="$config_dir/learning_data"
     
     if [[ -f "$learning_file" ]]; then
         rm "$learning_file"
@@ -86,7 +89,8 @@ calculate_column_width() {
 }
 
 load_learning_data() {
-    local learning_file="$HOME/.su6i_scripts/.amir_compress_learning"
+    local config_dir="$HOME/.amir_cli"
+    local learning_file="$config_dir/learning_data"
     
     # Bash 3.2 Compatible: Use indexed arrays (Global by default in function without local)
     # quality_factors=()
@@ -139,7 +143,8 @@ load_learning_data() {
 }
 
 save_learning_data() {
-    local learning_file="$HOME/.su6i_scripts/.amir_compress_learning"
+    local config_dir="$HOME/.amir_cli"
+    local learning_file="$config_dir/learning_data"
     mkdir -p "$(dirname "$learning_file")"
     
     {
