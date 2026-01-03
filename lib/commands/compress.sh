@@ -10,9 +10,10 @@ stats() {
         return 1
     fi
     
-    declare -A quality_factors
-    declare -A speed_factors
-    declare -A sample_counts
+    # Bash 3.2 Compatible: Use indexed arrays (Global by default in function without local)
+    # declare -A quality_factors
+    # declare -A speed_factors
+    # declare -A sample_counts
     
     while IFS='=' read -r key value; do
         [[ -z "$key" || "$key" == \#* ]] && continue
