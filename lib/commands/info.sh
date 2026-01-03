@@ -30,7 +30,7 @@ run_info() {
         local media_info=""
         local extra_tags=""
         local ext="${target##*.}"
-        ext="${ext,,}" # lowercase
+        ext=$(echo "$ext" | tr '[:upper:]' '[:lower:]') # Bash 3.2 specific
 
         if [[ "$file_type" == *"image"* || "$file_type" == *"video"* || "$file_type" == *"audio"* ]]; then
             # Special handling for SVG
