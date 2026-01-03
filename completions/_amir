@@ -42,20 +42,21 @@ _amir() {
                     'reset:Reset AI learning data'
                     'codecs:Check HEVC codec support'
                 )
-                _describe -t subcmds 'commands' subcmds
-                _files -g "*.(mp4|mov|mkv|avi|MP4|MOV|MKV|webm|WEBM)"
+                _alternative \
+                    'files:Video Files:_files -g "*.(mp4|mov|mkv|avi|MP4|MOV|MKV|webm|WEBM)"' \
+                    'commands:Management Commands:_describe -V subcmds subcmds subcmds'
             elif (( CURRENT == 4 )); then
                 # Resolution options (only if arg 3 was a file)
                 if [[ -f "${words[3]}" ]]; then
                     local -a resolutions
                     resolutions=(
-                        '1080:Excellent quality (Full HD)'
-                        '720:Good quality (Standard HD)'
-                        '480:Medium quality (Standard SD)'
                         '240:Very low quality (Fast transfer)'
                         '360:Medium quality (Mobile)'
+                        '480:Medium quality (Standard SD)'
+                        '720:Good quality (Standard HD)'
+                        '1080:Excellent quality (Full HD)'
                     )
-                    _describe -t resolutions 'resolution' resolutions
+                    _describe -o -V -t 'resolutions' 'resolution options' resolutions
                 fi
             fi
             ;;
