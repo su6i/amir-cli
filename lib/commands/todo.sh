@@ -10,7 +10,7 @@ run_todo() {
             if [[ ! -s "$file" ]]; then
                 echo "   (Empty)"
             else
-                nl -w2 -s'. ' "$file" | sed 's/^/   /'
+                sed 's/ ([0-9][0-9]\/[0-9][0-9])//g' "$file" | nl -w2 -s'. ' | sed 's/^/   /'
             fi
             echo "💡 Add: amir todo 'task'"
             echo "💡 Done: amir todo done [number]"
@@ -23,7 +23,7 @@ run_todo() {
                 echo "✅ Item $2 removed."
             fi
         else
-            echo "- $1 ($(date +'%m/%d'))" >> "$file"
+            echo "- $1" >> "$file"
             echo "✅ Added."
         fi
     }

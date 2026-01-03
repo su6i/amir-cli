@@ -2,16 +2,19 @@
 
 run_dashboard() {
     dashboard() {
-        echo -e "\n\033[1;34m"$(printf '%.0s─' {1..60})"\033[0m"
+        
+        echo -e "\033[1;34m"$(printf '%.0s─' {1..60})"\033[0m"
         
         # ۱. وضعیت حافظه دیسک
         echo -e "💾 \033[1;37mFree Disk Space:\033[0m \033[1;32m$(df -h / | awk 'NR==2 {print $4}')\033[0m"
         
+        echo -e "\033[1;34m"$(printf '%.0s─' {1..60})"\033[0m"
+
         # ۲. لیست کارهای اخیر (TODOs)
         echo -e "\n\033[1;33m📝 Recent TODOs:\033[0m"
         local todo_file="$HOME/.su6i_scripts/todo_list.txt"
         if [[ -f "$todo_file" ]]; then
-            tail -n 3 "$todo_file" | sed 's/^/   / '
+            sed 's/ ([0-9][0-9]\/[0-9][0-9])//g' "$todo_file" | nl -w2 -s'. ' | sed 's/^/   / '
         else
             echo "   (No pending tasks)"
         fi
@@ -20,34 +23,67 @@ run_dashboard() {
         
         # ۳. تقویم مک (رویدادهای امروز و فردا)
         if command -v icalBuddy &> /dev/null; then
-            # نمایش جلسات امروز
-            echo -e "\033[1;35m📅 امروز:\033[0m"
-            local today=$(icalBuddy -nc eventsToday)
-            if [[ -z "$today" ]]; then
-                echo "   ✅ برنامه‌ای ندارید."
-            else
-                echo "$today" | sed 's/^/   • /'
+            # Fetch Events
+            local today_raw=$(icalBuddy -nc eventsToday)
+            local tomorrow_raw=$(icalBuddy -nc eventsFrom:tomorrow to:tomorrow | grep -v "tomorrow")
+            
+            # Default messages if empty
+            [[ -z "$today_raw" ]] && today_raw="✅ No events."
+            [[ -z "$tomorrow_raw" ]] && tomorrow_raw="✅ No events."
+
+            # Convert to arrays (splitting by newline)
+            IFS=$'\n' read -rd '' -a today_lines <<< "$today_raw"
+            IFS=$'\n' read -rd '' -a tomorrow_lines <<< "$tomorrow_raw"
+            
+            # Find max lines to iterate
+            local max_lines=${#today_lines[@]}
+            [[ ${#tomorrow_lines[@]} -gt $max_lines ]] && max_lines=${#tomorrow_lines[@]}
+
+            # Calculate dynamic width for the left column (Today)
+            
+            # 1. Get Terminal Width (Default to 80 if tput fails)
+            local term_width=$(tput cols 2>/dev/null || echo 80)
+            local half_width=$((term_width / 2))
+            
+            # 2. Find max content length
+            local max_content_len=0
+            for line in "${today_lines[@]}"; do
+                [[ ${#line} -gt $max_content_len ]] && max_content_len=${#line}
+            done
+            
+            # 3. Determine Column Width: Max of (Half Screen) vs (Content + Padding)
+            local col_width=$((half_width - 2)) # Default: Half screen minus safety margin
+            local required_width=$((max_content_len + 4)) # Content + 4 spaces padding
+            
+            if [[ $required_width -gt $col_width ]]; then
+                col_width=$required_width
             fi
-    
-            # نمایش جلسات فردا
-            echo -e "\n\033[1;36m🌅 فردا:\033[0m"
-            local tomorrow=$(icalBuddy -nc eventsFrom:tomorrow to:tomorrow | grep -v "tomorrow")
-            if [[ -z "$tomorrow" ]]; then
-                echo "   ✅ برنامه‌ای ندارید."
-            else
-                echo "$tomorrow" | sed 's/^/   • /'
-            fi
+
+            # Print Header using Manual Padding
+            local header_padding=$((col_width - 8)) 
+            # Actually using ${#var} on header string is safer if consistent
+            local h1="📅 Today:"
+            local h2="🌅 Tomorrow:"
+            local p1=$((col_width - ${#h1})) 
+            if [[ $p1 -lt 0 ]]; then p1=2; fi
+            printf "   \033[1;35m%s\033[0m%${p1}s \033[1;36m%s\033[0m\n" "$h1" "" "$h2"
+
+            # Print Rows Side-by-Side
+            for (( i=0; i<max_lines; i++ )); do
+                local left="${today_lines[i]}"
+                local right="${tomorrow_lines[i]}"
+                
+                # Manual Padding Calculation
+                local len_left=${#left}
+                local pad_len=$((col_width - len_left))
+                if [[ $pad_len -lt 0 ]]; then pad_len=1; fi
+                
+                # Print: Left Content + Spaces + Right Content
+                printf "   %s%${pad_len}s %s\n" "$left" "" "$right"
+            done
         else
             echo "   ⚠️ icalBuddy not installed (brew install ical-buddy)"
         fi
-        
-        echo -e "\033[1;34m"$(printf '%.0s─' {1..60})"\033[0m"
-        
-        # ۴. راهنمای هوشمند مدل‌های AI بر اساس سهمیه (Quota) سال ۲۰۲۶
-        echo -e "\033[1;30m💡 Quick AI Strategy:\033[0m"
-        echo -e "   • \033[1;30mGemma 3 27B: Most stable & highest free quota\033[0m"
-        echo -e "   • \033[1;30mFlash-Lite 2.5: Best for high-frequency chat\033[0m"
-        echo -e "   • \033[1;30mFlash 2.5: Reserved for complex code logic\033[0m"
         
         echo -e "\033[1;34m"$(printf '%.0s─' {1..60})"\033[0m\n"
     }
