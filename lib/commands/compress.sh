@@ -174,7 +174,9 @@ compress() {
     
     local target_h=${2:-720}
     local quality=${3:-60}
-    local target_w=$(( target_h * 16 / 9 ))
+    # Ensure width is even (essential for some codecs/filters)
+    # 480p -> 853.33 -> 853 (Odd!) -> Fix to 854
+    local target_w=$(( (target_h * 16 / 9 + 1) / 2 * 2 ))
     local output="${1%.*}_${target_h}p_q${quality}.mp4"
     
     local input_size=$(ls -lh "$1" | awk '{print $5}')
