@@ -5,6 +5,7 @@
   ![Version](https://img.shields.io/badge/Version-1.0.0-blue.svg)
   ![Bash](https://img.shields.io/badge/Shell-Bash/Zsh-black.svg)
   ![License](https://img.shields.io/badge/License-MIT-green.svg)
+  [![Technical Docs](https://img.shields.io/badge/Docs-Technical-orange.svg)](docs/TECHNICAL.md)
   <a href="https://www.linkedin.com/in/su6i/">
     <img src="assets/linkedin_su6i.svg" height="20" alt="LinkedIn">
   </a>
