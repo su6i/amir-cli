@@ -112,15 +112,32 @@ run_qr() {
 This shows how you can mix shell logic, argument parsing (`$1`), and external tools (`qrencode`) seamlessly.
 
 ### 4. Autocompletion (Zsh)
-To give users helpful hints, we add this to the `case` statement in `completions/_amir`:
+To give users helpful hints, we need to update `completions/_amir` in **two places**.
+
+#### A. Register the Command
+First, add your command to the main list (around line 20):
 
 ```zsh
-qr)
-    case $((CURRENT)) in
-        3) _message "Enter URL, phone number, email or text" ;;
-        4) _message "Output filename (optional)" ;;
-    esac
-    ;;
+    if (( CURRENT == 2 )); then
+        local -a commands
+        commands=(
+            # ... existing commands ...
+            'qr:Create smart QR Code'  # <--- Add this line
+        )
+        _describe -t commands 'commands' commands
+```
+
+#### B. Define Logic
+Then, add the argument handling logic to the main `case` statement:
+
+```zsh
+    case "$words[2]" in
+        qr)
+            case $((CURRENT)) in
+                3) _message "Enter URL, phone number, email or text" ;;
+                4) _message "Output filename (optional)" ;;
+            esac
+            ;;
 ```
 
 ### 5. Usage
