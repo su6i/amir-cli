@@ -73,7 +73,9 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir compress stats` | View AI learning statistics & compression history. |
 | `amir batch` | Batch compress all videos in the current folder. |
 | `amir mp3 <file>` | Extract high-quality MP3 audio from a video file. |
-| `amir img <file> <size> [g]` | Resize/Crop images. `g`=1-9 Numpad gravity (e.g., `4`=West/Left). |
+| `amir img resize <file> <size>` | Resize to fit (no crop). |
+| `amir img crop <file> <size> <g>` | Resize & Fill + Crop. `g`=1-9. |
+| `amir img <file> <size> [g]` | Legacy mode (detects resize vs crop). |
 | `amir info <file>` | Show detailed technical metadata for any file. |
 
 ### 🧠 AI & Productivity
