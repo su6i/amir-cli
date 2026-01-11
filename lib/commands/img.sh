@@ -5,6 +5,7 @@ run_img() {
         local input="$1"
         local size="$2"
         local gravity_code="$3"
+        echo "DEBUG: Size='$size' Gravity='$gravity_code'"
 
         if [[ -z "$input" || ! -f "$input" ]]; then 
             echo "❌ Image file not found."
@@ -25,10 +26,6 @@ run_img() {
         local cmd=""
         if command -v magick &> /dev/null; then
             cmd="magick"
-        elif [[ "$OSTYPE" == "darwin"* && -f "/opt/homebrew/bin/magick" ]]; then
-            cmd="/opt/homebrew/bin/magick"
-        elif [[ "$OSTYPE" == "darwin"* && -f "/usr/local/bin/magick" ]]; then
-            cmd="/usr/local/bin/magick"
         elif command -v convert &> /dev/null; then
             cmd="convert"
         elif [[ "$OSTYPE" == "darwin"* ]]; then

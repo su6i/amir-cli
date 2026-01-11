@@ -27,6 +27,7 @@ _amir() {
             'clip:Copy text or file to clipboard'
             'chat:Ask Gemini/Gemma anything'
             'code:Generate code and save to file'
+            'watermark:Add logo or text watermark to images/videos'
         )
         _describe -t commands 'amir commands' commands
         return
@@ -34,6 +35,19 @@ _amir() {
 
     # Step 2: Subcommand options
     case "${words[2]}" in
+        # (Existing cases...)
+
+        watermark)
+            if (( CURRENT >= 3 )); then
+                _arguments \
+                    '-o[Output file path]:output file:_files' \
+                    '-i[Watermark image path]:watermark image:_files' \
+                    '-t[Watermark text]:text' \
+                    '-p[Position]:position:(SE SW NE NW C)' \
+                    '*:input file:_files'
+            fi
+            ;;
+
         compress)
             if (( CURRENT == 3 )); then
                 local -a subcmds
@@ -84,28 +98,64 @@ _amir() {
             ;;
 
         img)
-            case $((CURRENT)) in
-                3)
-                    # Image files
-                    _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)"
-                    ;;
-                4)
-                    # Image size presets
-                    local -a img_sizes
-                    img_sizes=(
-                        '2048:Very large size (4K)'
-                        '1024:Large size (HD)'
-                        '512:High quality (profile)'
-                        '256:Web & app size'
-                        '128:Medium logo size'
-                        '64:Small icon'
-                        '48:Standard icon'
-                        '32:Small icon'
-                        '16:Favicon'
-                    )
-                    _describe -t img_sizes 'image size (px)' img_sizes
-                    ;;
-            esac
+            local subcmd="${words[3]}"
+            
+            # Shared size definitions
+            local -a img_sizes
+            img_sizes=(
+                '2048:Very large size (4K)'
+                '1024:Large size (HD)'
+                '600:Lottery photo size'
+                '512:High quality (profile)'
+                '400x120:GitHub Logo'
+                '256:Web & app size'
+                '128:Medium logo size'
+                '64:Small icon'
+                '48:Standard icon'
+                '32:Very small icon'
+                '16:Favicon'
+            )
+
+            if [[ "$subcmd" == "resize" ]]; then
+                case $((CURRENT)) in
+                    4) _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" ;;
+                    5) _describe -V -t img_sizes 'image size (px)' img_sizes ;;
+                esac
+            elif [[ "$subcmd" == "crop" ]]; then
+                 case $((CURRENT)) in
+                    4) _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" ;;
+                    5) _describe -V -t img_sizes 'image size (px)' img_sizes ;;
+                    6)
+                        local -a matrix
+                        matrix=('7:Top-Left' '8:Top' '9:Top-Right' '4:Left' '5:Center' '6:Right' '1:Bot-Left' '2:Bot' '3:Bot-Right')
+                        _describe -t matrix 'Gravity' matrix
+                        ;;
+                esac
+            else
+                # Default / Legacy / Autocomplete selection
+                case $((CURRENT)) in
+                    3)
+                         local -a img_actions
+                         img_actions=(
+                            'resize:Simple resize (no crop)'
+                            'crop:Resize and crop to fill'
+                         )
+                         # Show both subcommands and files (without _alternative nesting issues)
+                         _describe -t img_actions "action" img_actions
+                         _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)"
+                         ;;
+                    4)
+                        # Legacy size
+                        _describe -V -t img_sizes 'image size (px)' img_sizes 
+                        ;;
+                    5)
+                        # Legacy Gravity
+                        local -a matrix
+                        matrix=('7:Top-Left' '8:Top' '9:Top-Right' '4:Left' '5:Center' '6:Right' '1:Bot-Left' '2:Bot' '3:Bot-Right')
+                        _describe -t matrix 'Gravity' matrix
+                        ;;
+                esac
+            fi
             ;;
 
         batch)
