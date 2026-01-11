@@ -30,7 +30,7 @@ install_deps() {
             if check_dep apt; then
                 sudo add-apt-repository -y ppa:jonathonf/ffmpeg-4
                 sudo apt update
-                sudo apt install -y ffmpeg libx265-dev bc qrencode
+                sudo apt install -y ffmpeg libx265-dev bc qrencode imagemagick
             elif check_dep yum; then
                 sudo yum install -y ffmpeg bc qrencode
             elif check_dep dnf; then
@@ -40,7 +40,8 @@ install_deps() {
             fi
             ;;
         msys*|cygwin*|win32*)
-            echo "⚠️  On Windows, please install manually via Chocolatey:"
+            echo "⚠️  On Windows, please install manually:"
+            echo "   winget install ImageMagick.ImageMagick"
             echo "   choco install ffmpeg-full bc qrencode"
             ;;
         *)
@@ -73,14 +74,16 @@ fi
 
 # 2. Link Zsh completions
 if [[ -f "$PROJECT_DIR/completions/_amir" ]]; then
-    target_comp="/usr/local/share/zsh/site-functions/_amir"
-    if [[ -d "/usr/local/share/zsh/site-functions" ]]; then
-        sudo ln -sf "$PROJECT_DIR/completions/_amir" "$target_comp"
-    elif [[ -d "/usr/share/zsh/site-functions" ]]; then
-        sudo ln -sf "$PROJECT_DIR/completions/_amir" "/usr/share/zsh/site-functions/_amir"
-    else
-        echo "ℹ️  Zsh completion directory not found. You may need to source the completion file manually."
+    # Default to /usr/local/share/zsh/site-functions for both Mac and Linux usually
+    # Users can add this to fpath if not present
+    TARGET_ZSH_DIR="/usr/local/share/zsh/site-functions"
+    
+    echo "🔗 Linking Zsh completions to $TARGET_ZSH_DIR..."
+    if [[ ! -d "$TARGET_ZSH_DIR" ]]; then
+        echo "   (Creating directory)"
+        sudo mkdir -p "$TARGET_ZSH_DIR"
     fi
+    sudo ln -sf "$PROJECT_DIR/completions/_amir" "$TARGET_ZSH_DIR/_amir"
 fi
 # Force link
 echo "🔗 Linking executable..."
@@ -94,6 +97,20 @@ if ! check_dep ffmpeg; then ((MISSING_DEPS++)); fi
 if ! check_dep ffprobe; then ((MISSING_DEPS++)); fi
 if ! check_dep bc; then ((MISSING_DEPS++)); fi
 if ! check_dep qrencode; then ((MISSING_DEPS++)); fi
+
+# Image processing tool check
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    if ! check_dep sips; then 
+        echo "❌ Sips not found (unexpected on macOS)."
+        ((MISSING_DEPS++))
+    fi
+else
+    # Check for ImageMagick (magick or convert)
+    if ! check_dep magick && ! check_dep convert; then 
+        echo "❌ ImageMagick not found."
+        ((MISSING_DEPS++))
+    fi
+fi
 
 if [[ $MISSING_DEPS -gt 0 ]]; then
     echo "⚠️  Found $MISSING_DEPS missing required dependencies."
