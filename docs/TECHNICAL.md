@@ -75,8 +75,13 @@ No registration needed! Just run:
 ```bash
 amir mycmd "hello world"
 ```
-
 The router automatically detects the file `mycmd.sh` and executes `run_mycmd`.
+
+### Step 4: Autocompletion (Optional)
+To get tab-completion for your new command:
+1. Open `completions/_amir`.
+2. Add your command to the logic (look for the `_arguments` or `case` block).
+3. Restart your shell.
 
 ### Real-World Example: `qr` Command
 
