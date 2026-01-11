@@ -3,7 +3,7 @@
 # We define compress at the top level so other scripts (like batch) can use it when sourced.
 
 stats() {
-    local config_dir="$HOME/.amir_cli"
+    local config_dir="${AMIR_CONFIG_DIR:-$HOME/.amir}"
     mkdir -p "$config_dir"
     local learning_file="$config_dir/learning_data"
     
@@ -58,7 +58,7 @@ stats() {
 }
 
 reset() {
-    local config_dir="$HOME/.amir_cli"
+    local config_dir="${AMIR_CONFIG_DIR:-$HOME/.amir}"
     local learning_file="$config_dir/learning_data"
     
     if [[ -f "$learning_file" ]]; then
@@ -89,7 +89,7 @@ calculate_column_width() {
 }
 
 load_learning_data() {
-    local config_dir="$HOME/.amir_cli"
+    local config_dir="${AMIR_CONFIG_DIR:-$HOME/.amir}"
     local learning_file="$config_dir/learning_data"
     
     # Bash 3.2 Compatible: Use indexed arrays (Global by default in function without local)
@@ -143,7 +143,7 @@ load_learning_data() {
 }
 
 save_learning_data() {
-    local config_dir="$HOME/.amir_cli"
+    local config_dir="${AMIR_CONFIG_DIR:-$HOME/.amir}"
     local learning_file="$config_dir/learning_data"
     mkdir -p "$(dirname "$learning_file")"
     

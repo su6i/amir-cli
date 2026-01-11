@@ -89,4 +89,27 @@ The router automatically detects the file `mycmd.sh` and executes `run_mycmd`.
 
 ### `compress` (Video)
 - **Hardware Acceleration:** Auto-detects macOS Silicon (`videotoolbox`), NVIDIA (`nvenc`), or Intel (`qsv`) to speed up FFmpeg encoding.
-- **AI Stats:** Log file at `~/.amir_cli_stats.json` tracks compression ratios to "learn" (currently just logging) optimal settings.
+- **AI Stats:** Log file tracks compression ratios to optimal settings.
+
+## ⚙️ Configuration & Storage
+
+### Storage Location
+By default, Amir CLI stores all its data (logs, stats, temp files) in:
+- **`~/.amir/`** (Hidden directory in your User Home)
+
+This prevents home directory pollution. The structure is:
+```text
+~/.amir/
+├── learning_data      # AI stats for video compression
+└── (other configs)
+```
+
+### Customizing the Location
+You can change this location (e.g., if you want to rename the project or store data elsewhere) by setting the `AMIR_CONFIG_DIR` environment variable.
+
+**Example (.bashrc / .zshrc):**
+```bash
+export AMIR_CONFIG_DIR="$HOME/.my_custom_tool_data"
+```
+
+The CLI automatically detects this variable and uses it instead of the default.
