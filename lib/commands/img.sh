@@ -1,72 +1,112 @@
 #!/bin/bash
 
 run_img() {
-    img() {
-        local input="$1"
-        local size="$2"
-        local gravity_code="$3"
-        echo "DEBUG: Size='$size' Gravity='$gravity_code'"
+    # Helper: Detect ImageMagick
+    detect_magic() {
+        if command -v magick &> /dev/null; then echo "magick"
+        elif [[ "$OSTYPE" == "darwin"* && -f "/opt/homebrew/bin/magick" ]]; then echo "/opt/homebrew/bin/magick"
+        elif [[ "$OSTYPE" == "darwin"* && -f "/usr/local/bin/magick" ]]; then echo "/usr/local/bin/magick"
+        elif command -v convert &> /dev/null; then echo "convert"
+        elif [[ "$OSTYPE" == "darwin"* ]]; then echo "sips"
+        else echo ""; fi
+    }
 
-        if [[ -z "$input" || ! -f "$input" ]]; then 
-            echo "❌ Image file not found."
-            return 1
-        fi
-        if [[ -z "$size" ]]; then 
-            echo "❌ Enter size (e.g., 512 or 400x120)"
-            return 1
-        fi
+    local cmd=$(detect_magic)
+    if [[ -z "$cmd" ]]; then
+        echo "❌ Error: ImageMagick is not installed."
+        return 1
+    fi
 
-        # استانداردسازی سایز
+    # Helper: Process Size
+    parse_size() {
+        local size="$1"
         if [[ ! "$size" == *"x"* ]]; then size="${size}x${size}"; fi
+        echo "$size"
+    }
+
+    # Helper: Get standard gravity name
+    get_gravity() {
+        case "$1" in
+            "7") echo "northwest" ;; "8") echo "north" ;; "9") echo "northeast" ;;
+            "4") echo "west"      ;; "5") echo "center" ;; "6") echo "east"      ;;
+            "1") echo "southwest" ;; "2") echo "south"  ;; "3") echo "southeast" ;;
+            *) echo "center" ;; # Default
+        esac
+    }
+
+    # --- Subcommands ---
+
+    do_resize() {
+        local input="$1"
+        local size=$(parse_size "$2")
         local width=$(echo $size | cut -dx -f1)
         local height=$(echo $size | cut -dx -f2)
-        local output="${input%.*}_${width}x${height}.${input##*.}"
+        local output="${input%.*}_resized_${width}x${height}.${input##*.}"
 
-        # تشخیص ابزار موجود بر اساس سیستم‌عامل
-        local cmd=""
-        if command -v magick &> /dev/null; then
-            cmd="magick"
-        elif command -v convert &> /dev/null; then
-            cmd="convert"
-        elif [[ "$OSTYPE" == "darwin"* ]]; then
-            cmd="sips"
-        fi
+        if [[ -z "$input" || ! -f "$input" ]]; then echo "❌ File not found."; return 1; fi
+        if [[ -z "$size" ]]; then echo "❌ Size required."; return 1; fi
 
-        if [[ -z "$cmd" ]]; then
-            echo "❌ Error: ImageMagick is not installed."
-            return 1
-        fi
-
-        if [[ -n "$gravity_code" ]]; then
-            # نگاشت کدهای ۱ تا ۹ به جهات جغرافیایی
-            local g="center"
-            case "$gravity_code" in
-                "7") g="northwest" ;; "8") g="north" ;; "9") g="northeast" ;;
-                "4") g="west"      ;; "5") g="center" ;; "6") g="east"      ;;
-                "1") g="southwest" ;; "2") g="south"  ;; "3") g="southeast" ;;
-            esac
-
-            echo "✂️  Cropping with $cmd (Gravity: $g)..."
-            if [[ "$cmd" == "sips" ]]; then
-                # شبیه‌سازی کراپ در مک (فقط عمودی را پشتیبانی می‌کند)
-                local s_g="center"
-                [[ "$gravity_code" =~ [789] ]] && s_g="top"
-                [[ "$gravity_code" =~ [123] ]] && s_g="bottom"
-                sips -Z $width "$input" --out "$output" > /dev/null
-                sips --cropToHeightWidth $height $width "$output" > /dev/null
-            else
-                # کراپ حرفه‌ای در لینوکس و ویندوز
-                $cmd "$input" -resize "${width}x${height}^" -gravity "$g" -extent "${width}x${height}" "$output"
-            fi
+        echo "🖼  Resizing to fit $size..."
+        if [[ "$cmd" == "sips" ]]; then
+            sips -Z $width "$input" --out "$output" > /dev/null
         else
-            echo "🖼  Resizing with $cmd..."
-            if [[ "$cmd" == "sips" ]]; then
-                sips -z $height $width "$input" --out "$output" > /dev/null
-            else
-                $cmd "$input" -resize "${width}x${height}!" "$output"
-            fi
+            # Resize to FIT within box (no crop, no distortion)
+            $cmd "$input" -resize "${width}x${height}" "$output"
         fi
-        echo "✅ Image saved: $output"
+        echo "✅ Saved: $output"
     }
-    img "$@"
+
+    do_crop() {
+        local input="$1"
+        local size=$(parse_size "$2")
+        local g_code="$3"
+        local width=$(echo $size | cut -dx -f1)
+        local height=$(echo $size | cut -dx -f2)
+        local output="${input%.*}_cropped_${width}x${height}.${input##*.}"
+
+        if [[ -z "$input" || ! -f "$input" ]]; then echo "❌ File not found."; return 1; fi
+        if [[ -z "$size" ]]; then echo "❌ Size required."; return 1; fi
+        
+        local g=$(get_gravity "$g_code")
+        echo "✂️  Cropping (Fill & Cut) with gravity: $g..."
+
+        if [[ "$cmd" == "sips" ]]; then
+             # Sips fallback (limited)
+             sips -Z $width "$input" --out "$output" > /dev/null
+             sips --cropToHeightWidth $height $width "$output" > /dev/null
+        else
+            # Resize to FILL (^) then Extent (Crop)
+            $cmd "$input" -resize "${width}x${height}^" -gravity "$g" -extent "${width}x${height}" "$output"
+        fi
+        echo "✅ Saved: $output"
+    }
+
+    # --- Router ---
+
+    local action="$1"
+    
+    if [[ "$action" == "resize" ]]; then
+        shift; do_resize "$@"
+    elif [[ "$action" == "crop" ]]; then
+        shift; do_crop "$@"
+    elif [[ -f "$action" ]]; then
+        # Legacy Mode: amir img <file> <size> [gravity]
+        local input="$1"
+        local size="$2"
+        local gravity="$3"
+        
+        # Determine intent based on gravity presence
+        if [[ -n "$gravity" ]]; then
+            do_crop "$@"
+        else
+            # Legacy default: Resize (Fit)
+            do_resize "$@"
+        fi
+    else
+        echo "Usage:"
+        echo "  amir img resize <file> <size>        (Scale to fit, no crop)"
+        echo "  amir img crop   <file> <size> <g>    (Fill & Crop, g=1-9)"
+        echo "  amir img <file> <size> [g]           (Legacy / Smart detect)"
+        return 1
+    fi
 }
