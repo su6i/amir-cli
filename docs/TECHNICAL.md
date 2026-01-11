@@ -111,6 +111,28 @@ run_qr() {
 ```
 This shows how you can mix shell logic, argument parsing (`$1`), and external tools (`qrencode`) seamlessly.
 
+### 4. Autocompletion (Zsh)
+To give users helpful hints, we add this to the `case` statement in `completions/_amir`:
+
+```zsh
+qr)
+    case $((CURRENT)) in
+        3) _message "Enter URL, phone number, email or text" ;;
+        4) _message "Output filename (optional)" ;;
+    esac
+    ;;
+```
+
+### 5. Usage
+Now you can run:
+```bash
+# Generate in terminal
+amir qr "https://google.com"
+
+# Save as image
+amir qr "+989123456789" contact.png
+```
+
 ---
 
 ## 🔍 Specific Command Logics
