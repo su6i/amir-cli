@@ -99,7 +99,7 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir unlock <file>` | Decrypt a file. |
 | `amir clean` | Deep clean system trash and caches (macOS/Linux). |
 | `amir speed` | Test internet connection speed. |
-| `amir weather` | Check current weather. |
+| `amir weather [city]` | Check weather (specify city or use default). |
 
 
 ## 🤝 Contributing
