@@ -78,6 +78,34 @@ amir mycmd "hello world"
 
 The router automatically detects the file `mycmd.sh` and executes `run_mycmd`.
 
+### Real-World Example: `qr` Command
+
+Here is a simplified look at how the `amir qr` command is implemented in `lib/commands/qr.sh`:
+
+```bash
+run_qr() {
+    local input="$1"
+    
+    # 1. Validation
+    if [[ -z "$input" ]]; then 
+        echo "❌ Error: Input required."
+        return 1
+    fi
+
+    # 2. Logic (Detect protocol)
+    if [[ "$input" =~ ^[0-9+]+$ ]]; then
+        input="tel:$input"
+    elif [[ "$input" == *@*.* ]]; then
+        input="mailto:$input"
+    fi
+
+    # 3. Execution (Use external tool)
+    echo "📌 Generating QR for: $input"
+    qrencode -t ANSIUTF8 "$input"
+}
+```
+This shows how you can mix shell logic, argument parsing (`$1`), and external tools (`qrencode`) seamlessly.
+
 ---
 
 ## 🔍 Specific Command Logics
