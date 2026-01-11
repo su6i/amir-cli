@@ -80,6 +80,29 @@ run_img() {
         fi
         echo "✅ Saved: $output"
     }
+    
+    do_pad() {
+        local input="$1"
+        local size=$(parse_size "$2")
+        local color="${3:-white}" # Default color: white
+        local width=$(echo $size | cut -dx -f1)
+        local height=$(echo $size | cut -dx -f2)
+        local output="${input%.*}_padded_${width}x${height}.${input##*.}"
+
+        if [[ -z "$input" || ! -f "$input" ]]; then echo "❌ File not found."; return 1; fi
+        if [[ -z "$size" ]]; then echo "❌ Size required."; return 1; fi
+        
+        echo "🎨 Resizing with Pad (Contain) | Color: $color..."
+
+        if [[ "$cmd" == "sips" ]]; then
+             # Sips pad allows (rudimentary)
+             sips --padToHeightWidth $height $width --padColor "$color" "$input" --out "$output" > /dev/null
+        else
+            # Resize to FIT then Extent (Pad)
+            $cmd "$input" -resize "${width}x${height}" -background "$color" -gravity center -extent "${width}x${height}" "$output"
+        fi
+        echo "✅ Saved: $output"
+    }
 
     # --- Router ---
 
@@ -89,6 +112,8 @@ run_img() {
         shift; do_resize "$@"
     elif [[ "$action" == "crop" ]]; then
         shift; do_crop "$@"
+    elif [[ "$action" == "pad" ]]; then
+        shift; do_pad "$@"
     elif [[ -f "$action" ]]; then
         # Legacy Mode: amir img <file> <size> [gravity]
         local input="$1"
@@ -104,9 +129,10 @@ run_img() {
         fi
     else
         echo "Usage:"
-        echo "  amir img resize <file> <size>        (Scale to fit, no crop)"
-        echo "  amir img crop   <file> <size> <g>    (Fill & Crop, g=1-9)"
-        echo "  amir img <file> <size> [g]           (Legacy / Smart detect)"
+        echo "  amir img resize <file> <size>          (Scale to fit, no crop)"
+        echo "  amir img crop   <file> <size> <g>      (Fill & Crop, g=1-9)"
+        echo "  amir img pad    <file> <size> [color]  (Fit & Pad, def: white)"
+        echo "  amir img <file> <size> [g]             (Legacy / Smart detect)"
         return 1
     fi
 }
