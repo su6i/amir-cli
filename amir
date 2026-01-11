@@ -6,7 +6,13 @@
 # ==============================================================================
 
 # Get the absolute path of the script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+    DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
 LIB_DIR="$SCRIPT_DIR/lib"
 
 # Load Environment Variables if .env exists
@@ -163,6 +169,10 @@ case "$COMMAND" in
         ;;
     dashboard)
         if [[ -f "$LIB_DIR/commands/dashboard.sh" ]]; then source "$LIB_DIR/commands/dashboard.sh"; run_dashboard; exit $?; fi
+        ;;
+    watermark)
+        shift
+        if [[ -f "$LIB_DIR/commands/watermark.sh" ]]; then source "$LIB_DIR/commands/watermark.sh"; run_watermark "$@"; exit $?; fi
         ;;
         
     help|--help|-h)
