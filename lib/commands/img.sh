@@ -2,26 +2,73 @@
 
 run_img() {
     img() {
-        if [[ -z "$1" || ! -f "$1" ]]; then 
+        local input="$1"
+        local size="$2"
+        local gravity_code="$3"
+
+        if [[ -z "$input" || ! -f "$input" ]]; then 
             echo "❌ Image file not found."
             return 1
         fi
-        if [[ -z "$2" ]]; then 
-            echo "❌ Enter size (e.g., 512 or 800x600)"
+        if [[ -z "$size" ]]; then 
+            echo "❌ Enter size (e.g., 512 or 400x120)"
             return 1
         fi
 
-        local input="$1"
-        local size="$2"
+        # استانداردسازی سایز
+        if [[ ! "$size" == *"x"* ]]; then size="${size}x${size}"; fi
+        local width=$(echo $size | cut -dx -f1)
+        local height=$(echo $size | cut -dx -f2)
+        local output="${input%.*}_${width}x${height}.${input##*.}"
 
-        if [[ ! "$size" == *"x"* ]]; then
-            size="${size}x${size}"
+        # تشخیص ابزار موجود بر اساس سیستم‌عامل
+        local cmd=""
+        if command -v magick &> /dev/null; then
+            cmd="magick"
+        elif [[ "$OSTYPE" == "darwin"* && -f "/opt/homebrew/bin/magick" ]]; then
+            cmd="/opt/homebrew/bin/magick"
+        elif [[ "$OSTYPE" == "darwin"* && -f "/usr/local/bin/magick" ]]; then
+            cmd="/usr/local/bin/magick"
+        elif command -v convert &> /dev/null; then
+            cmd="convert"
+        elif [[ "$OSTYPE" == "darwin"* ]]; then
+            cmd="sips"
         fi
 
-        local output="${input%.*}_${size}.${input##*.}"
+        if [[ -z "$cmd" ]]; then
+            echo "❌ Error: ImageMagick is not installed."
+            return 1
+        fi
 
-        echo "🖼  Resizing image to $size..."
-        convert "$input" -resize "$size!" "$output"
+        if [[ -n "$gravity_code" ]]; then
+            # نگاشت کدهای ۱ تا ۹ به جهات جغرافیایی
+            local g="center"
+            case "$gravity_code" in
+                "7") g="northwest" ;; "8") g="north" ;; "9") g="northeast" ;;
+                "4") g="west"      ;; "5") g="center" ;; "6") g="east"      ;;
+                "1") g="southwest" ;; "2") g="south"  ;; "3") g="southeast" ;;
+            esac
+
+            echo "✂️  Cropping with $cmd (Gravity: $g)..."
+            if [[ "$cmd" == "sips" ]]; then
+                # شبیه‌سازی کراپ در مک (فقط عمودی را پشتیبانی می‌کند)
+                local s_g="center"
+                [[ "$gravity_code" =~ [789] ]] && s_g="top"
+                [[ "$gravity_code" =~ [123] ]] && s_g="bottom"
+                sips -Z $width "$input" --out "$output" > /dev/null
+                sips --cropToHeightWidth $height $width "$output" > /dev/null
+            else
+                # کراپ حرفه‌ای در لینوکس و ویندوز
+                $cmd "$input" -resize "${width}x${height}^" -gravity "$g" -extent "${width}x${height}" "$output"
+            fi
+        else
+            echo "🖼  Resizing with $cmd..."
+            if [[ "$cmd" == "sips" ]]; then
+                sips -z $height $width "$input" --out "$output" > /dev/null
+            else
+                $cmd "$input" -resize "${width}x${height}!" "$output"
+            fi
+        fi
         echo "✅ Image saved: $output"
     }
     img "$@"
