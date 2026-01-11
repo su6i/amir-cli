@@ -93,14 +93,14 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir transfer <file>` | Upload file to temporary cloud storage & copy link. |
 | `amir qr <content>` | Create QR Code (URL, WiFi, Email, Phone, Text). |
 | `amir short <url>` | Shorten a long URL. |
-| `amir clip <text/file>` | Copy text or **file content** to system clipboard. |
+| `amir clip <text/file>` | Smart clipboard: copies text, file content & supports pipes. |
 | `amir pass [len]` | Generate a strong, random password. |
 | `amir lock <file>` | Encrypt a file (GPG). |
 | `amir unlock <file>` | Decrypt a file. |
 | `amir clean` | Deep clean system trash and caches (macOS/Linux). |
 | `amir speed` | Test internet connection speed. |
 | `amir weather` | Check current weather. |
-| `amir clip <text>` | Smart clipboard tool (pipes supported). |
+
 
 ## 🤝 Contributing
 
