@@ -131,6 +131,16 @@ _amir() {
                         _describe -t matrix 'Gravity' matrix
                         ;;
                 esac
+            elif [[ "$subcmd" == "pad" ]]; then
+                 case $((CURRENT)) in
+                    4) _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" ;;
+                    5) _describe -V -t img_sizes 'image size (px)' img_sizes ;;
+                    6)
+                        local -a colors
+                        colors=('white' 'black' 'transparent' 'red' 'blue' '#ffffff' '#000000')
+                        _describe -t colors 'Background Color' colors
+                        ;;
+                esac
             else
                 # Default / Legacy / Autocomplete selection
                 case $((CURRENT)) in
@@ -139,6 +149,7 @@ _amir() {
                          img_actions=(
                             'resize:Simple resize (no crop)'
                             'crop:Resize and crop to fill'
+                            'pad:Resize and fill background'
                          )
                          # Show both subcommands and files (without _alternative nesting issues)
                          _describe -t img_actions "action" img_actions
