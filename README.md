@@ -91,8 +91,9 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | Command | Description |
 | :--- | :--- |
 | `amir transfer <file>` | Upload file to temporary cloud storage & copy link. |
-| `amir qr <text/url>` | Generate a QR code in the terminal or as an image. |
+| `amir qr <content>` | Create QR Code (URL, WiFi, Email, Phone, Text). |
 | `amir short <url>` | Shorten a long URL. |
+| `amir clip <text/file>` | Copy text or **file content** to system clipboard. |
 | `amir pass [len]` | Generate a strong, random password. |
 | `amir lock <file>` | Encrypt a file (GPG). |
 | `amir unlock <file>` | Decrypt a file. |
