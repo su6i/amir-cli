@@ -136,9 +136,21 @@ _amir() {
                     4) _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" ;;
                     5) _describe -V -t img_sizes 'image size (px)' img_sizes ;;
                     6)
-                        local -a colors
                         colors=('white' 'black' 'transparent' 'red' 'blue' '#ffffff' '#000000')
                         _describe -t colors 'Background Color' colors
+                        ;;
+                esac
+            elif [[ "$subcmd" == "extend" ]]; then
+                case $((CURRENT)) in
+                    4) _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" ;;
+                    *)
+                        _arguments \
+                            '1:input image file:_files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)"' \
+                            '(-c --color)'{-c,--color}'[Global background color]:color' \
+                            '(-t --top)'{-t,--top}'[Top padding pixels]:pixels' \
+                            '(-b --bottom)'{-b,--bottom}'[Bottom padding pixels]:pixels' \
+                            '(-l --left)'{-l,--left}'[Left padding pixels]:pixels' \
+                            '(-r --right)'{-r,--right}'[Right padding pixels]:pixels'
                         ;;
                 esac
             else
@@ -150,10 +162,10 @@ _amir() {
                             'resize:Simple resize (no crop)'
                             'crop:Resize and crop to fill'
                             'pad:Resize and fill background'
+                            'extend:Extend image borders with custom color'
                          )
                          # Show both subcommands and files (without _alternative nesting issues)
                          _describe -t img_actions "action" img_actions
-                         _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)"
                          ;;
                     4)
                         # Legacy size
