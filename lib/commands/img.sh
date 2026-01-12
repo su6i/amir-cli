@@ -114,6 +114,17 @@ run_img() {
         shift; do_crop "$@"
     elif [[ "$action" == "pad" ]]; then
         shift; do_pad "$@"
+    elif [[ "$action" == "extend" ]]; then
+        shift
+        # Get script dir relative to this function logic if needed, but assuming LIB_DIR is available
+        # LIB_DIR is inherited from main script 'amir'
+        local EXTEND_SCRIPT="$LIB_DIR/commands/extend.sh"
+        if [[ -f "$EXTEND_SCRIPT" ]]; then
+            "$EXTEND_SCRIPT" "$@"
+        else
+            echo "❌ Error: extend.sh not found."
+            return 1
+        fi
     elif [[ -f "$action" ]]; then
         # Legacy Mode: amir img <file> <size> [gravity]
         local input="$1"
@@ -132,6 +143,7 @@ run_img() {
         echo "  amir img resize <file> <size>          (Scale to fit, no crop)"
         echo "  amir img crop   <file> <size> <g>      (Fill & Crop, g=1-9)"
         echo "  amir img pad    <file> <size> [color]  (Fit & Pad, def: white)"
+        echo "  amir img extend -i <file> [opts]       (Extend borders)"
         echo "  amir img <file> <size> [g]             (Legacy / Smart detect)"
         return 1
     fi
