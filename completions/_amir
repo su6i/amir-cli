@@ -14,6 +14,7 @@ _amir() {
             'compress:Compress video with custom resolution'
             'mp3:Extract or change audio quality'
             'img:Resize images (logo and custom sizes)'
+            'pdf:Convert images to single A4 PDF'
             'info:Show file technical properties'
             'transfer:Upload temporary file and get link'
             'lock:Encrypt and lock file'
@@ -320,6 +321,12 @@ _amir() {
                 # راهنمای مخصوص کدنویسی
                 _message "💻 Describe the refactoring or logic you want..."
             fi
+            ;;
+        pdf)
+            _arguments -s \
+                '*-o[Output PDF filename]:Output PDF:_files -g "*.pdf"' \
+                '*--round[Round image corners (remove black scan artifacts)]' \
+                '*:Image file:_files -g "*.(jpg|jpeg|png|webp|JPG|JPEG|PNG|WEBP)"'
             ;;
         clean)
             _message "Cleaning system temporary files..."
