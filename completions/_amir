@@ -10,6 +10,7 @@ _amir() {
         local -a commands
         commands=(
             'batch:Batch process all videos in folder'
+            'init-project:Scaffold Agent Constitution in directory'
             'compress:Compress video with custom resolution'
             'mp3:Extract or change audio quality'
             'img:Resize images (logo and custom sizes)'
@@ -58,10 +59,11 @@ _amir() {
                 )
                 _alternative \
                     'files:Video Files:_files -g "*.(mp4|mov|mkv|avi|MP4|MOV|MKV|webm|WEBM)"' \
-                    'commands:Management Commands:_describe -V subcmds subcmds subcmds'
+                    'commands:Management Commands:_describe -t subcmds "Management Commands" subcmds'
             elif (( CURRENT == 4 )); then
-                # Resolution options (only if arg 3 was a file)
-                if [[ -f "${words[3]}" ]]; then
+                # Resolution options (only if arg 3 looks like a file)
+                # Use (Q) to unquote the filename (handle spaces/escapes)
+                if [[ -f "${(Q)words[3]}" ]]; then
                     local -a resolutions
                     resolutions=(
                         '240:Very low quality (Fast transfer)'
@@ -70,7 +72,20 @@ _amir() {
                         '720:Good quality (Standard HD)'
                         '1080:Excellent quality (Full HD)'
                     )
-                    _describe -o -V -t 'resolutions' 'resolution options' resolutions
+                    _describe -t resolutions 'resolution options' resolutions
+                fi
+            elif (( CURRENT == 5 )); then
+                # Quality options
+                if [[ -f "${(Q)words[3]}" ]]; then
+                     local -a qualities
+                     qualities=(
+                        '40:Smallest file (max compression)'
+                        '50:Very High compression'
+                        '60:Balanced (Default)'
+                        '70:High Quality'
+                        '80:Excellent Quality'
+                     )
+                     _describe -t qualities 'quality factor (40-80)' qualities
                 fi
             fi
             ;;
@@ -140,6 +155,16 @@ _amir() {
                         _describe -t colors 'Background Color' colors
                         ;;
                 esac
+            elif [[ "$subcmd" == "convert" ]]; then
+                 case $((CURRENT)) in
+                    4) _files -g "*.(svg|SVG|jpg|jpeg|png|webp)" ;;
+                    5) 
+                        local -a formats
+                        formats=('png' 'jpg' 'jpeg' 'webp')
+                        _describe -t formats 'Output Format' formats 
+                        ;;
+                    6) _describe -V -t img_sizes 'Max Size (px)' img_sizes ;;
+                esac
             elif [[ "$subcmd" == "extend" ]]; then
                 case $((CURRENT)) in
                     4) _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" ;;
@@ -163,6 +188,7 @@ _amir() {
                             'crop:Resize and crop to fill'
                             'pad:Resize and fill background'
                             'extend:Extend image borders with custom color'
+                            'convert:Convert image to png/jpg'
                          )
                          # Show both subcommands and files (without _alternative nesting issues)
                          _describe -t img_actions "action" img_actions
@@ -201,6 +227,12 @@ _amir() {
                     ;;
             esac
             ;;
+        
+        init-project)
+             if (( CURRENT == 3 )); then
+                _files -/ # Directories only
+             fi
+             ;;
 
         info|transfer|lock|unlock|clip)
             if (( CURRENT == 3 )); then

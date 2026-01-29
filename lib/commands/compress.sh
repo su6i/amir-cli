@@ -277,11 +277,11 @@ compress() {
     # Windows/Linux fix for audio filters
     local audio_filter="aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo"
     
-    ffmpeg -hide_banner -loglevel error -stats -y -i "$1" \
+    ffmpeg -hide_banner -loglevel error -stats -nostdin -y -i "$1" \
     -vf "fps=25,scale=${target_w}:${target_h}:force_original_aspect_ratio=decrease,pad=${target_w}:${target_h}:(ow-iw)/2:(oh-ih)/2,setsar=1" \
     -c:v "$encoder" -q:v $quality $tag_opt \
     -af "$audio_filter" \
-    -c:a aac -pix_fmt yuv420p -movflags +faststart "$output" 2>&1
+    -c:a aac -pix_fmt yuv420p -movflags +faststart "$output"
     
     if [[ ! -f "$output" ]]; then
         echo "❌ Compression failed!"
