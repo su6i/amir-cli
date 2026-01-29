@@ -325,7 +325,8 @@ _amir() {
         pdf)
             _arguments -s \
                 '*-o[Output PDF filename]:Output PDF:_files -g "*.pdf"' \
-                '*--round[Round image corners (remove black scan artifacts)]' \
+                '*--no-round[Disable corner rounding (square corners)]' \
+                '*--square[Alias for --no-round]' \
                 '*:Image file:_files -g "*.(jpg|jpeg|png|webp|JPG|JPEG|PNG|WEBP)"'
             ;;
         clean)

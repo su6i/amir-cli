@@ -17,7 +17,7 @@ run_pdf() {
     # 2. Argument Parsing
     local inputs=()
     local output="output.pdf"
-    local round_corners=false
+    local round_corners=true  # Default: Round corners (Clean look)
     
     while [[ $# -gt 0 ]]; do
         key="$1"
@@ -26,8 +26,8 @@ run_pdf() {
                 output="$2"
                 shift; shift
                 ;;
-            --round)
-                round_corners=true
+            --no-round|--square)
+                round_corners=false
                 shift
                 ;;
             *)
@@ -42,8 +42,9 @@ run_pdf() {
     done
 
     if [[ ${#inputs[@]} -eq 0 ]]; then
-        echo "Usage: amir pdf <img1> [img2...] [-o output.pdf] [--round]"
+        echo "Usage: amir pdf <img1> [img2...] [-o output.pdf] [--no-round]"
         echo "   Combines images into a single A4 page (Portrait)."
+        echo "   Defaults to rounded corners. Use --no-round for sharp edges."
         return 1
     fi
     
