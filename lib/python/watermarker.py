@@ -173,13 +173,18 @@ def watermark_video(base_path, output_path, watermark_file=None, watermark_text=
 def main():
     parser = argparse.ArgumentParser(description="Universal Watermarker CLI")
     parser.add_argument("input", help="Input file (Image or Video)")
-    parser.add_argument("-o", "--output", help="Output file path", required=True)
+    parser.add_argument("-o", "--output", help="Output file path", required=False)
     parser.add_argument("-i", "--image", help="Path to watermark image")
     parser.add_argument("-t", "--text", help="Watermark text")
     parser.add_argument("-p", "--pos", default="SE", choices=['SE', 'SW', 'NE', 'NW', 'C'], help="Position")
     parser.add_argument("-r", "--resize", help="Resize output (e.g. 400x120)")
     
     args = parser.parse_args()
+
+    # Default Output Logic
+    if not args.output:
+        base, ext = os.path.splitext(args.input)
+        args.output = f"{base}_watermarked{ext}"
     
     # Detect File Type
     ext = os.path.splitext(args.input)[1].lower()

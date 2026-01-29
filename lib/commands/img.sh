@@ -103,6 +103,38 @@ run_img() {
         fi
         echo "✅ Saved: $output"
     }
+    
+    do_convert() {
+        local input="$1"
+        local format="${2:-png}"
+        local size="${3:-1024}"
+        
+        # Standardize format (remove dot)
+        format="${format#.}"
+        
+        if [[ -z "$input" || ! -f "$input" ]]; then echo "❌ File not found."; return 1; fi
+        
+        # Construct output name
+        local output="${input%.*}.$format"
+        
+        echo "🔄 Converting to $format (Size: $size px)..."
+        
+        if [[ "$cmd" == "sips" ]]; then
+            # Sips limited support
+            sips -s format "$format" --resampleHeightWidthMax "$size" "$input" --out "$output" > /dev/null
+        else
+            # Magick: -background none (transparency support for PNG)
+            # -resize: geometry (width if just number)
+            $cmd -background none "$input" -resize "$size" "$output"
+        fi
+        
+        if [[ $? -eq 0 ]]; then
+            echo "✅ Saved: $output"
+        else
+            echo "❌ Conversion failed."
+            return 1
+        fi
+    }
 
     # --- Router ---
 
@@ -114,6 +146,8 @@ run_img() {
         shift; do_crop "$@"
     elif [[ "$action" == "pad" ]]; then
         shift; do_pad "$@"
+    elif [[ "$action" == "convert" ]]; then
+        shift; do_convert "$@"
     elif [[ "$action" == "extend" ]]; then
         shift
         # Get script dir relative to this function logic if needed, but assuming LIB_DIR is available
@@ -140,10 +174,11 @@ run_img() {
         fi
     else
         echo "Usage:"
-        echo "  amir img resize <file> <size>          (Scale to fit, no crop)"
-        echo "  amir img crop   <file> <size> <g>      (Fill & Crop, g=1-9)"
-        echo "  amir img pad    <file> <size> [color]  (Fit & Pad, def: white)"
-        echo "  amir img extend -i <file> [opts]       (Extend borders)"
+        echo "  amir img resize  <file> <size>         (Scale to fit, no crop)"
+        echo "  amir img crop    <file> <size> <g>     (Fill & Crop, g=1-9)"
+        echo "  amir img pad     <file> <size> [color] (Fit & Pad, def: white)"
+        echo "  amir img convert <file> [fmt] [size]   (Convert to png/jpg, def: 1024px)"
+        echo "  amir img extend  -i <file> [opts]      (Extend borders)"
         echo "  amir img <file> <size> [g]             (Legacy / Smart detect)"
         return 1
     fi
