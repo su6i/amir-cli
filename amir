@@ -62,6 +62,10 @@ case "$COMMAND" in
         shift
         if [[ -f "$LIB_DIR/commands/batch.sh" ]]; then source "$LIB_DIR/commands/batch.sh"; run_batch "$@"; exit $?; fi
         ;;
+    init-project)
+        shift
+        if [[ -f "$LIB_DIR/commands/init-project.sh" ]]; then source "$LIB_DIR/commands/init-project.sh"; run_init_project "$@"; exit $?; fi
+        ;;
     info)
         shift
         if [[ -f "$LIB_DIR/commands/info.sh" ]]; then source "$LIB_DIR/commands/info.sh"; run_info "$@"; exit $?; fi
