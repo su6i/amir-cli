@@ -81,8 +81,8 @@ run_pdf() {
             final_cmd+=("(")
             final_cmd+=("+clone" "-alpha" "transparent" "-background" "none")
             final_cmd+=("-fill" "white" "-stroke" "none")
-            # Round with 40px radius (Standard ID Card look)
-            final_cmd+=("-draw" "roundrectangle 0,0 %[fx:w-1],%[fx:h-1] 40,40")
+            # Round with 10px radius (User Preference)
+            final_cmd+=("-draw" "roundrectangle 0,0 %[fx:w-1],%[fx:h-1] 10,10")
             final_cmd+=(")")
             final_cmd+=("-compose" "DstIn" "-composite")
             final_cmd+=("-compose" "Over") # Reset compose
