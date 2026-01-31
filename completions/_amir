@@ -30,6 +30,7 @@ _amir() {
             'chat:Ask Gemini/Gemma anything'
             'code:Generate code and save to file'
             'watermark:Add logo or text watermark to images/videos'
+            'subtitle:Generate multi-language subtitles using AI'
         )
         _describe -t commands 'amir commands' commands
         return
@@ -304,21 +305,21 @@ _amir() {
 
         chat)
             if (( CURRENT == 2 )); then
-                # پیشنهاد سوییچ تاریخچه در اولین آرگومان
+                # Suggest history switch in the first argument
                 _arguments ': :(--history)'
             else
-                # راهنمای مخصوص چت در آرگومان‌های بعدی
+                # Chat guide in subsequent arguments
                 _message "💬 Ask Gemini/Gemma anything..."
             fi
             ;;
 
         code)
             if (( CURRENT == 2 )); then
-                # پیشنهاد سوییچ تاریخچه یا انتخاب فایل/کلیپ‌بورد
+                # Suggest history switch or file/clipboard selection
                 _arguments ': :(--history clip)'
                 _files
             else
-                # راهنمای مخصوص کدنویسی
+                # Coding guide
                 _message "💻 Describe the refactoring or logic you want..."
             fi
             ;;
@@ -329,6 +330,52 @@ _amir() {
                 '*--rotate[Rotate images 90 degrees (e.g. for landscape docs)]' \
                 '*-r[Alias for --rotate]' \
                 '*:Image file:_files -g "*.(jpg|jpeg|png|webp|JPG|JPEG|PNG|WEBP)"'
+            ;;
+        subtitle)
+            case $((CURRENT)) in
+                3)
+                    # 3: Video File
+                    _files -g "*.(mp4|mov|mkv|avi|MP4|MOV|MKV|webm|WEBM)"
+                    ;;
+                4|5)
+                    # 4: Suggest -s flag
+                    # 5: Suggest Source Lang (value of -s)
+                    # We only include -s here so user is guided to pick it first.
+                    _arguments -s \
+                        '1: : ' \
+                        '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)'
+                    ;;
+                6|7)
+                    # 6: Suggest -t flag (since -s is done)
+                    # 7: Suggest Target Lang (value of -t)
+                    # We include -s (so Zsh knows it's already there) and add -t.
+                    _arguments -s \
+                        '1: : ' \
+                        '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)' \
+                        '(-t --target)'{-t,--target}'[Target language code(s)]:target language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)'
+                    ;;
+                8)
+                    # 8: Suggest -r flag
+                    _arguments -s \
+                        '1: : ' \
+                        '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)' \
+                        '(-t --target)'{-t,--target}'[Target language code(s)]:target language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)' \
+                        '(-r --render)'{-r,--render}'[Render video with embedded subtitles]'
+                    ;;
+                *)
+                    # 9+: All options available
+                    _arguments -s \
+                        '1: : ' \
+                        '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)' \
+                        '(-t --target)'{-t,--target}'[Target language code(s)]:target language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)' \
+                        '(-m --model)'{-m,--model}'[Whisper model size]:model:(tiny base small medium large)' \
+                        '(-r --render)'{-r,--render}'[Render video with embedded subtitles]' \
+                        '(-f --force-transcribe)'{-f,--force-transcribe}'[Force re-transcription]' \
+                        '--deepseek-transcribe[Use DeepSeek API for transcription]' \
+                        '--no-correction[Disable automatic transcription correction]' \
+                        '(-l --list-languages)'{-l,--list-languages}'[List all supported languages]'
+                    ;;
+            esac
             ;;
         clean)
             _message "Cleaning system temporary files..."

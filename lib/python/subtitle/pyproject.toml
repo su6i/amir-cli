@@ -1,0 +1,12 @@
+[project]
+name = "subtitle"
+version = "1.0.0"
+description = "Multi-Language Video Subtitle Generator"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "faster-whisper>=1.0.0",
+    "av>=12.0.0,!=11.0.0",
+    "openai>=1.0.0",
+    "configparser>=5.0.0",
+]

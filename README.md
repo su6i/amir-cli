@@ -82,6 +82,7 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir img <file> <size> [g]` | Legacy mode (detects resize vs crop). |
 | `amir pdf <files> [opts]` | Merge images into A4 PDF (rounded). Opts: `--no-round`, `--rotate` (-r). |
 | `amir watermark <file> [text]` | Add watermark to image (auto-saved or `-o output`). |
+| `amir subtitle <file> [opts]` | Generate multi-language subtitles using AI. Opts: `-s en -t fa`. |
 | `amir info <file>` | Show detailed technical metadata for any file. |
 
 ### 🧠 AI & Productivity
