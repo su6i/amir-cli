@@ -72,14 +72,17 @@ run_pdf() {
         final_cmd+=("(")
         final_cmd+=("$img")
         
+        # Respect EXIF Orientation (Fixes rotation issues from macOS Preview)
+        final_cmd+=("-auto-orient")
+        
         # Apply Rounding if requested (Draw Mask Method)
         if [[ "$round_corners" == "true" ]]; then
             final_cmd+=("-alpha" "set")
             final_cmd+=("(")
             final_cmd+=("+clone" "-alpha" "transparent" "-background" "none")
             final_cmd+=("-fill" "white" "-stroke" "none")
-            # Round with 80px radius (Good for 2400px width)
-            final_cmd+=("-draw" "roundrectangle 0,0 %[fx:w-1],%[fx:h-1] 80,80")
+            # Round with 40px radius (Standard ID Card look)
+            final_cmd+=("-draw" "roundrectangle 0,0 %[fx:w-1],%[fx:h-1] 40,40")
             final_cmd+=(")")
             final_cmd+=("-compose" "DstIn" "-composite")
             final_cmd+=("-compose" "Over") # Reset compose
