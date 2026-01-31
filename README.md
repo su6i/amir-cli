@@ -80,7 +80,7 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir img pad <file> <size> [color]` | Resize & Fill with Color (Contain). |
 | `amir img extend <file> [opts]` | Extend image borders (custom/auto color). |
 | `amir img <file> <size> [g]` | Legacy mode (detects resize vs crop). |
-| `amir pdf <files> [opts]` | Merge images into A4 PDF (rounded by default). Use `--no-round` for square. |
+| `amir pdf <files> [opts]` | Merge images into A4 PDF (rounded). Opts: `--no-round`, `--rotate` (-r). |
 | `amir watermark <file> [text]` | Add watermark to image (auto-saved or `-o output`). |
 | `amir info <file>` | Show detailed technical metadata for any file. |
 
