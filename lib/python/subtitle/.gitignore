@@ -1,0 +1,64 @@
+# API Keys and Configuration
+.config
+*.config
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.python-version
+venv/
+env/
+ENV/
+.venv
+
+# Video files (too large for git)
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.flv
+*.wmv
+video/
+
+# Subtitle files (generated output)
+*.srt
+*.ass
+*_combined.ass
+*_fixed.ass
+*_subtitled.mp4
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Test files
+test*.py
+temp/
+tmp/
+*.ass
+*.srt
+*.mp4
+*.mkv
+*.avi
+output/
+temp/
+__pycache__/
+venv/

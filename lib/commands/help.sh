@@ -10,6 +10,7 @@ run_help() {
     echo "  mp3 <file> [bitrate]         Extract audio from video"
     echo "  img <file> [size]            Resize image"
     echo "  info <file>                  Show detailed file info"
+    echo "  subtitle <file> [opts]       Generate subtitles (AI)"
     echo "  compress codecs              Show available HEVC codecs"
     
     echo ""

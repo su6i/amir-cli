@@ -135,6 +135,10 @@ case "$COMMAND" in
         shift
         if [[ -f "$LIB_DIR/commands/watermark.sh" ]]; then source "$LIB_DIR/commands/watermark.sh"; run_watermark "$@"; exit $?; fi
         ;;
+    subtitle)
+        shift
+        if [[ -f "$LIB_DIR/commands/subtitle.sh" ]]; then source "$LIB_DIR/commands/subtitle.sh"; run_subtitle "$@"; exit $?; fi
+        ;;
         
     help|--help|-h)
         if [[ -f "$LIB_DIR/commands/help.sh" ]]; then
