@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 120">
+    <!-- Subtitle Generator Logo: Cinema Theme -->
+
+    <!-- Background: Dark Film Noir -->
+    <rect x="0" y="0" width="400" height="120" rx="20" fill="#212121" />
+
+    <!-- Icon: Film Strip / Clapperboard hint -->
+    <g transform="translate(30, 25) scale(0.7)">
+        <rect x="0" y="0" width="80" height="70" rx="5" fill="#EEEEEE" />
+        <path d="M 10 0 L 10 70 M 70 0 L 70 70" stroke="#212121" stroke-width="5" stroke-dasharray="8 4" />
+        <!-- Play Button -->
+        <path d="M 30 20 L 55 35 L 30 50 Z" fill="#F44336" />
+    </g>
+
+    <!-- Text -->
+    <text x="110" y="65" font-family="Arial, sans-serif" font-weight="bold" font-size="38" fill="#EEEEEE">
+        Subtitle Gen
+    </text>
+
+    <!-- Subtext -->
+    <text x="115" y="95" font-family="Arial, sans-serif" font-size="14" fill="#BDBDBD" font-style="italic">
+        AI-Powered Transcription
+    </text>
+</svg>

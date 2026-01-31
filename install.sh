@@ -24,7 +24,8 @@ install_deps() {
                  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
             fi
             brew install ffmpeg --with-libx265 --with-tools
-            brew install bc qrencode
+            brew install ffmpeg --with-libx265 --with-tools
+            brew install bc qrencode uv
             ;;
         linux-gnu*)
             if check_dep apt; then
@@ -46,6 +47,10 @@ install_deps() {
             ;;
         *)
             echo "❌ Unsupported OS for auto-install."
+            if ! check_dep uv; then
+                echo "ℹ️  Installing uv manually..."
+                curl -LsSf https://astral.sh/uv/install.sh | sh
+            fi
             exit 1
             ;;
     esac
@@ -96,7 +101,9 @@ MISSING_DEPS=0
 if ! check_dep ffmpeg; then ((MISSING_DEPS++)); fi
 if ! check_dep ffprobe; then ((MISSING_DEPS++)); fi
 if ! check_dep bc; then ((MISSING_DEPS++)); fi
+if ! check_dep bc; then ((MISSING_DEPS++)); fi
 if ! check_dep qrencode; then ((MISSING_DEPS++)); fi
+if ! check_dep uv; then ((MISSING_DEPS++)); fi
 
 # Image processing tool check
 if [[ "$OSTYPE" == "darwin"* ]]; then
