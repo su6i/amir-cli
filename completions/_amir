@@ -324,9 +324,10 @@ _amir() {
             ;;
         pdf)
             _arguments -s \
-                '*-o[Output PDF filename]:Output PDF:_files -g "*.pdf"' \
                 '*--no-round[Disable corner rounding (square corners)]' \
                 '*--square[Alias for --no-round]' \
+                '*--rotate[Rotate images 90 degrees (e.g. for landscape docs)]' \
+                '*-r[Alias for --rotate]' \
                 '*:Image file:_files -g "*.(jpg|jpeg|png|webp|JPG|JPEG|PNG|WEBP)"'
             ;;
         clean)

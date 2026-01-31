@@ -18,6 +18,7 @@ run_pdf() {
     local inputs=()
     local output="output.pdf"
     local round_corners=true  # Default: Round corners (Clean look)
+    local rotate_angle=0      # Default: No rotation
     
     while [[ $# -gt 0 ]]; do
         key="$1"
@@ -28,6 +29,10 @@ run_pdf() {
                 ;;
             --no-round|--square)
                 round_corners=false
+                shift
+                ;;
+            -r|--rotate)
+                rotate_angle=90
                 shift
                 ;;
             *)
@@ -42,9 +47,10 @@ run_pdf() {
     done
 
     if [[ ${#inputs[@]} -eq 0 ]]; then
-        echo "Usage: amir pdf <img1> [img2...] [-o output.pdf] [--no-round]"
+        echo "Usage: amir pdf <img1> [img2...] [-o output.pdf] [--no-round] [--rotate]"
         echo "   Combines images into a single A4 page (Portrait)."
         echo "   Defaults to rounded corners. Use --no-round for sharp edges."
+        echo "   Use --rotate (-r) to rotate images 90 degrees (e.g. fit landscape docs)."
         return 1
     fi
     
@@ -56,9 +62,12 @@ run_pdf() {
 
     echo "📄 Composing ${#inputs[@]} image(s) into A4 PDF..."
     if [[ "$round_corners" == "true" ]]; then
-        echo "� Option: Rounding corners enabled."
+        echo " Option: Rounding corners enabled."
     fi
-    echo "�🎯 Output: $output"
+    if [[ "$rotate_angle" -ne 0 ]]; then
+        echo "🔄 Option: Rotating images by ${rotate_angle}°."
+    fi
+    echo "🎯 Output: $output"
 
     # 1. Delete old output to ensure fresh write.
     rm -f "$output"
@@ -74,6 +83,11 @@ run_pdf() {
         
         # Respect EXIF Orientation (Fixes rotation issues from macOS Preview)
         final_cmd+=("-auto-orient")
+        
+        # Apply Manual Rotation if requested
+        if [[ "$rotate_angle" -ne 0 ]]; then
+             final_cmd+=("-rotate" "$rotate_angle")
+        fi
         
         # Apply Rounding if requested (Draw Mask Method)
         if [[ "$round_corners" == "true" ]]; then
