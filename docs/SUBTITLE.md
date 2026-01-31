@@ -1,12 +1,12 @@
 <div align="center">
-  <img src="assets/project_logo.svg" width="350" alt="Subtitle Generator Logo">
+  <img src="../assets/project_logo.svg" width="350" alt="Subtitle Generator Logo">
   <h1>🎬 Multi-Language Video Subtitle Generator</h1>
 
   ![Version](https://img.shields.io/badge/Version-1.0.0-blue.svg)
   ![Python](https://img.shields.io/badge/Python-3.8+-yellow.svg)
   ![License](https://img.shields.io/badge/License-MIT-green.svg)
   <a href="https://www.linkedin.com/in/su6i/">
-    <img src="assets/linkedin_su6i.svg" height="20" alt="LinkedIn">
+    <img src="../assets/linkedin_su6i.svg" height="20" alt="LinkedIn">
   </a>
 </div>
 
@@ -340,7 +340,7 @@ Contributions are welcome! Please check the issues page or submit a Pull Request
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](../LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
