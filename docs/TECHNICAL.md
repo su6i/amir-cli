@@ -170,6 +170,7 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
 ### `compress` (Video)
 - **Hardware Acceleration:** Auto-detects macOS Silicon (`videotoolbox`), NVIDIA (`nvenc`), or Intel (`qsv`) to speed up FFmpeg encoding.
 - **Quiet Progress:** Uses `script -q /dev/null` (macOS) to force pseudo-TTY allocation, allowing FFmpeg to print single-line progress updates (`\r`) without buffering or log spam.
+- **Table Alignment:** Implements smart text truncation so long filenames (e.g., >35 chars) are shortened (`file...`) instead of breaking the ASCII table layout.
 - **AI Stats:** Log file tracks compression ratios to optimal settings.
 
 ## ⚙️ Configuration & Storage

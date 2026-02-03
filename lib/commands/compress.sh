@@ -224,6 +224,16 @@ compress() {
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
     
+truncate_text() {
+    local text="$1"
+    local max_len="$2"
+    if [[ ${#text} -gt $max_len ]]; then
+        echo "${text:0:$((max_len-2))}.."
+    else
+        echo "$text"
+    fi
+}
+
     local col_width=$(calculate_column_width 3 28 35)
     
     printf "┌%s┬%s┬%s┐\n" \
@@ -231,7 +241,8 @@ compress() {
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
     
-    printf "│ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │\n" \
+    # Emojis count as 1 char but take 2 spaces visually. We reduce width by 1 to align.
+    printf "│ %-$((col_width-1))s │ %-$((col_width-1))s │ %-$((col_width-1))s │\n" \
         "📂 INPUT FILE" "🖥️  HARDWARE" "🎯 SETTINGS"
     
     printf "├%s┼%s┼%s┤\n" \
@@ -239,12 +250,25 @@ compress() {
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
     
+    # Pre-truncate fields to ensure table alignment
+    local t_file=$(truncate_text "File: $(basename "$1")" $col_width)
+    local t_cpu=$(truncate_text "CPU: $cpu_info" $col_width)
+    local t_res=$(truncate_text "Resolution: ${target_h}p" $col_width)
+    
+    local t_size=$(truncate_text "Size: $input_size" $col_width)
+    local t_gpu=$(truncate_text "GPU: $gpu_info" $col_width)
+    local t_qual=$(truncate_text "Quality: $quality/100" $col_width)
+    
+    local t_dur=$(truncate_text "Duration: $duration_formatted" $col_width)
+    local t_enc=$(truncate_text "Encoder: VideoToolbox" $col_width)
+    local t_audio=$(truncate_text "Audio: AAC 44.1kHz" $col_width)
+
     printf "│ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │\n" \
-        "  File: $(basename "$1")" "  CPU: $cpu_info" "  Resolution: ${target_h}p"
+        "$t_file" "$t_cpu" "$t_res"
     printf "│ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │\n" \
-        "  Size: $input_size" "  GPU: $gpu_info" "  Quality: $quality/100"
+        "$t_size" "$t_gpu" "$t_qual"
     printf "│ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │\n" \
-        "  Duration: $duration_formatted" "  Encoder: VideoToolbox" "  Audio: AAC 44.1kHz"
+        "$t_dur" "$t_enc" "$t_audio"
     
     printf "└%s┴%s┴%s┘\n" \
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
@@ -335,7 +359,8 @@ compress() {
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
     
-    printf "│ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │\n" \
+    # Emojis count as 1 char but take 2 spaces visually. We reduce width by 1 to align.
+    printf "│ %-$((col_width-1))s │ %-$((col_width-1))s │ %-$((col_width-1))s │ %-$((col_width-1))s │\n" \
         "📥 INPUT" "📤 OUTPUT" "📊 PERFORMANCE" "📈 COMPARISON"
     
     printf "├%s┼%s┼%s┼%s┤\n" \
@@ -344,10 +369,21 @@ compress() {
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
     
+    # Pre-truncate validation table
+    local t_in_file=$(truncate_text "File: $(basename "$1")" $col_width)
+    local t_out_file=$(truncate_text "File: $(basename "$output")" $col_width)
+    local t_time=$(truncate_text "Time: $total_elapsed_formatted" $col_width)
+    local t_saved=$(truncate_text "Reduction: ${percent_saved}%" $col_width)
+    
+    local t_in_size=$(truncate_text "Size: $input_size" $col_width)
+    local t_out_size=$(truncate_text "Size: $output_size" $col_width)
+    local t_speed=$(truncate_text "Speed: ${actual_speed}x" $col_width)
+    local t_ratio=$(truncate_text "Ratio: ${ratio}x smaller" $col_width)
+
     printf "│ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │\n" \
-        "  File: $(basename "$1")" "  File: $(basename "$output")" "  Time: $total_elapsed_formatted" "  Reduction: ${percent_saved}%"
+        "$t_in_file" "$t_out_file" "$t_time" "$t_saved"
     printf "│ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │\n" \
-        "  Size: $input_size" "  Size: $output_size" "  Speed: ${actual_speed}x" "  Ratio: ${ratio}x smaller"
+        "$t_in_size" "$t_out_size" "$t_speed" "$t_ratio"
     
     printf "└%s┴%s┴%s┴%s┘\n" \
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
