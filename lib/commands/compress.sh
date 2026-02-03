@@ -241,9 +241,12 @@ truncate_text() {
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
     
-    # Emojis count as 1 char but take 2 spaces visually. We reduce width by 1 to align.
-    printf "│ %-$((col_width-1))s │ %-$((col_width-1))s │ %-$((col_width-1))s │\n" \
-        "📂 INPUT FILE" "🖥️  HARDWARE" "🎯 SETTINGS"
+    # Print emojis explicitly to avoid printf width miscalculation
+    # 📂 (2) + Space (1) = 3 chars prefix
+    # 🖥️ (2) + Space (2) = 4 chars prefix
+    # 🎯 (2) + Space (1) = 3 chars prefix
+    printf "│ 📂 %-$((col_width-3))s │ 🖥️  %-$((col_width-4))s │ 🎯 %-$((col_width-3))s │\n" \
+        "INPUT FILE" "HARDWARE" "SETTINGS"
     
     printf "├%s┼%s┼%s┤\n" \
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
@@ -359,9 +362,9 @@ truncate_text() {
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
     
-    # Emojis count as 1 char but take 2 spaces visually. We reduce width by 1 to align.
-    printf "│ %-$((col_width-1))s │ %-$((col_width-1))s │ %-$((col_width-1))s │ %-$((col_width-1))s │\n" \
-        "📥 INPUT" "📤 OUTPUT" "📊 PERFORMANCE" "📈 COMPARISON"
+    # Print emojis explicitly to avoid printf width miscalculation (All have 1 space = 3 chars prefix)
+    printf "│ 📥 %-$((col_width-3))s │ 📤 %-$((col_width-3))s │ 📊 %-$((col_width-3))s │ 📈 %-$((col_width-3))s │\n" \
+        "INPUT" "OUTPUT" "PERFORMANCE" "COMPARISON"
     
     printf "├%s┼%s┼%s┼%s┤\n" \
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
