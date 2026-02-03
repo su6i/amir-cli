@@ -53,15 +53,9 @@ _amir() {
 
         compress)
             if (( CURRENT == 3 )); then
-                local -a subcmds
-                subcmds=(
-                    'stats:Show AI learning statistics'
-                    'reset:Reset AI learning data'
-                    'codecs:Check HEVC codec support'
-                )
                 _alternative \
                     'files:Video Files:_files -g "*.(mp4|mov|mkv|avi|MP4|MOV|MKV|webm|WEBM)"' \
-                    'commands:Management Commands:_describe -t subcmds "Management Commands" subcmds'
+                    'commands:Management Commands:((stats\:Show\ AI\ learning\ statistics reset\:Reset\ AI\ learning\ data codecs\:Check\ HEVC\ codec\ support))'
             elif (( CURRENT == 4 )); then
                 # Resolution options (only if arg 3 looks like a file)
                 # Use (Q) to unquote the filename (handle spaces/escapes)
@@ -195,7 +189,7 @@ _amir() {
                                 '--background:Background Color (Default: Transparent)'
                             )
                             # Passing the array name to _describe
-                            _describe -V -t convert_opts 'option' convert_opts
+                            _describe -t convert_opts 'option' convert_opts
                         fi
                         ;;
                 esac
