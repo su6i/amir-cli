@@ -277,11 +277,28 @@ compress() {
     # Windows/Linux fix for audio filters
     local audio_filter="aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo"
     
-    ffmpeg -hide_banner -loglevel error -stats -nostdin -y -i "$1" \
-    -vf "fps=25,scale=${target_w}:${target_h}:force_original_aspect_ratio=decrease,pad=${target_w}:${target_h}:(ow-iw)/2:(oh-ih)/2,setsar=1" \
-    -c:v "$encoder" -q:v $quality $tag_opt \
-    -af "$audio_filter" \
-    -c:a aac -pix_fmt yuv420p -movflags +faststart "$output"
+    # Run ffmpeg with filtered output (Clean single-line progress)
+    # We use tr to convert ffmpeg's CR to NL so we can read line-by-line,
+    # then reprint with CR to simulate in-place update.
+    (
+        set -o pipefail 2>/dev/null
+        ffmpeg -hide_banner -loglevel error -stats -nostdin -y -i "$1" \
+        -vf "fps=25,scale=${target_w}:${target_h}:force_original_aspect_ratio=decrease,pad=${target_w}:${target_h}:(ow-iw)/2:(oh-ih)/2,setsar=1" \
+        -c:v "$encoder" -q:v $quality $tag_opt \
+        -af "$audio_filter" \
+        -c:a aac -pix_fmt yuv420p -movflags +faststart "$output" 2>&1 \
+        | tr '\r' '\n' \
+        | while IFS= read -r line; do
+            if [[ "$line" == frame=* ]]; then
+                # Progress line: Print with CR to update in-place
+                printf "\r%s\033[K" "$line"
+            else
+                # Other lines (Checking, Errors): Print normally
+                echo "$line"
+            fi
+        done
+        echo "" # Ensure newline after progress
+    )
     
     if [[ ! -f "$output" ]]; then
         echo "❌ Compression failed!"
