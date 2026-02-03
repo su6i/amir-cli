@@ -511,7 +511,7 @@ compress() {
             # Directory (Batch)
             echo "📦 Batch processing directory: $input"
             find "$input" -maxdepth 1 -type f \( -name "*.mp4" -o -name "*.mov" -o -name "*.mkv" -o -name "*.MP4" -o -name "*.MOV" -o -name "*.MKV" \) | while read -r file; do
-                process_video "$file" "$target_h" "$quality"
+                process_video "$file" "$target_h" "$quality" < /dev/null
             done
         fi
     done
