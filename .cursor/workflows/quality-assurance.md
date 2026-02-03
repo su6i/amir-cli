@@ -57,3 +57,9 @@ description: Standards for Testing, Security, and Version Control (Git).
         *   **Datasets/Models:** Store in `.storage/data/`.
         *   **Logs/Temp Scripts:** Store in `.storage/temp/`.
     *   **Reason:** This folder is strictly git-ignored. Keep the repo clean.
+
+## 7. Engineering Excellence (Research First)
+**Rule:** Stop and Think. Do not implement based on assumptions.
+1.  **Search Best Practices:** Before writing complex logic (like Table Alignment, Zsh Completion), search for standard, scientific methods (e.g., Unicode Standards, Official Specs).
+2.  **No Trial & Error:** "Guessing" flags or magic numbers is forbidden. If you don't know, find the documentation or a proven algorithm first.
+3.  **Standard Libraries over Hacks:** Always prefer Python's standard library (e.g., `unicodedata`) or robust CLI tools over manual parsing/regex hacks.
