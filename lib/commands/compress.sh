@@ -224,36 +224,13 @@ compress() {
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
     
-# Scientific Visual Width Calculation using Python unicodedata
-get_visual_width() {
-    python3 -c "import unicodedata, sys; print(sum(2 if unicodedata.east_asian_width(c) in 'WF' else 1 for c in sys.argv[1]))" "$1"
-}
-
-# Pad text to strictly match visual width
-pad_to_width() {
+truncate_text() {
     local text="$1"
-    local target_width="$2"
-    local vis_len=$(get_visual_width "$text")
-    local pad_len=$((target_width - vis_len))
-    
-    # If text is too long (negative padding), we must truncate
-    if [[ $pad_len -lt 0 ]]; then
-        # Simple truncation strategy: chop chars until it fits (approximate but safe)
-        local truncated="$text"
-        while [[ $(get_visual_width "$truncated") -gt $((target_width - 2)) ]]; do
-            truncated="${truncated%?}"
-        done
-        echo -n "${truncated}.."
-        # Re-calc padding for truncated string
-        vis_len=$(get_visual_width "${truncated}..")
-        pad_len=$((target_width - vis_len))
+    local max_len="$2"
+    if [[ ${#text} -gt $max_len ]]; then
+        echo "${text:0:$((max_len-2))}.."
     else
-        echo -n "$text"
-    fi
-    
-    # Print spaces
-    if [[ $pad_len -gt 0 ]]; then
-        printf "%${pad_len}s" ""
+        echo "$text"
     fi
 }
 
@@ -264,36 +241,36 @@ pad_to_width() {
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
     
-    # Scientific Header Padding
-    local h_input=$(pad_to_width "� INPUT FILE" $col_width)
-    local h_hard=$(pad_to_width "🖥️  HARDWARE" $col_width)
-    local h_set=$(pad_to_width "🎯 SETTINGS" $col_width)
-    
-    printf "│ %s │ %s │ %s │\n" "$h_input" "$h_hard" "$h_set"
+    # Header Alignment (Manual adjustment for specific terminal emoji rendering)
+    # 📂 (2 visual) + 1 space = 3
+    # 🖥️ (2 visual) + 2 spaces = 4
+    # 🎯 (1 visual) + 1 space = 2 (Adjusted for user terminal)
+    printf "│ 📂 %-$((col_width-3))s │ 🖥️  %-$((col_width-4))s │ 🎯 %-$((col_width-2))s │\n" \
+        "INPUT FILE" "HARDWARE" "SETTINGS"
     
     printf "├%s┼%s┼%s┤\n" \
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
     
-    # Content Padding using standard unicode width
-    local t_file=$(pad_to_width "File: $(basename "$1")" $col_width)
-    local t_cpu=$(pad_to_width "CPU: $cpu_info" $col_width)
-    local t_res=$(pad_to_width "Resolution: ${target_h}p" $col_width)
+    # Pre-truncate fields to ensure table alignment
+    local t_file=$(truncate_text "File: $(basename "$1")" $col_width)
+    local t_cpu=$(truncate_text "CPU: $cpu_info" $col_width)
+    local t_res=$(truncate_text "Resolution: ${target_h}p" $col_width)
     
-    local t_size=$(pad_to_width "Size: $input_size" $col_width)
-    local t_gpu=$(pad_to_width "GPU: $gpu_info" $col_width)
-    local t_qual=$(pad_to_width "Quality: $quality/100" $col_width)
+    local t_size=$(truncate_text "Size: $input_size" $col_width)
+    local t_gpu=$(truncate_text "GPU: $gpu_info" $col_width)
+    local t_qual=$(truncate_text "Quality: $quality/100" $col_width)
     
-    local t_dur=$(pad_to_width "Duration: $duration_formatted" $col_width)
-    local t_enc=$(pad_to_width "Encoder: VideoToolbox" $col_width)
-    local t_audio=$(pad_to_width "Audio: AAC 44.1kHz" $col_width)
+    local t_dur=$(truncate_text "Duration: $duration_formatted" $col_width)
+    local t_enc=$(truncate_text "Encoder: VideoToolbox" $col_width)
+    local t_audio=$(truncate_text "Audio: AAC 44.1kHz" $col_width)
 
-    printf "│ %s │ %s │ %s │\n" \
+    printf "│ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │\n" \
         "$t_file" "$t_cpu" "$t_res"
-    printf "│ %s │ %s │ %s │\n" \
+    printf "│ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │\n" \
         "$t_size" "$t_gpu" "$t_qual"
-    printf "│ %s │ %s │ %s │\n" \
+    printf "│ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │\n" \
         "$t_dur" "$t_enc" "$t_audio"
     
     printf "└%s┴%s┴%s┘\n" \
@@ -385,14 +362,11 @@ pad_to_width() {
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
     
-    # Scientific Header Padding
-    local h_in=$(pad_to_width "� INPUT" $col_width)
-    local h_out=$(pad_to_width "📤 OUTPUT" $col_width)
-    local h_perf=$(pad_to_width "� PERFORMANCE" $col_width)
-    local h_comp=$(pad_to_width "📈 COMPARISON" $col_width)
-    
-    printf "│ %s │ %s │ %s │ %s │\n" \
-        "$h_in" "$h_out" "$h_perf" "$h_comp"
+    # Header Alignment (Manual adjustment for specific terminal emoji rendering)
+    # 📥/📤 (2) + Space (1) = 3 chars prefix (Standard)
+    # 📊/📈 (1) + Space (1) = 2 chars prefix (User Terminal Rendering)
+    printf "│ 📥 %-$((col_width-3))s │ 📤 %-$((col_width-3))s │ 📊 %-$((col_width-2))s │ 📈 %-$((col_width-2))s │\n" \
+        "INPUT" "OUTPUT" "PERFORMANCE" "COMPARISON"
     
     printf "├%s┼%s┼%s┼%s┤\n" \
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
@@ -400,20 +374,20 @@ pad_to_width() {
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
     
-    # Content Padding using standard unicode width
-    local t_in_file=$(pad_to_width "File: $(basename "$1")" $col_width)
-    local t_out_file=$(pad_to_width "File: $(basename "$output")" $col_width)
-    local t_time=$(pad_to_width "Time: $total_elapsed_formatted" $col_width)
-    local t_saved=$(pad_to_width "Reduction: ${percent_saved}%" $col_width)
+    # Pre-truncate validation table
+    local t_in_file=$(truncate_text "File: $(basename "$1")" $col_width)
+    local t_out_file=$(truncate_text "File: $(basename "$output")" $col_width)
+    local t_time=$(truncate_text "Time: $total_elapsed_formatted" $col_width)
+    local t_saved=$(truncate_text "Reduction: ${percent_saved}%" $col_width)
     
-    local t_in_size=$(pad_to_width "Size: $input_size" $col_width)
-    local t_out_size=$(pad_to_width "Size: $output_size" $col_width)
-    local t_speed=$(pad_to_width "Speed: ${actual_speed}x" $col_width)
-    local t_ratio=$(pad_to_width "Ratio: ${ratio}x smaller" $col_width)
+    local t_in_size=$(truncate_text "Size: $input_size" $col_width)
+    local t_out_size=$(truncate_text "Size: $output_size" $col_width)
+    local t_speed=$(truncate_text "Speed: ${actual_speed}x" $col_width)
+    local t_ratio=$(truncate_text "Ratio: ${ratio}x smaller" $col_width)
 
-    printf "│ %s │ %s │ %s │ %s │\n" \
+    printf "│ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │\n" \
         "$t_in_file" "$t_out_file" "$t_time" "$t_saved"
-    printf "│ %s │ %s │ %s │ %s │\n" \
+    printf "│ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │ %-${col_width}s │\n" \
         "$t_in_size" "$t_out_size" "$t_speed" "$t_ratio"
     
     printf "└%s┴%s┴%s┴%s┘\n" \
