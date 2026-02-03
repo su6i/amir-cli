@@ -170,7 +170,7 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
 ### `compress` (Video)
 - **Hardware Acceleration:** Auto-detects macOS Silicon (`videotoolbox`), NVIDIA (`nvenc`), or Intel (`qsv`) to speed up FFmpeg encoding.
 - **Quiet Progress:** Uses `script -q /dev/null` (macOS) to force pseudo-TTY allocation, allowing FFmpeg to print single-line progress updates (`\r`) without buffering or log spam.
-- **Table Alignment:** Uses Python's `unicodedata` library to scientifically calculate string width (East Asian Width), ensuring pixel-perfect ASCII table alignment even with mixed emojis and variable-width characters. Text is dynamically padded or truncated to fit columns.
+- **Table Alignment:** Uses robust manual padding calibrated for standard terminal emoji rendering (treating specific single-width rendered emojis as 1 char), ensuring consistent alignment without external dependencies. Text is dynamically truncated to fit columns.
 - **AI Stats:** Log file tracks compression ratios to optimal settings.
 
 ## ⚙️ Configuration & Storage
