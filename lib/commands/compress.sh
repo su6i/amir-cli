@@ -40,9 +40,31 @@ stats() {
     echo ""
     
     echo "🎯 QUALITY FACTORS (Compression Efficiency)"
-    echo "┌───────┬──────────────┬─────────────┬──────────────┬──────────┐"
-    echo "│ Qual  │ Factor       │ Est. Ratio  │ Speed Factor │ Samples  │"
-    echo "├───────┼──────────────┼─────────────┼──────────────┼──────────┤"
+    
+    local col_width=$(calculate_column_width 5 12 18)
+    
+    printf "┌%s┬%s┬%s┬%s┬%s┐\n" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
+
+    local h_qual=$(pad_to_width "Qual" $col_width)
+    local h_fact=$(pad_to_width "Factor" $col_width)
+    local h_est=$(pad_to_width "Est. Ratio" $col_width)
+    local h_speed=$(pad_to_width "Speed Factor" $col_width)
+    local h_samp=$(pad_to_width "Samples" $col_width)
+
+    printf "│ %s │ %s │ %s │ %s │ %s │\n" \
+        "$h_qual" "$h_fact" "$h_est" "$h_speed" "$h_samp"
+
+    printf "├%s┼%s┼%s┼%s┼%s┤\n" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
     
     for q in 40 50 55 60 65 70 75 80; do
         local factor=${quality_factors[$q]:-1.0}
@@ -50,11 +72,24 @@ stats() {
         local samples=${sample_counts[$q]:-0}
         local est_ratio=$(echo "scale=1; $factor * 100" | bc)
         
-        printf "│ %5d │ %12.4f │ %11s%% │ %12d │ %8d │\n" \
-            "$q" "$factor" "$est_ratio" "$speed" "$samples"
+        # Pad content
+        local c_qual=$(pad_to_width "$q" $col_width)
+        local c_fact=$(pad_to_width "$factor" $col_width)
+        local c_est=$(pad_to_width "${est_ratio}%" $col_width)
+        # Fix printf error: speed might be float in bash, ensure integer for display logic simply by string formatting
+        local c_speed=$(pad_to_width "${speed%.*}" $col_width)
+        local c_samp=$(pad_to_width "$samples" $col_width)
+        
+        printf "│ %s │ %s │ %s │ %s │ %s │\n" \
+            "$c_qual" "$c_fact" "$c_est" "$c_speed" "$c_samp"
     done
     
-    echo "└───────┴──────────────┴─────────────┴──────────────┴──────────┘"
+    printf "└%s┴%s┴%s┴%s┴%s┘\n" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
+        "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
 }
 
 reset() {

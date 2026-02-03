@@ -56,32 +56,32 @@ _amir() {
                     'files:Video Files or Directories (Space separated):_files' \
                     'commands:Management Commands:((stats\:Show\ AI\ learning\ statistics reset\:Reset\ AI\ learning\ data codecs\:Check\ HEVC\ codec\ support))'
             elif (( CURRENT >= 4 )); then
-                # Support multiple files, so keep suggesting files
-                local -a resolutions
-                resolutions=(
-                    '240:Very low quality (Fast transfer)'
-                    '360:Medium quality (Mobile)'
-                    '480:Medium quality (Standard SD)'
-                    '720:Good quality (Standard HD)'
-                    '1080:Excellent quality (Full HD)'
-                )
-                 local -a qualities
-                 qualities=(
-                    '40:Smallest file (max compression)'
-                    '50:Very High compression'
-                    '60:Balanced (Default)'
-                    '70:High Quality'
-                    '80:Excellent Quality'
-                 )
+                local prev="${words[CURRENT-1]}"
+                prev="${(Q)prev}" # Unquote special chars
                 
-                # Check if previous arg was a file or number
-                # If number, we might be offering quality or done.
-                # If file, we offer more files OR resolution.
+                # logic: If previous arg was a number, user is likely typing next number (quality) or done.
+                # If previous arg was a Directory, switch to settings (STOP offering files to break loop).
+                # If previous arg was a File, offer more files OR settings.
                 
-                _alternative \
-                    'files:More Video Files:_files -g "*.(mp4|mov|mkv|avi|MP4|MOV|MKV|webm|WEBM)"' \
-                    'resolutions:Resolution Options:('"$(IFS=$'\n'; echo "${resolutions[*]}")"')' \
-                    'qualities:Quality Factor:('"$(IFS=$'\n'; echo "${qualities[*]}")"')'
+                if [[ -d "$prev" ]]; then
+                    # Previous was directory -> Mode: Batch -> Expecting Resolution FIRST.
+                    _amir_resolutions
+                elif [[ "$prev" =~ ^[0-9]+$ ]]; then
+                     if [[ "$prev" -gt 100 ]]; then
+                        # Previous was Resolution (e.g. 720, 1080) -> Suggest Quality next
+                        _amir_qualities
+                     else
+                        # Previous was Quality (e.g. 40, 60) -> Suggest Resolutions (if user wants to set it now)
+                        _amir_resolutions
+                     fi
+                else
+                    # Previous was file (or other) -> Can add more files OR Start Resolution selection
+                    # We hide Quality here to force "File -> Resolution -> Quality" flow for cleanliness, unless user skips Res.
+                    # But to keep it clean as requested:
+                    _alternative \
+                        'files:More Video Files:_files -g "*.(mp4|mov|mkv|avi|MP4|MOV|MKV|webm|WEBM)"' \
+                        'resolutions:Resolution Options:_amir_resolutions'
+                fi
             fi
             ;;
 
@@ -93,16 +93,7 @@ _amir() {
                     ;;
                 4)
                     # Bitrate options
-                    local -a bitrates
-                    bitrates=(
-                        '320:Highest quality (standard MP3)'
-                        '256:High quality (more clarity)'
-                        '192:Very good quality (balanced)'
-                        '160:Good quality (standard)'
-                        '128:Medium quality (podcasts)'
-                        '96:Low quality (voice only)'
-                    )
-                    _describe -t bitrates 'bitrate (kbps)' bitrates
+                    _amir_bitrates
                     ;;
             esac
             ;;
@@ -110,29 +101,10 @@ _amir() {
         img)
             local subcmd="${words[3]}"
             
-            # Shared size definitions
-            local -a img_sizes
-            img_sizes=(
-                '2560x1440:YouTube Channel Banner'
-                '2048:Very large size (4K)'
-                '1024:Large size (HD)'
-                '800x800:YouTube Channel Logo'
-                '600:Lottery photo size'
-                '512:High quality (profile)'
-                '400x120:GitHub Logo'
-                '256:Web & app size'
-                '150x150:YouTube Video Watermark'
-                '128:Medium logo size'
-                '64:Small icon'
-                '48:Standard icon'
-                '32:Very small icon'
-                '16:Favicon'
-            )
-            
             if [[ "$subcmd" == "resize" ]]; then
                 case $((CURRENT)) in
                     4) _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" ;;
-                    5) _describe -V -t img_sizes 'image size (px)' img_sizes ;;
+                    5) _amir_img_sizes ;;
                     6) 
                         local -a options
                         options=('circle:Circular crop output (PNG)')
@@ -142,21 +114,14 @@ _amir() {
             elif [[ "$subcmd" == "crop" ]]; then
                  case $((CURRENT)) in
                     4) _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" ;;
-                    5) _describe -V -t img_sizes 'image size (px)' img_sizes ;;
-                    6)
-                        local -a matrix
-                        matrix=('7:Top-Left' '8:Top' '9:Top-Right' '4:Left' '5:Center' '6:Right' '1:Bot-Left' '2:Bot' '3:Bot-Right')
-                        _describe -t matrix 'Gravity' matrix
-                        ;;
+                    5) _amir_img_sizes ;;
+                    6) _amir_img_gravity ;;
                 esac
             elif [[ "$subcmd" == "pad" ]]; then
                  case $((CURRENT)) in
                     4) _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" ;;
-                    5) _describe -V -t img_sizes 'image size (px)' img_sizes ;;
-                    6)
-                        colors=('white' 'black' 'transparent' 'red' 'blue' '#ffffff' '#000000')
-                        _describe -t colors 'Background Color' colors
-                        ;;
+                    5) _amir_img_sizes ;;
+                    6) _amir_colors ;;
                 esac
             elif [[ "$subcmd" == "convert" ]]; then
                  case $((CURRENT)) in
@@ -166,19 +131,11 @@ _amir() {
                         formats=('png' 'jpg' 'jpeg' 'webp')
                         _describe -t formats 'Output Format' formats 
                         ;;
-                    6) _describe -V -t img_sizes 'Max Size (px)' img_sizes ;;
+                    6) _amir_img_sizes ;;
                     7|*) 
                         # Check previous argument for context
                         if [[ "${words[CURRENT-1]}" == "-bg" || "${words[CURRENT-1]}" == "--background" ]]; then
-                            local -a bg_colors
-                            bg_colors=(
-                                'transparent:Transparent (Default)' 
-                                'white:White Background' 
-                                'black:Black Background' 
-                                '#ff0000:Hex Red'
-                                '#0000ff:Hex Blue'
-                            )
-                            _describe -t bg_colors 'Background Color' bg_colors
+                            _amir_bg_colors
                         else
                             # Offer Flags/Options recursively
                             local -a convert_opts
@@ -222,38 +179,17 @@ _amir() {
                          ;;
                     4)
                         # Legacy size
-                         _describe -V -t img_sizes 'image size (px)' img_sizes 
+                         _amir_img_sizes
                         ;;
                     5)
                         # Legacy Gravity
-                        local -a matrix
-                        matrix=('7:Top-Left' '8:Top' '9:Top-Right' '4:Left' '5:Center' '6:Right' '1:Bot-Left' '2:Bot' '3:Bot-Right')
-                        _describe -t matrix 'Gravity' matrix
+                        _amir_img_gravity
                         ;;
                 esac
             fi
             ;;
 
-        batch)
-            case $((CURRENT)) in
-                3)
-                    # Batch resolution options
-                    local -a batch_res
-                    batch_res=(
-                        '1080:All videos to 1080p'
-                        '720:All videos to 720p'
-                        '480:All videos to 480p'
-                        '360:All videos to 360p'
-                        '240:All videos to 240p'
-                    )
-                    _describe -t batch_res 'batch resolution' batch_res
-                    ;;
-                4)
-                    # Target directory
-                    _files -/ # Directories only
-                    ;;
-            esac
-            ;;
+
         
         init-project)
              if (( CURRENT == 3 )); then
@@ -406,6 +342,90 @@ _amir() {
             _message "Cleaning system temporary files..."
             ;;
     esac
+}
+
+# --- Helper Functions ---
+
+_amir_resolutions() {
+    local -a resolutions
+    resolutions=(
+        '240:Very low quality (Fast transfer)'
+        '360:Medium quality (Mobile)'
+        '480:Medium quality (Standard SD)'
+        '720:Good quality (Standard HD)'
+        '1080:Excellent quality (Full HD)'
+    )
+    _describe -t resolutions 'resolution options' resolutions
+}
+
+_amir_qualities() {
+    local -a qualities
+    qualities=(
+        '40:Smallest file (max compression)'
+        '50:Very High compression'
+        '60:Balanced (Default)'
+        '70:High Quality'
+        '80:Excellent Quality'
+    )
+    _describe -t qualities 'quality factor (40-80)' qualities
+}
+
+_amir_bitrates() {
+    local -a bitrates
+    bitrates=(
+        '320:Highest quality (standard MP3)'
+        '256:High quality (more clarity)'
+        '192:Very good quality (balanced)'
+        '160:Good quality (standard)'
+        '128:Medium quality (podcasts)'
+        '96:Low quality (voice only)'
+    )
+    _describe -t bitrates 'bitrate (kbps)' bitrates
+}
+
+_amir_img_sizes() {
+    local -a img_sizes
+    img_sizes=(
+        '2560x1440:YouTube Channel Banner'
+        '2048:Very large size (4K)'
+        '1024:Large size (HD)'
+        '800x800:YouTube Channel Logo'
+        '600:Lottery photo size'
+        '512:High quality (profile)'
+        '400x120:GitHub Logo'
+        '256:Web & app size'
+        '150x150:YouTube Video Watermark'
+        '128:Medium logo size'
+        '64:Small icon'
+        '48:Standard icon'
+        '32:Very small icon'
+        '16:Favicon'
+    )
+    _describe -V -t img_sizes 'image size (px)' img_sizes 
+}
+
+_amir_img_gravity() {
+    local -a matrix
+    matrix=('7:Top-Left' '8:Top' '9:Top-Right' '4:Left' '5:Center' '6:Right' '1:Bot-Left' '2:Bot' '3:Bot-Right')
+    _describe -t matrix 'Gravity' matrix
+}
+
+_amir_colors() {
+    local -a colors
+    colors=('white' 'black' 'transparent' 'red' 'blue' '#ffffff' '#000000')
+    _describe -t colors 'Background Color' colors
+}
+
+_amir_bg_colors() {
+    local -a bg_colors
+    bg_colors=(
+        'transparent:Transparent (Default)' 
+        'white:White Background' 
+        'black:Black Background' 
+        '#ff0000:Hex Red'
+        '#0000ff:Hex Blue'
+    )
+    _describe -t bg_colors 'Background Color' bg_colors
 }
 
 _amir "$@"

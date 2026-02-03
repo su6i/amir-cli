@@ -69,6 +69,7 @@ _amir() {
 }
 ```
 
+
 ### 5. Arrays for Dynamic content
 Always declare arrays explicitly with `local -a` to avoid Zsh strict mode issues.
 
@@ -76,6 +77,29 @@ Always declare arrays explicitly with `local -a` to avoid Zsh strict mode issues
 local -a options
 options=('a:Option A' 'b:Option B')
 _describe -t options 'my options' options
+```
+
+### 6. Breaking Recursive File Loops & Complex Subcommands
+For complex logic (like switching context from files to flags), use **Helper Functions**. This avoids quoting hell and "bad substitution" errors in `_alternative`.
+
+```bash
+# Define helper at bottom of file
+_my_options() {
+    local -a opts=('a:Option A' 'b:Option B')
+    _describe -t opts 'options' opts
+}
+
+# In Main Loop
+if [[ -d "$prev" ]]; then
+    # Switch context completely
+    _alternative \
+        'flags:Options:_my_options' 
+else
+    # mixed mode
+    _alternative \
+         'files:Files:_files' \
+         'flags:Options:_my_options'
+fi
 ```
 
 ## Template: Robust Subcommand Structure
