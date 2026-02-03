@@ -1,7 +1,7 @@
 #compdef _amir amir
 
 _amir() {
-    local cur prev
+    local cur prev context state line
     cur="${words[CURRENT]}"
     prev="${words[CURRENT-1]}"
 
@@ -120,23 +120,31 @@ _amir() {
             # Shared size definitions
             local -a img_sizes
             img_sizes=(
+                '2560x1440:YouTube Channel Banner'
                 '2048:Very large size (4K)'
                 '1024:Large size (HD)'
+                '800x800:YouTube Channel Logo'
                 '600:Lottery photo size'
                 '512:High quality (profile)'
                 '400x120:GitHub Logo'
                 '256:Web & app size'
+                '150x150:YouTube Video Watermark'
                 '128:Medium logo size'
                 '64:Small icon'
                 '48:Standard icon'
                 '32:Very small icon'
                 '16:Favicon'
             )
-
+            
             if [[ "$subcmd" == "resize" ]]; then
                 case $((CURRENT)) in
                     4) _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" ;;
                     5) _describe -V -t img_sizes 'image size (px)' img_sizes ;;
+                    6) 
+                        local -a options
+                        options=('circle:Circular crop output (PNG)')
+                        _describe -t options 'option' options
+                        ;;
                 esac
             elif [[ "$subcmd" == "crop" ]]; then
                  case $((CURRENT)) in
@@ -159,13 +167,37 @@ _amir() {
                 esac
             elif [[ "$subcmd" == "convert" ]]; then
                  case $((CURRENT)) in
-                    4) _files -g "*.(svg|SVG|jpg|jpeg|png|webp)" ;;
+                    4) _files ;;
                     5) 
                         local -a formats
                         formats=('png' 'jpg' 'jpeg' 'webp')
                         _describe -t formats 'Output Format' formats 
                         ;;
                     6) _describe -V -t img_sizes 'Max Size (px)' img_sizes ;;
+                    7|*) 
+                        # Check previous argument for context
+                        if [[ "${words[CURRENT-1]}" == "-bg" || "${words[CURRENT-1]}" == "--background" ]]; then
+                            local -a bg_colors
+                            bg_colors=(
+                                'transparent:Transparent (Default)' 
+                                'white:White Background' 
+                                'black:Black Background' 
+                                '#ff0000:Hex Red'
+                                '#0000ff:Hex Blue'
+                            )
+                            _describe -t bg_colors 'Background Color' bg_colors
+                        else
+                            # Offer Flags/Options recursively
+                            local -a convert_opts
+                            convert_opts=(
+                                'circle:Circular crop output (PNG)'
+                                '-bg:Background Color (Default: Transparent)'
+                                '--background:Background Color (Default: Transparent)'
+                            )
+                            # Passing the array name to _describe
+                            _describe -V -t convert_opts 'option' convert_opts
+                        fi
+                        ;;
                 esac
             elif [[ "$subcmd" == "extend" ]]; then
                 case $((CURRENT)) in
@@ -197,7 +229,7 @@ _amir() {
                          ;;
                     4)
                         # Legacy size
-                        _describe -V -t img_sizes 'image size (px)' img_sizes 
+                         _describe -V -t img_sizes 'image size (px)' img_sizes 
                         ;;
                     5)
                         # Legacy Gravity

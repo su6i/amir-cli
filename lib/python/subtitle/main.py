@@ -18,21 +18,21 @@ import time
 
 # Language configuration with native fonts
 LANGUAGE_CONFIG = {
-    'en': {'name': 'English', 'font': 'Arial', 'font_size': 32, 'rtl': False},
-    'fa': {'name': 'Persian', 'font': 'B Nazanin', 'font_size': 48, 'rtl': True},
-    'ar': {'name': 'Arabic', 'font': 'Arial', 'font_size': 36, 'rtl': True},
-    'es': {'name': 'Spanish', 'font': 'Arial', 'font_size': 36, 'rtl': False},
-    'fr': {'name': 'French', 'font': 'Arial', 'font_size': 36, 'rtl': False},
-    'de': {'name': 'German', 'font': 'Arial', 'font_size': 36, 'rtl': False},
-    'it': {'name': 'Italian', 'font': 'Arial', 'font_size': 36, 'rtl': False},
-    'pt': {'name': 'Portuguese', 'font': 'Arial', 'font_size': 36, 'rtl': False},
-    'ru': {'name': 'Russian', 'font': 'Arial', 'font_size': 36, 'rtl': False},
-    'ja': {'name': 'Japanese', 'font': 'MS Gothic', 'font_size': 36, 'rtl': False},
-    'ko': {'name': 'Korean', 'font': 'Malgun Gothic', 'font_size': 36, 'rtl': False},
-    'zh': {'name': 'Chinese', 'font': 'SimHei', 'font_size': 36, 'rtl': False},
-    'hi': {'name': 'Hindi', 'font': 'Mangal', 'font_size': 36, 'rtl': False},
-    'tr': {'name': 'Turkish', 'font': 'Arial', 'font_size': 36, 'rtl': False},
-    'nl': {'name': 'Dutch', 'font': 'Arial', 'font_size': 36, 'rtl': False},
+    'en': {'name': 'English', 'font': 'Arial', 'font_size': 0, 'rtl': False},
+    'fa': {'name': 'Persian', 'font': 'B Nazanin', 'font_size': 0, 'rtl': True},
+    'ar': {'name': 'Arabic', 'font': 'Arial', 'font_size': 0, 'rtl': True},
+    'es': {'name': 'Spanish', 'font': 'Arial', 'font_size': 0, 'rtl': False},
+    'fr': {'name': 'French', 'font': 'Arial', 'font_size': 0, 'rtl': False},
+    'de': {'name': 'German', 'font': 'Arial', 'font_size': 0, 'rtl': False},
+    'it': {'name': 'Italian', 'font': 'Arial', 'font_size': 0, 'rtl': False},
+    'pt': {'name': 'Portuguese', 'font': 'Arial', 'font_size': 0, 'rtl': False},
+    'ru': {'name': 'Russian', 'font': 'Arial', 'font_size': 0, 'rtl': False},
+    'ja': {'name': 'Japanese', 'font': 'MS Gothic', 'font_size': 0, 'rtl': False},
+    'ko': {'name': 'Korean', 'font': 'Malgun Gothic', 'font_size': 0, 'rtl': False},
+    'zh': {'name': 'Chinese', 'font': 'SimHei', 'font_size': 0, 'rtl': False},
+    'hi': {'name': 'Hindi', 'font': 'Mangal', 'font_size': 0, 'rtl': False},
+    'tr': {'name': 'Turkish', 'font': 'Arial', 'font_size': 0, 'rtl': False},
+    'nl': {'name': 'Dutch', 'font': 'Arial', 'font_size': 0, 'rtl': False},
 }
 
 
@@ -46,22 +46,55 @@ def format_time(seconds: float) -> str:
     return f"{hours:02}:{minutes:02}:{seconds:02},{milliseconds:03}"
 
 
+def parse_srt_time(time_str: str) -> float:
+    """Convert SRT time format to seconds"""
+    hours, minutes, seconds = time_str.replace(',', '.').split(':')
+    return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+
+
 def load_api_key(config_file: str = '.config') -> str:
-    """Load API key from config file"""
+    """Load API key from env vars or config file"""
+    # 1. Check environment variable first
+    if os.environ.get('DEEPSEEK_API'):
+        return os.environ['DEEPSEEK_API']
+
+    # 2. Define search paths
+    search_paths = [
+        config_file,                                      # CWD/.config
+        os.path.join(os.getcwd(), '.config'),            # Explicit CWD
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), '.config'), # Script dir
+        os.path.expanduser('~/.amir/config'),            # ~/.amir/config
+        os.path.expanduser('~/.amir-cli/config'),        # ~/.amir-cli/config
+        os.path.expanduser('~/.config/amir/config'),     # XDG style
+    ]
+
+    # 3. Search for config file
+    found_config = None
+    for path in search_paths:
+        if os.path.exists(path):
+            found_config = path
+            break
+            
+    if not found_config:
+        # If no config found and no env var, raise error with helpful message
+        raise FileNotFoundError(
+            "DeepSeek API key not found!\n"
+            "Please set 'DEEPSEEK_API' environment variable OR\n"
+            "Create a config file at '~/.amir/config' with content:\n"
+            "[DEFAULT]\n"
+            "DEEPSEEK_API = your_key_here"
+        )
+    
     config = configparser.ConfigParser()
-    
-    if not os.path.exists(config_file):
-        raise FileNotFoundError(f"Config file '{config_file}' not found!")
-    
-    config.read(config_file)
+    config.read(found_config)
     
     if 'DEFAULT' in config and 'DEEPSEEK_API' in config['DEFAULT']:
         api_key = config['DEFAULT']['DEEPSEEK_API'].strip()
         if not api_key:
-            raise ValueError("DEEPSEEK_API key is empty in config file!")
+            raise ValueError(f"DEEPSEEK_API key is empty in {found_config}!")
         return api_key
     
-    raise ValueError("DEEPSEEK_API not found in config file!")
+    raise ValueError(f"DEEPSEEK_API not found in {found_config}!")
 
 
 def fix_persian_text(text: str) -> str:
@@ -96,92 +129,6 @@ def fix_persian_text(text: str) -> str:
     return text
 
 
-# def translate_with_deepseek(texts: List[str], target_lang: str, api_key: str, source_lang: str = 'en') -> List[str]:
-#     """Batch translation with DeepSeek API"""
-#     if not texts:
-#         return []
-    
-#     lang_name = LANGUAGE_CONFIG.get(target_lang, {}).get('name', target_lang)
-#     source_lang_name = LANGUAGE_CONFIG.get(source_lang, {}).get('name', source_lang)
-    
-#     client = OpenAI(
-#         api_key=api_key,
-#         base_url="https://api.deepseek.com"
-#     )
-    
-#     # Create numbered batch
-#     batch_text = "\n".join([f"{i+1}. {t}" for i, t in enumerate(texts)])
-    
-#     # Enhanced prompt for better Persian quality
-#     if target_lang == 'fa':
-#         system_prompt = f"""You are a professional Persian (Farsi) translator. 
-# Your job is to translate ALL text from {source_lang_name} to natural Persian.
-
-# CRITICAL RULES:
-# - You MUST translate EVERY sentence completely to Persian
-# - Do NOT leave ANY {source_lang_name} words in your translation
-# - Do NOT skip or ignore any sentences
-# - Use proper Persian grammar and vocabulary
-# - Use ZWNJ (‌) correctly: می‌کنم, نمی‌کنم, کتاب‌ها, فیلم‌های
-# - Keep translations concise and natural
-# - Translate technical terms to their Persian equivalents
-# - ONLY output the Persian translation, no explanations, no {source_lang_name} text
-
-# If you see any {source_lang_name} remaining in your output, you have FAILED the task."""
-#     else:
-#         system_prompt = f"""You are a professional {lang_name} translator.
-# Your job is to translate ALL text from {source_lang_name} to natural {lang_name}.
-
-# CRITICAL RULES:
-# - You MUST translate EVERY sentence completely to {lang_name}
-# - Do NOT leave ANY {source_lang_name} words in your translation
-# - Do NOT skip or ignore any sentences
-# - Keep translations natural and conversational
-# - ONLY output the {lang_name} translation, no explanations
-
-# If you see any {source_lang_name} remaining in your output, you have FAILED the task."""
-    
-#     try:
-#         response = client.chat.completions.create(
-#             model="deepseek-chat",
-#             messages=[
-#                 {"role": "system", "content": system_prompt},
-#                 {"role": "user", "content": f"Translate ALL of these {source_lang_name} sentences to {lang_name}. Each line must be COMPLETELY translated:\n\n{batch_text}"}
-#             ],
-#             temperature=0.2,
-#             max_tokens=4000
-#         )
-        
-#         output = response.choices[0].message.content.strip()
-#         translations = []
-        
-#         # Parse numbered responses
-#         for line in output.split('\n'):
-#             line = line.strip()
-#             if not line:
-#                 continue
-#             if '. ' in line and line.split('.')[0].isdigit():
-#                 trans = line.split('. ', 1)[1]
-#                 # Apply Persian fixes if translating to Persian
-#                 if target_lang == 'fa':
-#                     trans = fix_persian_text(trans)
-#                 translations.append(trans)
-#             else:
-#                 if target_lang == 'fa':
-#                     line = fix_persian_text(line)
-#                 translations.append(line)
-        
-#         if len(translations) != len(texts):
-#             print(f"Warning: Expected {len(texts)} translations, got {len(translations)}. Using original texts for missing.")
-#             translations.extend(texts[len(translations):])
-        
-#         return translations[:len(texts)]
-    
-#     except Exception as e:
-#         print(f"Translation error: {e}. Using original texts.")
-#         return texts
-
-
 def get_translation_prompt(target_lang: str, source_lang_name: str, target_lang_name: str) -> str:
     if target_lang == 'fa':
         return f"""تو یک مترجم حرفه‌ای و بسیار دقیق فارسی هستی که در ترجمه زیرنویس ویدیوهای یوتیوب، تیک‌تاک، اینستاگرام و سخنرانی‌های روزمره تخصص داری.
@@ -191,8 +138,10 @@ def get_translation_prompt(target_lang: str, source_lang_name: str, target_lang_
 قوانین طلایی (حتماً رعایت کن، وگرنه شکست خوردی):
 
 ۱. لحن دقیقاً مثل گوینده باشه:
-   - اگه عامیانه و خودمونی حرف زده → تو هم خودمونی و عامیانه بنویس
+   - اگه عامیانه و خودمونی حرف زده → تو هم خودمونی و عامیانه بنویس (مثل: "داداش"، "وای"، "جدی؟"، "نه بابا"، "آخه چی؟")
    - اگه شوخی کرده → شوخی رو زنده نگه دار
+   - اگه عصبانی، هیجان‌زده، شوکه، خنده‌داره → همون حس رو منتقل کن
+   - اگه با لهجه یا تپق حرف زده → تا حد ممکن همون حس رو بده (مثلاً "اِ... خب..." یا "من... یعنی...")
 
 ۲. نگارش استاندارد فارسی (خیلی مهم):
    - حتماً از "نیم‌فاصله" (ZWNJ) برای پیشوند "می" و "نمی" استفاده کن.
@@ -202,22 +151,25 @@ def get_translation_prompt(target_lang: str, source_lang_name: str, target_lang_
    - صحیح: کتاب‌ها، این‌ها
 
 ۳. اصلاً رسمی نکن! (مگر اینکه گوینده رسمی باشه):
-   - "می‌باشد" → "هست"
+   - "می‌باشد" → "هست" یا "ئه"
    - "شما" → "تو" (اگه صمیمیه)
 
-۴. فقط ترجمه کن. هیچ توضیحی نده. فقط شماره + ترجمه.
+۴. عبارات روزمره و اسلنگ رو درست ترجمه کن:
+   - "bro" → "داداش" یا "برادر" (بسته به لحن)
+   - "no way" → "نه بابا"، "مگه میشه؟"
+
+۵. فقط ترجمه کن. هیچ توضیحی نده. فقط شماره + ترجمه.
 
 مثال:
 1. I'm not doing this.
 → ۱. من این کار رو نمی‌کنم.
 
-2. He doesn't go there.
-→ ۲. اون اونجا نمی‌ره.
+2. Wait what? No way bro that can't be real
+→ ۲. چی؟ نه بابا مگه میشه این واقعیه داداش؟
 
 حالا دقیقاً با همین سبک و دقت تمام جملات زیر رو ترجمه کن:"""
 
     else:
-        # برای زبان‌های دیگه هم می‌تونی مشابه بنویسی، ولی فارسی مهم‌تره
         return f"""You are an expert subtitle translator for YouTube, TikTok, and casual videos.
 
 Your job is to translate with EXACT same tone, energy, slang, and speaking style as the speaker.
@@ -458,7 +410,65 @@ def clean_subtitle_line(text: str) -> str:
     while text and text[-1] in ".،,؟!?…":
         text = text[:-1].strip()
     
+    # Normalize internal newlines to spaces to prevent vertical jumping
+    text = text.replace('\n', ' ').replace('\r', ' ')
+    # Collapse multiple spaces
+    text = re.sub(r'\s+', ' ', text)
+    
     return text
+
+def split_text_at_comma(text: str, max_chars: int = 60) -> List[str]:
+    """
+    Splits text at comma, period, or space if it exceeds max_chars.
+    Returns list of strings.
+    """
+    if len(text) <= max_chars:
+        return [text]
+
+    parts = []
+    
+    # Regex to find split points: comma, period, or end of sentence punctuation
+    # We want to split AFTER the punctuation.
+    # Also consider splitting at spaces if no punctuation found near middle?
+    
+    # Simple strategy: 
+    # 1. Break by comma/period if present and chunk > max_chars
+    # 2. Else break by space
+    
+    current_part = ""
+    words = text.split(' ')
+    
+    for word in words:
+        if len(current_part) + len(word) + 1 > max_chars:
+            # If current part is full, push it
+            if current_part:
+                parts.append(current_part.strip())
+            current_part = word
+        else:
+            if current_part:
+                current_part += " " + word
+            else:
+                current_part = word
+            
+            # Check if word ends with punctuation, maybe force split?
+            if word.endswith(',') or word.endswith('.') or word.endswith('،'):
+                parts.append(current_part.strip())
+                current_part = ""
+                
+    if current_part:
+        parts.append(current_part.strip())
+        
+    return parts
+
+def get_ass_style(name: str, font_name: str, font_size: int, primary_color: str = "&H00FFFFFF", margin_v: int = 10) -> str:
+    """
+    Generate ASS Style line with Opaque Box (BorderStyle=3)
+    """
+    # Style Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+    # BorderStyle=3 (Opaque Box)
+    # OutlineColour=&H80000000 (Box Color: 50% Black)
+    # BackColour=&H80000000 (Shadow/Background: 50% Black)
+    return f"Style: {name},{font_name},{font_size},{primary_color},&H000000FF,&H80000000,&H80000000,-1,0,0,0,100,100,0,0,3,0,1,2,10,10,{margin_v},1"
 
 
 def create_ass_with_font(srt_path: str, ass_path: str, lang_code: str = 'en') -> None:
@@ -481,12 +491,17 @@ def create_ass_with_font(srt_path: str, ass_path: str, lang_code: str = 'en') ->
     with open(ass_path, 'r', encoding='utf-8') as f:
         content = f.read()
     
-    # Replace ALL font settings (both in Style line and any Fontsize parameters)
+    # Generate unified style string
+    # For single file, we use 'Default' as name and default margin 10
+    style_line = get_ass_style("Default", font_name, font_size, margin_v=10)
+    
     # Replace the main Style line
+    # We match the whole line: Style: Default,...
     content = re.sub(
-        r'Style: Default,[^,]*,\d+',
-        f'Style: Default,{font_name},{font_size}',
-        content
+        r'^Style:\s*Default,.*$',
+        style_line,
+        content,
+        flags=re.MULTILINE
     )
     
     # Also replace any inline font size overrides
@@ -495,6 +510,11 @@ def create_ass_with_font(srt_path: str, ass_path: str, lang_code: str = 'en') ->
         f'\\\\fs{font_size}',
         content
     )
+
+    # Ensure Script Info has necessary scaling settings
+    if 'ScaledBorderAndShadow: yes' not in content:
+        content = content.replace('[Script Info]', 
+                                '[Script Info]\nScaledBorderAndShadow: yes')
     
     # Make sure PlayResY is set for proper scaling
     if 'PlayResX' not in content:
@@ -502,8 +522,6 @@ def create_ass_with_font(srt_path: str, ass_path: str, lang_code: str = 'en') ->
                                 '[Script Info]\nPlayResX: 1920\nPlayResY: 1080')
     
     # FOR PERSIAN: Apply Visual Reshaping (Arabic Reshaper + Python Bidi)
-    # This bakes the visual order into the string, so simple renderers show it correctly.
-    # It also solves the issue of specific fonts not supporting control chars like RLM/RLE.
     if lang_code == 'fa':
         try:
             import arabic_reshaper
@@ -514,7 +532,6 @@ def create_ass_with_font(srt_path: str, ass_path: str, lang_code: str = 'en') ->
                 text = match.group(2)
                 
                 # Cleanup: Strip all BiDi control characters that might be in the source
-                # RLM, LRM, RLE, LRE, PDF, etc.
                 text = text.replace('\u200f', '').replace('\u200e', '') \
                            .replace('\u202a', '').replace('\u202b', '') \
                            .replace('\u202c', '').replace('\u202d', '') \
@@ -524,7 +541,6 @@ def create_ass_with_font(srt_path: str, ass_path: str, lang_code: str = 'en') ->
                 if any('\u0600' <= c <= '\u06FF' for c in text):
                     reshaped_text = arabic_reshaper.reshape(text)
                     # Force base_dir='R' so the algorithm treats the whole line as RTL context.
-                    # This ensures English words end up in the correct visual position relative to Persian.
                     bidi_text = get_display(reshaped_text, base_dir='R')
                     return f"{prefix}{bidi_text}"
                 return f"{prefix}{text}"
@@ -540,37 +556,22 @@ def create_ass_with_font(srt_path: str, ass_path: str, lang_code: str = 'en') ->
         f.write(content)
 
 
-def create_combined_ass(subtitle_files: List[Tuple[str, str]], output_ass: str) -> None:
+def create_combined_ass(subtitle_files: List[Tuple[str, str]], output_ass: str, video_path: str = None) -> None:
     """
-    Create ASS file with one or multiple subtitle tracks
-    subtitle_files: List of (srt_path, lang_code) tuples
+    Create ASS file with one or multiple subtitle tracks.
+    Always creates a new ASS structure to ensure consistent styling and positioning.
     """
     if not subtitle_files:
         raise ValueError("No subtitle files provided")
     
-    # If only one subtitle, create it directly
-    if len(subtitle_files) == 1:
-        srt_path, lang_code = subtitle_files[0]
-        print(f"Creating single-language ASS: {output_ass}")
-        create_ass_with_font(srt_path, output_ass, lang_code)
-        
-        # Verify the font size in created file
-        with open(output_ass, 'r', encoding='utf-8') as f:
-            content = f.read()
-            style_match = re.search(r'Style: Default,([^,]+),(\d+)', content)
-            if style_match:
-                print(f"  ✓ Font: {style_match.group(1)}, Size: {style_match.group(2)}")
-        return
-    
-    # Multiple subtitles: create combined ASS
     print(f"Creating combined ASS with {len(subtitle_files)} languages")
     
     # First, ensure individual ASS files exist
     ass_files = []
     for srt_path, lang_code in subtitle_files:
         ass_path = srt_path.replace('.srt', '.ass')
-        if not os.path.exists(ass_path):
-            create_ass_with_font(srt_path, ass_path, lang_code)
+        # Always regenerate individual ASS to ensure latest settings/fixes
+        create_ass_with_font(srt_path, ass_path, lang_code)
         ass_files.append((ass_path, lang_code))
     
     # Write combined ASS
@@ -587,19 +588,37 @@ def create_combined_ass(subtitle_files: List[Tuple[str, str]], output_ass: str) 
         f.write("[V4+ Styles]\n")
         f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
         
+        # Fixed Vertical Positions Logic
+        current_margin = 30
+        
         for i, (_, lang_code) in enumerate(ass_files):
             lang_config = LANGUAGE_CONFIG.get(lang_code, LANGUAGE_CONFIG['en'])
             font_name = lang_config['font']
-            font_size = lang_config['font_size']
+            base_height = 1080
             
-            # Position: first at bottom, others stacked above
-            margin_v = 20 if i == 0 else 80 + (i - 1) * 60
+            # Font size logic
+            scale_factor = 2 if len(subtitle_files) > 1 else 3.5
+            calc_font_size = int((scale_factor / 100) * base_height)
+            if lang_code == 'fa':
+                calc_font_size = int(calc_font_size * 1.3)
             
-            style_line = f"Style: {lang_code.upper()},{font_name},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2.5,1,2,10,10,{margin_v},1\n"
-            f.write(style_line)
-            print(f"  ✓ {lang_code.upper()}: {font_name} size {font_size} at margin {margin_v}")
-        
-        # Events
+            font_size = lang_config['font_size'] if lang_config['font_size'] > 0 else calc_font_size
+            
+            # Colors
+            primary_color = "&H00FFFFFF" if i == 0 else "&H0000FFFF"
+
+            # Define Style with FIXED margin using helper
+            style_name = lang_code.upper()
+            style_line = get_ass_style(style_name, font_name, font_size, primary_color, current_margin)
+            
+            f.write(style_line + "\n")
+            print(f"  ✓ {style_name}: {font_name} size {font_size} at Fixed Margin {current_margin} (Boxed)")
+            
+            # Prepare next margin
+            # 1.5 factor ensures tight stacking (Font height + minimal gap)
+            current_margin += int(font_size * 1.5)
+
+        # Events Processing
         f.write("\n[Events]\n")
         f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
         
@@ -607,9 +626,11 @@ def create_combined_ass(subtitle_files: List[Tuple[str, str]], output_ass: str) 
             with open(ass_path, 'r', encoding='utf-8') as af:
                 content = af.read()
             
+            # Extract dialogues
             for line in re.findall(r"Dialogue: .*", content, re.MULTILINE):
                 parts = line.split(",", 9)
                 if len(parts) >= 10:
+                    # Enforce the specific style for this language
                     parts[3] = lang_code.upper()
                     f.write(",".join(parts) + "\n")
     
@@ -762,11 +783,53 @@ def extract_subtitles_from_srt(srt_path: str) -> List[Dict]:
 
 
 def write_srt_file(srt_path: str, entries: List[Dict]) -> None:
-    """Write subtitle entries to SRT file"""
+    """
+    Write subtitle entries to SRT file with smart splitting.
+    If a line is too long, it splits it into sequential time slots.
+    """
+    new_entries = []
+    
+    for entry in entries:
+        text = clean_subtitle_line(entry['text'])
+        
+        # Check strict length limit
+        parts = split_text_at_comma(text, max_chars=60)
+        
+        if len(parts) == 1:
+            new_entries.append({
+                'start': entry['start'],
+                'end': entry['end'],
+                'text': parts[0]
+            })
+        else:
+            # We need to split the TIME duration too
+            start_seconds = parse_srt_time(entry['start'])
+            end_seconds = parse_srt_time(entry['end'])
+            total_duration = end_seconds - start_seconds
+            
+            total_chars = sum(len(p) for p in parts)
+            current_start = start_seconds
+            
+            for part in parts:
+                part_duration = total_duration * (len(part) / total_chars)
+                # Ensure minimum duration of 1s unless very short
+                part_duration = max(part_duration, 1.0) if total_duration > 2.0 else part_duration
+                
+                # Cap at end time
+                current_end = min(current_start + part_duration, end_seconds)
+                
+                # Only add if valid duration
+                if current_end > current_start:
+                    new_entries.append({
+                        'start': format_time(current_start),
+                        'end': format_time(current_end),
+                        'text': part
+                    })
+                    current_start = current_end
+    
     with open(srt_path, 'w', encoding='utf-8') as f:
-        for i, entry in enumerate(entries, 1):
-            text = clean_subtitle_line(entry['text'])
-            f.write(f"{i}\n{entry['start']} --> {entry['end']}\n{text}\n\n")
+        for i, entry in enumerate(new_entries, 1):
+            f.write(f"{i}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
 
 
 def transcribe_video(video_path: str, model_size: str = 'medium', language: str = 'en', correct_with_api: bool = False, api_key: str = None) -> str:
@@ -959,20 +1022,6 @@ def process_video_subtitles(
             
             print(f"  ⚠️ Found {len(untranslated_indices)} untranslated lines. Resuming translation...")
             
-            # Prepare batches for failed lines
-            # We group consecutive indices for efficiency, or just send individual lines?
-            # Sending in small batches is better for context, but here we might have scattered lines.
-            # Let's process batch by batch as usual, but only for needed parts?
-            # Simpler approach: Iterate through batches of the WHOLE text, but only call API if the batch contains untranslated lines?
-            # Or better: Extract specific lines and translate them. The context might be missing if we only send one line.
-            # BUT `translate_with_deepseek` takes a list of strings. We can send a batch of "untranslated lines".
-            # The prompt asks to translate "these lines".
-            
-            # To preserve context, it's best to re-translate the surrounding block, but that's expensive.
-            # Let's just translate the missing lines in batches of 20.
-            
-            # We need to map back to original indices.
-            
             all_translations_map = {} # index -> new_translation
             
             batch_size = 10  # Reduced for stability
@@ -1009,9 +1058,6 @@ def process_video_subtitles(
             batch_translations = translate_with_deepseek(batch_texts, target_lang, api_key, source_lang)
             translations.extend(batch_translations)
             
-            # Save progress incrementally
-            # ...
-            
             time.sleep(1)  # Increased delay slightly
         
         # Write translated SRT
@@ -1023,16 +1069,21 @@ def process_video_subtitles(
         print(f"Created: {target_srt}")
         result_files[target_lang] = target_srt
     
+    # Step 3.5: Enforce splitting/formatting on ALL result files (new or existing)
+    print("\nEnforcing subtitle formatting (splitting long lines)...")
+    for lang_code, srt_path in result_files.items():
+        # Read, existing logic in write_srt_file handles the splitting
+        entries = extract_subtitles_from_srt(srt_path)
+        write_srt_file(srt_path, entries)
+
     # Step 4: Create ASS files
     print("\nCreating ASS subtitle files...")
     for lang_code, srt_path in result_files.items():
         ass_path = srt_path.replace('.srt', '.ass')
-        if not os.path.exists(ass_path) or force_transcribe:
-            create_ass_with_font(srt_path, ass_path, lang_code)
-            print(f"  Created: {ass_path}")
-        else:
-            print(f"  Using existing: {ass_path}")
-    
+        # Always regenerate ASS to ensure latest font/style settings are applied
+        create_ass_with_font(srt_path, ass_path, lang_code)
+        print(f"  Created/Updated: {ass_path}")
+
     # Step 5: Render video if requested
     if render:
         # Determine output filename
@@ -1051,7 +1102,7 @@ def process_video_subtitles(
             # Create combined ASS (works for both single and multiple languages)
             combined_ass = f"{base_path}_combined.ass"
             subtitle_files = [(srt, lang) for lang, srt in result_files.items()]
-            create_combined_ass(subtitle_files, combined_ass)
+            create_combined_ass(subtitle_files, combined_ass, video_path)
             
             render_video_with_subtitles(video_path, combined_ass, output_video)
             print(f"Created: {output_video}")
@@ -1104,8 +1155,8 @@ Examples:
     parser.add_argument(
         "-t", "--target",
         nargs='+',
-        default=['en'],
-        help=f"Target language code(s). Default: en. Available: {', '.join(LANGUAGE_CONFIG.keys())}"
+        default=['fa'],
+        help=f"Target language code(s). Default: fa. Available: {', '.join(LANGUAGE_CONFIG.keys())}"
     )
     parser.add_argument(
         "-m", "--model",
@@ -1177,8 +1228,7 @@ Examples:
             render=args.render,
             force_transcribe=args.force_transcribe,
             use_deepseek_transcribe=args.deepseek_transcribe,
-            # correct_transcription=not args.no_correction
-            correct_transcription=False
+            correct_transcription=not args.no_correction
         )
     except Exception as e:
         print(f"\nError: {e}")
