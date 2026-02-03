@@ -159,71 +159,6 @@ save_learning_data() {
     } > "$learning_file"
 }
 
-compress() {
-    if [[ -z "$1" || ! -f "$1" ]]; then
-        echo "❌ Error: File not found."
-        return 1
-    fi
-    
-    # Basic runtime checks
-    if ! command -v ffmpeg &> /dev/null || ! command -v bc &> /dev/null; then
-        echo "❌ Critical dependencies missing."
-        echo "💡 Please run the installer: ./install.sh"
-        return 1
-    fi
-    
-    local target_h=${2:-720}
-    local quality=${3:-60}
-    # Ensure width is even (essential for some codecs/filters)
-    # 480p -> 853.33 -> 853 (Odd!) -> Fix to 854
-    local target_w=$(( (target_h * 16 / 9 + 1) / 2 * 2 ))
-    local output="${1%.*}_${target_h}p_q${quality}.mp4"
-    
-    local input_size=$(ls -lh "$1" | awk '{print $5}')
-    local input_bytes=$(ls -l "$1" | awk '{print $5}')
-    local duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$1" 2>/dev/null)
-    local duration_seconds=${duration%.*}
-    local duration_formatted=$(printf '%02d:%02d:%02d' $(($duration_seconds/3600)) $(($duration_seconds%3600/60)) $(($duration_seconds%60)))
-    
-    # Hardware Detection
-    local cpu_info="Unknown"
-    local gpu_info="Unknown"
-    
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        cpu_info=$(sysctl -n machdep.cpu.brand_string 2>/dev/null)
-        gpu_info="Apple Silicon GPU"
-        [[ "$cpu_info" == *"Intel"* ]] && gpu_info="Intel GPU"
-    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        cpu_info=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)
-        gpu_info=$(lspci | grep -i vga | cut -d: -f3 | xargs 2>/dev/null || echo "Linux GPU")
-    else 
-        # Windows (Git Bash/WSL)
-        cpu_info="Windows CPU" 
-        gpu_info="Windows GPU"
-    fi
-    
-    load_learning_data
-    
-    local base_ratio=0.06
-    if [[ $input_bytes -gt 8589934592 ]]; then
-        base_ratio=0.047
-    elif [[ $input_bytes -gt 4294967296 ]]; then
-        base_ratio=0.052
-    elif [[ $input_bytes -gt 2147483648 ]]; then
-        base_ratio=0.062
-    else
-        base_ratio=0.072
-    fi
-    
-    local quality_factor=${quality_factors[$quality]:-1.0}
-    local speed_factor=${speed_factors[$quality]:-6}
-    local sample_count=${sample_counts[$quality]:-0}
-    
-    echo ""
-    echo "🎬 VIDEO COMPRESSION TOOL"
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    
 # Scientific Visual Width Calculation using Python unicodedata (Standard & Portable)
 get_visual_width() {
     python3 -c "import unicodedata, sys; s=sys.argv[1]; print(sum(2 if unicodedata.east_asian_width(c) in 'WF' else 0 if unicodedata.category(c) in ('Mn','Me','Cf') else 1 for c in s))" "$1"
@@ -257,6 +192,69 @@ pad_to_width() {
     fi
 }
 
+# --- Core Processor Function (Extracted for Batch Support) ---
+process_video() {
+    local input_file="$1"
+    local target_h="$2"
+    local quality="$3"
+
+    if [[ ! -f "$input_file" ]]; then
+        # Silent ignore for directories if they get here (shouldn't happen)
+        return
+    fi
+    
+    # Skip already compressed versions to prevent loops
+    if [[ "$input_file" == *"_${target_h}p_"* || "$input_file" == *"_compressed"* ]]; then
+        return
+    fi
+    
+    # Calculate target dimensions
+    local target_w=$(( (target_h * 16 / 9 + 1) / 2 * 2 ))
+    local output="${input_file%.*}_${target_h}p_q${quality}.mp4"
+    
+    if [[ -f "$output" ]]; then
+       echo "⏩ Skipping: $(basename "$input_file") (Output exists)"
+       return
+    fi
+
+    local input_size=$(ls -lh "$input_file" | awk '{print $5}')
+    local input_bytes=$(ls -l "$input_file" | awk '{print $5}')
+    local duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
+    
+    if [[ -z "$duration" ]]; then
+        echo "⚠️  Skipping: $(basename "$input_file") (Could not determine duration)"
+        return
+    fi
+
+    local duration_seconds=${duration%.*}
+    local duration_formatted=$(printf '%02d:%02d:%02d' $(($duration_seconds/3600)) $(($duration_seconds%3600/60)) $(($duration_seconds%60)))
+    
+    # Hardware Detection
+    local cpu_info="Unknown"
+    local gpu_info="Unknown"
+    
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        cpu_info=$(sysctl -n machdep.cpu.brand_string 2>/dev/null)
+        gpu_info="Apple Silicon GPU"
+        [[ "$cpu_info" == *"Intel"* ]] && gpu_info="Intel GPU"
+    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        cpu_info=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)
+        gpu_info=$(lspci | grep -i vga | cut -d: -f3 | xargs 2>/dev/null || echo "Linux GPU")
+    else 
+        # Windows (Git Bash/WSL)
+        cpu_info="Windows CPU" 
+        gpu_info="Windows GPU"
+    fi
+    
+    local quality_factor=${quality_factors[$quality]:-1.0}
+    local speed_factor=${speed_factors[$quality]:-6}
+    local sample_count=${sample_counts[$quality]:-0}
+    
+    echo ""
+    echo "🎬 PROCESSING: $(basename "$input_file")"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    
     local col_width=$(calculate_column_width 3 28 35)
     
     printf "┌%s┬%s┬%s┐\n" \
@@ -277,7 +275,7 @@ pad_to_width() {
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
     
     # Content Padding using standard unicode width
-    local t_file=$(pad_to_width "File: $(basename "$1")" $col_width)
+    local t_file=$(pad_to_width "File: $(basename "$input_file")" $col_width)
     local t_cpu=$(pad_to_width "CPU: $cpu_info" $col_width)
     local t_res=$(pad_to_width "Resolution: ${target_h}p" $col_width)
     
@@ -315,7 +313,7 @@ pad_to_width() {
         encoder="hevc_videotoolbox"
     elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_nvenc"; then
         encoder="hevc_nvenc"
-        tag_opt="" # NVENC handles tags differently often
+        tag_opt=""
     elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_amf"; then
         encoder="hevc_amf"
         tag_opt=""
@@ -327,17 +325,15 @@ pad_to_width() {
     # Windows/Linux fix for audio filters
     local audio_filter="aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo"
     
-    # Run ffmpeg with 'script' to force TTY behavior (prevents scrolling, fixes buffering)
-    # macOS 'script -q /dev/null' keeps logs single-line (\r) vs newline (\n)
+    # Execute ffmpeg
     if [[ "$OSTYPE" == "darwin"* ]]; then
-        script -q /dev/null ffmpeg -hide_banner -loglevel error -stats -nostdin -y -i "$1" \
+        script -q /dev/null ffmpeg -hide_banner -loglevel error -stats -nostdin -y -i "$input_file" \
         -vf "fps=25,scale=${target_w}:${target_h}:force_original_aspect_ratio=decrease,pad=${target_w}:${target_h}:(ow-iw)/2:(oh-ih)/2,setsar=1" \
         -c:v "$encoder" -q:v $quality $tag_opt \
         -af "$audio_filter" \
         -c:a aac -pix_fmt yuv420p -movflags +faststart "$output"
     else
-        # Linux/Windows fallback (standard execution)
-        ffmpeg -hide_banner -loglevel error -stats -nostdin -y -i "$1" \
+        ffmpeg -hide_banner -loglevel error -stats -nostdin -y -i "$input_file" \
         -vf "fps=25,scale=${target_w}:${target_h}:force_original_aspect_ratio=decrease,pad=${target_w}:${target_h}:(ow-iw)/2:(oh-ih)/2,setsar=1" \
         -c:v "$encoder" -q:v $quality $tag_opt \
         -af "$audio_filter" \
@@ -346,7 +342,7 @@ pad_to_width() {
     
     if [[ ! -f "$output" ]]; then
         echo "❌ Compression failed!"
-        return 1
+        return
     fi
     
     local end_time=$(date +%s)
@@ -373,7 +369,7 @@ pad_to_width() {
     save_learning_data
     
     echo ""
-    echo "✅ COMPRESSION COMPLETE"
+    echo "✅ COMPLETE: $(basename "$output")"
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
     
@@ -386,9 +382,9 @@ pad_to_width() {
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
     
     # Scientific Header Padding
-    local h_in=$(pad_to_width "� INPUT" $col_width)
+    local h_in=$(pad_to_width "📥 INPUT" $col_width)
     local h_out=$(pad_to_width "📤 OUTPUT" $col_width)
-    local h_perf=$(pad_to_width "� PERFORMANCE" $col_width)
+    local h_perf=$(pad_to_width "📊 PERFORMANCE" $col_width)
     local h_comp=$(pad_to_width "📈 COMPARISON" $col_width)
     
     printf "│ %s │ %s │ %s │ %s │\n" \
@@ -401,7 +397,7 @@ pad_to_width() {
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
     
     # Content Padding using standard unicode width
-    local t_in_file=$(pad_to_width "File: $(basename "$1")" $col_width)
+    local t_in_file=$(pad_to_width "File: $(basename "$input_file")" $col_width)
     local t_out_file=$(pad_to_width "File: $(basename "$output")" $col_width)
     local t_time=$(pad_to_width "Time: $total_elapsed_formatted" $col_width)
     local t_saved=$(pad_to_width "Reduction: ${percent_saved}%" $col_width)
@@ -424,6 +420,66 @@ pad_to_width() {
     
     echo ""
     echo "📍 Output: $(realpath "$output")"
+}
+
+compress() {
+    # If no arguments, show help
+    if [[ $# -eq 0 ]]; then
+        echo "Usage: amir compress <files|dirs...> [Resolution] [Quality]"
+        echo "Example: amir compress Video1.mp4 Video2.mp4 720 60"
+        echo "Batch:   amir compress ./Videos"
+        return 1
+    fi
+
+    # Basic runtime checks
+    if ! command -v ffmpeg &> /dev/null || ! command -v bc &> /dev/null; then
+        echo "❌ Critical dependencies missing."
+        echo "💡 Please run the installer: ./install.sh"
+        return 1
+    fi
+    
+    # Smart Argument Parsing
+    local inputs=()
+    local target_h=720
+    local quality=60
+    
+    for arg in "$@"; do
+        if [[ -f "$arg" || -d "$arg" ]]; then
+            inputs+=("$arg")
+        elif [[ "$arg" =~ ^[0-9]+$ ]]; then
+            if [[ "$arg" -le 100 ]]; then
+                quality="$arg"
+            else
+                target_h="$arg"
+            fi
+        else
+            # Try to treat unknown arg as input (might be a file pattern that didn't expand)
+             if [[ -f "$arg" || -d "$arg" ]]; then
+                 inputs+=("$arg")
+             fi
+        fi
+    done
+
+    if [[ ${#inputs[@]} -eq 0 ]]; then
+        echo "❌ No valid input files or directories found."
+        return 1
+    fi
+
+    load_learning_data
+
+    # Process all inputs
+    for input in "${inputs[@]}"; do
+        if [[ -f "$input" ]]; then
+            # Single File
+            process_video "$input" "$target_h" "$quality"
+        elif [[ -d "$input" ]]; then
+            # Directory (Batch)
+            echo "📦 Batch processing directory: $input"
+            find "$input" -maxdepth 1 -type f \( -name "*.mp4" -o -name "*.mov" -o -name "*.mkv" -o -name "*.MP4" -o -name "*.MOV" -o -name "*.MKV" \) | while read -r file; do
+                process_video "$file" "$target_h" "$quality"
+            done
+        fi
+    done
 }
 
 # --- Helper for Codec Info ---
