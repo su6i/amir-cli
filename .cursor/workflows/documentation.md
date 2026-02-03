@@ -46,4 +46,11 @@ description: Workflow for creating World-Class Documentation (README & Technical
 1. Update `usage` examples if flags changed.
 2. Update `tree` if files moved.
 3. Update `requirements.txt` / `pyproject.toml`.
-4. **Preserve Comments:** Do NOT delete `<!-- ACTION -->` or `<!-- NOTE -->` comments unless you have performed the action. They are vital for future maintainers.
+    4. **Preserve Comments:** Do NOT delete `<!-- ACTION -->` or `<!-- NOTE -->` comments unless you have performed the action. They are vital for future maintainers.
+
+## 4. The "Job Well Done" Protocol
+**Trigger:** User says "Good job", "Damet garm", "Nice", or "Kiss" (Positive Feedback).
+**Action (Mandatory):**
+1.  **Auto-Docs:** IMMEDIATELY update all relevant documentation (`README.md`, `TECHNICAL.md`, `task.md`) to reflect the latest changes.
+2.  **Auto-Commit:** Commit these documentation changes along with the code.
+3.  **Finish:** Only then consider the task truly complete.
