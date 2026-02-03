@@ -168,6 +168,9 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
 - **Whitespace Handling:** Uses literal `\u00A0` (Non-Breaking Space) and `xml:space="preserve"` to ensure `rsvg-convert` renders text spacing correctly.
 
 ### `compress` (Video)
+- **Unified Entry:** Single command handles single files, multiple files, and directories (Batch Mode).
+- **Batch Mode:** If a directory is passed (e.g., `amir compress ./Videos`), it automatically finds and processes all video files inside.
+- **Smart Arguments:** Allows flexible mixing of inputs (files/dirs) and settings (Resolution/Quality).
 - **Hardware Acceleration:** Auto-detects macOS Silicon (`videotoolbox`), NVIDIA (`nvenc`), or Intel (`qsv`) to speed up FFmpeg encoding.
 - **Quiet Progress:** Uses `script -q /dev/null` (macOS) to force pseudo-TTY allocation, allowing FFmpeg to print single-line progress updates (`\r`) without buffering or log spam.
 - **Table Alignment:** Uses Python's `unicodedata` library to strictly calculate visual string width (East Asian Width), properly handling zero-width combining characters (e.g., Variation Selectors). This ensures standard-compliant table alignment across Linux and macOS.
