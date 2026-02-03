@@ -74,8 +74,8 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir compress stats` | View AI learning statistics & compression history. |
 | `amir batch` | Batch compress all videos in the current folder. |
 | `amir mp3 <file>` | Extract high-quality MP3 audio from a video file. |
-| `amir img convert <svg> [format] [size]` | Convert SVG to PNG/JPG with optional resizing. |
-| `amir img resize <file> <size>` | Resize to fit (no crop). |
+| `amir img convert <svg> [fmt] [size]` | Convert SVG/Image to PNG/JPG. Supports **Animated SVGs** (bakes last frame). |
+| `amir img resize <file> <size> [circle]` | Resize. Optional `circle` crop (transparent corners). |
 | `amir img crop <file> <size> <g>` | Resize & Fill + Crop. `g`=1-9. |
 | `amir img pad <file> <size> [color]` | Resize & Fill with Color (Contain). |
 | `amir img extend <file> [opts]` | Extend image borders (custom/auto color). |
