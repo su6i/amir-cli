@@ -70,9 +70,8 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 ### 🎬 Multimedia
 | Command | Description |
 | :--- | :--- |
-| `amir compress <file>` | Smart video compression (auto-tuned settings). |
+| `amir compress <file/dir>` | Smart video compression. Supports **Batch Mode** (directories) & multiple files. |
 | `amir compress stats` | View AI learning statistics & compression history. |
-| `amir batch` | Batch compress all videos in the current folder. |
 | `amir mp3 <file>` | Extract high-quality MP3 audio from a video file. |
 | `amir img convert <svg> [fmt] [size]` | Convert SVG/Image to PNG/JPG. Supports **Animated SVGs** (bakes last frame). |
 | `amir img resize <file> <size> [circle]` | Resize. Optional `circle` crop (transparent corners). |
