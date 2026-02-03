@@ -242,10 +242,10 @@ truncate_text() {
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
     
     # Print emojis explicitly to avoid printf width miscalculation
-    # 📂 (2) + Space (1) = 3 chars prefix
-    # 🖥️ (2) + Space (2) = 4 chars prefix
-    # 🎯 (2) + Space (1) = 3 chars prefix
-    printf "│ 📂 %-$((col_width-3))s │ 🖥️  %-$((col_width-4))s │ 🎯 %-$((col_width-3))s │\n" \
+    # 📂 (2) + Space (1) = 3 chars prefix (Standard)
+    # 🖥️ (1) + Space (2) = 3 chars prefix (User Terminal Rendering)
+    # 🎯 (1) + Space (1) = 2 chars prefix (User Terminal Rendering)
+    printf "│ 📂 %-$((col_width-3))s │ 🖥️  %-$((col_width-3))s │ 🎯 %-$((col_width-2))s │\n" \
         "INPUT FILE" "HARDWARE" "SETTINGS"
     
     printf "├%s┼%s┼%s┤\n" \
@@ -362,8 +362,10 @@ truncate_text() {
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
     
-    # Print emojis explicitly to avoid printf width miscalculation (All have 1 space = 3 chars prefix)
-    printf "│ 📥 %-$((col_width-3))s │ 📤 %-$((col_width-3))s │ 📊 %-$((col_width-3))s │ 📈 %-$((col_width-3))s │\n" \
+    # Print emojis explicitly to avoid printf width miscalculation
+    # 📥/📤 (2) + Space (1) = 3 chars prefix (Standard)
+    # 📊/📈 (1) + Space (1) = 2 chars prefix (User Terminal Rendering)
+    printf "│ 📥 %-$((col_width-3))s │ 📤 %-$((col_width-3))s │ 📊 %-$((col_width-2))s │ 📈 %-$((col_width-2))s │\n" \
         "INPUT" "OUTPUT" "PERFORMANCE" "COMPARISON"
     
     printf "├%s┼%s┼%s┼%s┤\n" \
