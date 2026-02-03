@@ -71,8 +71,9 @@ _amir() {
                         # Previous was Resolution (e.g. 720, 1080) -> Suggest Quality next
                         _amir_qualities
                      else
-                        # Previous was Quality (e.g. 40, 60) -> Suggest Resolutions (if user wants to set it now)
-                        _amir_resolutions
+                        # Previous was Quality (e.g. 40, 60) -> We assume command is ready.
+                        # Stop suggesting Resolutions to prevent looping/confusion as requested.
+                        _message "✅ Ready to execute! (Press Enter)"
                      fi
                 else
                     # Previous was file (or other) -> Can add more files OR Start Resolution selection
