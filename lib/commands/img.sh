@@ -17,11 +17,18 @@ run_img() {
         return 1
     fi
 
-    # Helper: Process Size
+    # Helper: Process Size (with Presets)
     parse_size() {
         local size="$1"
-        if [[ ! "$size" == *"x"* ]]; then size="${size}x${size}"; fi
-        echo "$size"
+        case "$size" in
+            "yt-banner") echo "2560x1440" ;;
+            "yt-logo") echo "800x800" ;;
+            "yt-watermark") echo "150x150" ;;
+            *) 
+                if [[ ! "$size" == *"x"* ]]; then size="${size}x${size}"; fi
+                echo "$size"
+                ;;
+        esac
     }
 
     # Helper: Get standard gravity name
@@ -36,22 +43,69 @@ run_img() {
 
     # --- Subcommands ---
 
+    # Helper: Apply Circle Mask (Internal)
+    apply_circle_mask() {
+        local input="$1"
+        local size="$2"
+        local output="$3"
+        local bg_color="${4:-none}" # Default to none/transparent
+        
+        local width=$(echo $size | cut -dx -f1)
+        local height=$(echo $size | cut -dx -f2)
+
+        echo "🟣 Applying Circular Mask..."
+
+        if [[ "$cmd" == "sips" ]]; then
+             echo "⚠️ Sips does not support circular masking. Skipping."
+             cp "$input" "$output"
+        else
+            # Calculate coordinates for the circle
+            local cx=$((width / 2))
+            local cy=$((height / 2))
+            
+            # Method: Resize to Fill^ -> Extent to Square -> Draw Circle on alpha -> Composite
+            # Note: We apply input_cmd processing first
+            # Using 'magick' syntax flexibility if available, otherwise strict arguments
+            
+            if [[ "$bg_color" != "none" && "$bg_color" != "transparent" ]]; then
+                 $cmd -background "$bg_color" "$input" -flatten -resize "${width}x${height}^" -gravity center -extent "${width}x${height}" \
+                    \( +clone -threshold -1 -negate -fill white -draw "circle $cx,$cy $cx,0" \) \
+                    -alpha off -compose CopyOpacity -composite \
+                    "$output"
+            else
+                 $cmd "$input" -background none -resize "${width}x${height}^" -gravity center -extent "${width}x${height}" \
+                    \( +clone -threshold -1 -negate -fill white -draw "circle $cx,$cy $cx,0" \) \
+                    -alpha off -compose CopyOpacity -composite \
+                    "$output"
+            fi
+        fi
+    }
+
     do_resize() {
         local input="$1"
         local size=$(parse_size "$2")
+        local option="$3" # Optional: 'circle'
         local width=$(echo $size | cut -dx -f1)
         local height=$(echo $size | cut -dx -f2)
         local output="${input%.*}_resized_${width}x${height}.${input##*.}"
+        
+        # If circle, force png output for transparency
+        if [[ "$option" == "circle" ]]; then
+            output="${output%.*}.png"
+        fi
 
         if [[ -z "$input" || ! -f "$input" ]]; then echo "❌ File not found."; return 1; fi
         if [[ -z "$size" ]]; then echo "❌ Size required."; return 1; fi
 
-        echo "🖼  Resizing to fit $size..."
-        if [[ "$cmd" == "sips" ]]; then
-            sips -Z $width "$input" --out "$output" > /dev/null
+        if [[ "$option" == "circle" ]]; then
+            apply_circle_mask "$input" "$size" "$output"
         else
-            # Resize to FIT within box (no crop, no distortion)
-            $cmd "$input" -resize "${width}x${height}" "$output"
+            echo "🖼  Resizing to fit $size..."
+            if [[ "$cmd" == "sips" ]]; then
+                sips -Z $width "$input" --out "$output" > /dev/null
+            else
+                $cmd "$input" -resize "${width}x${height}" "$output"
+            fi
         fi
         echo "✅ Saved: $output"
     }
@@ -105,27 +159,117 @@ run_img() {
     }
     
     do_convert() {
+        # Parse Flags
+        local background="none"
+        local args=()
+        
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                -bg|--background)
+                    if [[ -n "$2" && "$2" != -* ]]; then
+                        background="$2"
+                        shift 2
+                    else
+                        echo "❌ Error: --background requires a color argument."
+                        return 1
+                    fi
+                    ;;
+                *)
+                    args+=("$1")
+                    shift
+                    ;;
+            esac
+        done
+        
+        # Restore positional args
+        set -- "${args[@]}"
+
         local input="$1"
         local format="${2:-png}"
-        local size="${3:-1024}"
+        local size_raw="${3:-1024}"
+        local option="$4" # Optional: 'circle'
+        local size=$(parse_size "$size_raw") # Parse presets!
         
         # Standardize format (remove dot)
         format="${format#.}"
         
         if [[ -z "$input" || ! -f "$input" ]]; then echo "❌ File not found."; return 1; fi
         
+        # Build Output Filename with Suffixes
+        local suffix=""
+        
+        # 1. Add Size
+        suffix="${suffix}_${size}"
+        
+        # 2. Add Background if set (and not transparent/none)
+        if [[ "$background" != "none" && "$background" != "transparent" ]]; then
+            # Clean hex code '#' for filename stability
+            local clean_bg="${background/\#/}"
+            suffix="${suffix}_bg-${clean_bg}"
+        fi
+        
+        # 3. Add Circle
+        if [[ "$option" == "circle" ]]; then
+            suffix="${suffix}_circle"
+        fi
+        
         # Construct output name
-        local output="${input%.*}.$format"
+        local output="${input%.*}${suffix}.$format"
         
-        echo "🔄 Converting to $format (Size: $size px)..."
+        # Overwrite Check
+        if [[ -f "$output" ]]; then
+            echo -n "⚠️  File '$output' already exists. Overwrite? (y/N): "
+            read -r ans
+            if [[ ! "$ans" =~ ^[Yy]$ ]]; then
+                echo "❌ Cancelled."
+                return 1
+            fi
+        fi
         
-        if [[ "$cmd" == "sips" ]]; then
-            # Sips limited support
-            sips -s format "$format" --resampleHeightWidthMax "$size" "$input" --out "$output" > /dev/null
+        # --- SVG Special Handling (Last Frame for Animated SVGs) ---
+        local ext="${input##*.}"
+        # Convert to lowercase safely (macOS default bash is 3.2, lacks ${var,,})
+        ext=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
+        if [[ "$ext" == "svg" ]]; then
+             # Check for animation keywords (CSS or SMIL)
+             if grep -q -E "<animate|@keyframes" "$input"; then
+                  echo "🎥 Animated SVG detected. Baking final frame (Static Processing)..."
+                  
+                  local temp_svg="${input%.*}_baked_static.svg"
+                  
+                  # 1. Bake Animation End-State using Python (No Browser)
+                  if python3 "$LIB_DIR/python/svg_bake.py" "$input" "$temp_svg"; then
+                       echo "✅ Animation baked successfully."
+                       input="$temp_svg" # Switch input to baked version
+                  else
+                       echo "⚠️  Static baking failed. Using original file."
+                  fi
+                  
+                  # Cleanup trap (ensure temp file is removed on exit/return)
+                  # Simple deferred removal logic for this block:
+                  # We will remove it after conversion at the end of function if it matches temp name
+             fi
+        fi
+        # -----------------------------------------------------------
+        
+        if [[ "$option" == "circle" ]]; then
+            apply_circle_mask "$input" "$size" "$output" "$background"
         else
-            # Magick: -background none (transparency support for PNG)
-            # -resize: geometry (width if just number)
-            $cmd -background none "$input" -resize "$size" "$output"
+            echo "🔄 Converting to $format (Size: $size px)..."
+            
+            if [[ "$cmd" == "sips" ]]; then
+                # Sips limited support
+                sips -s format "$format" --resampleHeightWidthMax "$size" "$input" --out "$output" > /dev/null
+            else
+                # Magick: Use parsed background (default: none)
+                # -resize: geometry (width if just number)
+                $cmd -background "$background" "$input" -resize "$size" "$output"
+            fi
+        fi
+        
+        # Cleanup baked file if it exists
+        if [[ "$input" == *"_baked_static.svg"* ]]; then
+            rm -f "$input"
         fi
         
         if [[ $? -eq 0 ]]; then
@@ -174,12 +318,16 @@ run_img() {
         fi
     else
         echo "Usage:"
-        echo "  amir img resize  <file> <size>         (Scale to fit, no crop)"
-        echo "  amir img crop    <file> <size> <g>     (Fill & Crop, g=1-9)"
-        echo "  amir img pad     <file> <size> [color] (Fit & Pad, def: white)"
-        echo "  amir img convert <file> [fmt] [size]   (Convert to png/jpg, def: 1024px)"
-        echo "  amir img extend  -i <file> [opts]      (Extend borders)"
-        echo "  amir img <file> <size> [g]             (Legacy / Smart detect)"
+        echo "  amir img resize  <file> <size|preset> [circle]   (Scale & opt. Circle Crop)"
+        echo "  amir img crop    <file> <size|preset> <g>        (Fill & Crop, g=1-9)"
+        echo "  amir img pad     <file> <size|preset> [color]    (Fit & Pad, def: white)"
+        echo "  amir img convert <file> [fmt] [size|preset] [circle] (Convert & opt. Circle)"
+        echo "  amir img extend  -i <file> [opts]                (Extend borders)"
+        echo ""
+        echo "Presets:"
+        echo "  yt-banner    : 2560x1440"
+        echo "  yt-logo      : 800x800"
+        echo "  yt-watermark : 150x150"
         return 1
     fi
 }
