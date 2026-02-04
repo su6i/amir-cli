@@ -118,28 +118,30 @@ run_pdf() {
         # Read the input file (handles PDF pages too)
         final_cmd+=("$img")
         
-        # Respect EXIF Orientation
-        final_cmd+=("-auto-orient")
-        
+        # Respect EXIF Orientation - FIRST step is normalizing geometry
+        final_cmd+=("-auto-orient" "+repage")
+
         # Apply Manual Rotation if requested
         if [[ "$rotate_angle" -ne 0 ]]; then
-             final_cmd+=("-rotate" "$rotate_angle")
+             final_cmd+=("-rotate" "$rotate_angle" "+repage")
         fi
         
         # Apply Rounding if requested
         if [[ "$radius" -gt 0 ]]; then
-            final_cmd+=("-alpha" "set")
+            final_cmd+=("-alpha" "on") # Ensure alpha channel exists
+            
+            # Create a separate, clean mask in memory
             final_cmd+=("(")
-            final_cmd+=("+clone" "-alpha" "transparent" "-background" "none")
-            final_cmd+=("-fill" "white" "-stroke" "none")
-            final_cmd+=("-draw" "roundrectangle 0,0 %[fx:w-1],%[fx:h-1] $radius,$radius")
+            final_cmd+=("+clone" "-alpha" "transparent") # Create blank transparent canvas of same size
+            final_cmd+=("-fill" "white" "-draw" "roundrectangle 0,0 %[fx:w-1],%[fx:h-1] $radius,$radius")
             final_cmd+=(")")
+            
+            # Apply mask to the image (DstIn keeps only what's inside the drawing)
             final_cmd+=("-compose" "DstIn" "-composite")
-            final_cmd+=("-compose" "Over") # Reset compose
         fi
         
-        # Flatten onto white (Removes transparency/black corners)
-        final_cmd+=("-background" "white" "-alpha" "remove" "-alpha" "off")
+        # Flatten onto white background (handles both alpha from rounding and original)
+        final_cmd+=("-compose" "Over" "-background" "white" "-flatten")
         
         # Resize & Border
         # Resize to fit within A4 width (minus margins) - roughly 2400px wide

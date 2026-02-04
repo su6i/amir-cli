@@ -5,6 +5,9 @@
 # Author: Su6i (Refactored)
 # ==============================================================================
 
+# Ensure standard paths (including Homebrew) are in PATH
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 # Get the absolute path of the script directory
 SOURCE="${BASH_SOURCE[0]}"
 while [ -h "$SOURCE" ]; do
