@@ -14,11 +14,27 @@ run_pdf() {
         fi
     fi
 
+    # Source Config
+    local SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local LIB_DIR="$(dirname "$SCRIPT_DIR")"
+    if [[ -f "$LIB_DIR/config.sh" ]]; then
+        source "$LIB_DIR/config.sh"
+        init_config
+    else
+        # Fallback if config.sh is missing
+        get_config() { echo "$3"; }
+    fi
+
     # 2. Argument Parsing
     local inputs=()
-    local output="output.pdf"
-    local round_corners=true  # Default: Round corners (Clean look)
-    local rotate_angle=0      # Default: No rotation
+    local output=""
+    # Load defaults from Config
+    local radius=$(get_config "pdf" "radius" "10")
+    local rotate_angle=$(get_config "pdf" "rotate" "0")
+    
+    # Ensure values are integers (simple validation)
+    [[ "$radius" =~ ^[0-9]+$ ]] || radius=10
+    [[ "$rotate_angle" =~ ^-?[0-9]+$ ]] || rotate_angle=0
     
     while [[ $# -gt 0 ]]; do
         key="$1"
@@ -28,12 +44,22 @@ run_pdf() {
                 shift; shift
                 ;;
             --no-round|--square)
-                round_corners=false
+                radius=0
                 shift
                 ;;
+            --radius)
+                radius="$2"
+                shift; shift
+                ;;
             -r|--rotate)
-                rotate_angle=90
-                shift
+                if [[ "$2" =~ ^-?[0-9]+$ ]]; then
+                    rotate_angle="$2"
+                    shift; shift
+                else
+                    # Fallback for old flag usage (toggle 90)
+                    rotate_angle=90
+                    shift
+                fi
                 ;;
             *)
                 if [[ -f "$1" ]]; then
@@ -47,41 +73,52 @@ run_pdf() {
     done
 
     if [[ ${#inputs[@]} -eq 0 ]]; then
-        echo "Usage: amir pdf <img1> [img2...] [-o output.pdf] [--no-round] [--rotate]"
-        echo "   Combines images into a single A4 page (Portrait)."
-        echo "   Defaults to rounded corners. Use --no-round for sharp edges."
-        echo "   Use --rotate (-r) to rotate images 90 degrees (e.g. fit landscape docs)."
+        echo "Usage: amir pdf <files...> [-o output.pdf] [--radius <px>] [-r <angle>]"
+        echo "   Combines images/PDFs into a single A4 page (Portrait)."
+        echo "   --radius <px> : Set corner radius (default 10). Use 0 or --no-round for square."
+        echo "   -r <angle>    : Rotate images by angle (e.g. 90)."
         return 1
     fi
     
     # Auto-name output if default and input exists
-    if [[ "$output" == "output.pdf" && -n "${inputs[0]}" ]]; then
+    if [[ -z "$output" && -n "${inputs[0]}" ]]; then
         local base=$(basename "${inputs[0]}")
         output="${base%.*}.pdf"
     fi
 
-    echo "📄 Composing ${#inputs[@]} image(s) into A4 PDF..."
-    if [[ "$round_corners" == "true" ]]; then
-        echo " Option: Rounding corners enabled."
+    # Overwrite Protection
+    if [[ -f "$output" ]]; then
+        echo -n "⚠️  File '$output' already exists. Overwrite? (y/N): "
+        read -r ans
+        if [[ ! "$ans" =~ ^[Yy]$ ]]; then
+            echo "❌ Cancelled."
+            return 1
+        fi
     fi
+
+    echo "📄 Composing ${#inputs[@]} file(s) into A4 PDF..."
     if [[ "$rotate_angle" -ne 0 ]]; then
-        echo "🔄 Option: Rotating images by ${rotate_angle}°."
+        echo "🔄 Option: Rotating inputs by ${rotate_angle}°."
+    fi
+    if [[ "$radius" -gt 0 ]]; then
+        echo "🎨 Option: Rounding corners (Radius: ${radius}px)."
     fi
     echo "🎯 Output: $output"
 
-    # 1. Delete old output to ensure fresh write.
-    rm -f "$output"
-
-    # Refactored Logic: Process each image individually to apply rounding mask correctly
+    # Refactored Logic: Process each file individually
+    # density 300 is critical for high-quality PDF reading/writing
     local final_cmd=()
+    final_cmd+=("-density" "300") 
     final_cmd+=("-size" "2480x3508" "xc:white")
     final_cmd+=("(")
     
     for img in "${inputs[@]}"; do
         final_cmd+=("(")
+        
+        # Read the input file (handles PDF pages too)
         final_cmd+=("$img")
         
-        # Respect EXIF Orientation (Fixes rotation issues from macOS Preview)
+        # Respect EXIF Orientation
         final_cmd+=("-auto-orient")
         
         # Apply Manual Rotation if requested
@@ -89,14 +126,13 @@ run_pdf() {
              final_cmd+=("-rotate" "$rotate_angle")
         fi
         
-        # Apply Rounding if requested (Draw Mask Method)
-        if [[ "$round_corners" == "true" ]]; then
+        # Apply Rounding if requested
+        if [[ "$radius" -gt 0 ]]; then
             final_cmd+=("-alpha" "set")
             final_cmd+=("(")
             final_cmd+=("+clone" "-alpha" "transparent" "-background" "none")
             final_cmd+=("-fill" "white" "-stroke" "none")
-            # Round with 10px radius (User Preference)
-            final_cmd+=("-draw" "roundrectangle 0,0 %[fx:w-1],%[fx:h-1] 10,10")
+            final_cmd+=("-draw" "roundrectangle 0,0 %[fx:w-1],%[fx:h-1] $radius,$radius")
             final_cmd+=(")")
             final_cmd+=("-compose" "DstIn" "-composite")
             final_cmd+=("-compose" "Over") # Reset compose
@@ -106,6 +142,7 @@ run_pdf() {
         final_cmd+=("-background" "white" "-alpha" "remove" "-alpha" "off")
         
         # Resize & Border
+        # Resize to fit within A4 width (minus margins) - roughly 2400px wide
         final_cmd+=("-resize" "2400x")
         final_cmd+=("-bordercolor" "white" "-border" "0x20")
         
@@ -118,7 +155,7 @@ run_pdf() {
     final_cmd+=(")") # End of process group
     
     final_cmd+=("-gravity" "center" "-composite")
-    final_cmd+=("-units" "PixelsPerInch" "-density" "300")
+    final_cmd+=("-units" "PixelsPerInch") # Ensure density metadata is correct
     final_cmd+=("$output")
 
     $cmd "${final_cmd[@]}"

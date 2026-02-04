@@ -286,12 +286,13 @@ _amir() {
             fi
             ;;
         pdf)
-            _arguments -s \
-                '*--no-round[Disable corner rounding (square corners)]' \
-                '*--square[Alias for --no-round]' \
-                '*--rotate[Rotate images 90 degrees (e.g. for landscape docs)]' \
-                '*-r[Alias for --rotate]' \
-                '*:Image file:_files -g "*.(jpg|jpeg|png|webp|JPG|JPEG|PNG|WEBP)"'
+            _arguments \
+                {-o,--output}'[Specify output file]:filename:_files' \
+                {-r,--rotate}'[Rotate images (degrees)]:angle' \
+                '--radius[Corner radius (px)]:pixels' \
+                '--no-round[Disable corner rounding]' \
+                '--square[Alias for --no-round]' \
+                '*:images:_files'
             ;;
         subtitle)
             case $((CURRENT)) in

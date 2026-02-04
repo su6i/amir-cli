@@ -178,15 +178,57 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
 
 ## ⚙️ Configuration & Storage
 
+### Centralized Configuration System
+
+Amir CLI implements a **global configuration system** via `~/.amir/config.yaml`. This allows users to customize default behaviors without modifying code.
+
+#### Architecture
+
+**`lib/config.sh`:**
+- Provides `get_config <section> <key> <default>` function
+- Uses `awk` for YAML parsing (no external dependencies)
+- Auto-creates `config.yaml` with sensible defaults on first run
+- Handles `~` expansion in file paths
+
+**Integration Pattern:**
+Each command sources `lib/config.sh` and reads defaults:
+```bash
+# Source Config
+local SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+local LIB_DIR="$(dirname "$SCRIPT_DIR")"
+if [[ -f "$LIB_DIR/config.sh" ]]; then
+    source "$LIB_DIR/config.sh"
+else
+    get_config() { echo "$3"; }  # Fallback
+fi
+
+# Read defaults
+local quality=$(get_config "compress" "quality" "60")
+```
+
+**Supported Commands:**
+- `pdf`: `radius`, `rotate`
+- `compress`: `resolution`, `quality`
+- `mp3`: `bitrate`
+- `img`: `default_size`
+- `qr`: `size`
+- `pass`: `length`
+- `weather`: `default_city`
+- `todo`: `file`
+- `short`: `provider`
+
 ### Storage Location
-By default, Amir CLI stores all its data (logs, stats, temp files) in:
+By default, Amir CLI stores all its data (logs, stats, config, temp files) in:
 - **`~/.amir/`** (Hidden directory in your User Home)
 
 This prevents home directory pollution. The structure is:
 ```text
 ~/.amir/
+├── config.yaml        # User configuration
 ├── learning_data      # AI stats for video compression
-└── (other configs)
+├── todo_list.txt      # Todo items
+├── chat_history.md    # AI chat logs
+└── code_history.md    # Code generation logs
 ```
 
 ### Customizing the Location

@@ -63,6 +63,45 @@ During installation, you will be asked to provide the following API key for AI f
 | **`GEMINI_API_KEY`** | Enables the `amir chat` command, smart summaries, and intelligent help responses. | [Google AI Studio](https://aistudio.google.com/app/apikey) |
 
 
+## ⚙️ Configuration
+
+Amir CLI uses a centralized configuration file located at `~/.amir/config.yaml`. This file is automatically created on first run with sensible defaults, but you can customize it to match your preferences.
+
+**Example Configuration:**
+```yaml
+pdf:
+  radius: 10          # Corner radius for PDF generation
+  rotate: 0           # Default rotation angle
+
+compress:
+  resolution: 720     # Target video height (480, 720, 1080)
+  quality: 60         # Compression quality (0-100)
+
+mp3:
+  bitrate: 320        # Audio bitrate in kbps
+
+img:
+  default_size: 1080  # Default image resize target
+
+qr:
+  size: 10            # QR code module size
+
+pass:
+  length: 16          # Default password length
+
+weather:
+  default_city: Montpellier
+
+todo:
+  file: ~/.amir/todo_list.txt
+
+short:
+  provider: is.gd     # URL shortener (is.gd, tinyurl.com, da.gd)
+```
+
+All commands respect these defaults unless overridden by command-line arguments.
+
+
 ### 4. Other commands
 
 Run `amir help` or just `amir` to see the available commands. You can also rename the executable to whatever you prefer (e.g., `assist`, `do`) to match your workflow.

@@ -2,6 +2,19 @@
 
 # We define compress at the top level so other scripts (like batch) can use it when sourced.
 
+# Source Configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$(dirname "$SCRIPT_DIR")"
+if [[ -f "$LIB_DIR/config.sh" ]]; then
+    source "$LIB_DIR/config.sh"
+    # We don't verify init_config here, we just use get_config if needed.
+    # Actually, we should ensure config exists if we are going to read it.
+    if type init_config &>/dev/null; then init_config; fi
+else
+    # Fallback
+    get_config() { echo "$3"; }
+fi
+
 stats() {
     local config_dir="${AMIR_CONFIG_DIR:-$HOME/.amir}"
     mkdir -p "$config_dir"
@@ -319,7 +332,7 @@ process_video() {
     local t_qual=$(pad_to_width "Quality: $quality/100" $col_width)
     
     local t_dur=$(pad_to_width "Duration: $duration_formatted" $col_width)
-    local t_enc=$(pad_to_width "Encoder: VideoToolbox" $col_width)
+    local t_enc=$(pad_to_width "Encoder: ${encoder}" $col_width)
     local t_audio=$(pad_to_width "Audio: AAC 44.1kHz" $col_width)
 
     printf "│ %s │ %s │ %s │\n" \
@@ -364,6 +377,7 @@ process_video() {
     if [[ "$OSTYPE" == "darwin"* ]]; then
         script -q /dev/null ffmpeg -hide_banner -loglevel error -stats -nostdin -y -i "$input_file" \
         -vf "fps=25,scale=${target_w}:${target_h}:force_original_aspect_ratio=decrease,pad=${target_w}:${target_h}:(ow-iw)/2:(oh-ih)/2,setsar=1" \
+        -sws_flags bilinear \
         -c:v "$encoder" -q:v $quality $tag_opt \
         -af "$audio_filter" \
         -c:a aac -pix_fmt yuv420p -movflags +faststart "$output"
@@ -475,8 +489,13 @@ compress() {
     
     # Smart Argument Parsing
     local inputs=()
-    local target_h=720
-    local quality=60
+    # Load defaults from Config
+    local target_h=$(get_config "compress" "resolution" "720")
+    local quality=$(get_config "compress" "quality" "60")
+    
+    # Validation for config values
+    [[ "$target_h" =~ ^[0-9]+$ ]] || target_h=720
+    [[ "$quality" =~ ^[0-9]+$ ]] || quality=60
     
     for arg in "$@"; do
         if [[ -f "$arg" || -d "$arg" ]]; then

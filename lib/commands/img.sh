@@ -1,6 +1,17 @@
 #!/bin/bash
 
 run_img() {
+    # Source Config
+    local SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local LIB_DIR="$(dirname "$SCRIPT_DIR")"
+    if [[ -f "$LIB_DIR/config.sh" ]]; then
+        source "$LIB_DIR/config.sh"
+    else
+        get_config() { echo "$3"; }
+    fi
+    
+    local DEFAULT_SIZE=$(get_config "img" "default_size" "1080")
+
     # Helper: Detect ImageMagick
     detect_magic() {
         if command -v magick &> /dev/null; then echo "magick"
@@ -83,7 +94,8 @@ run_img() {
 
     do_resize() {
         local input="$1"
-        local size=$(parse_size "$2")
+        local size_arg="${2:-$DEFAULT_SIZE}"
+        local size=$(parse_size "$size_arg")
         local option="$3" # Optional: 'circle'
         local width=$(echo $size | cut -dx -f1)
         local height=$(echo $size | cut -dx -f2)
@@ -186,7 +198,7 @@ run_img() {
 
         local input="$1"
         local format="${2:-png}"
-        local size_raw="${3:-1024}"
+        local size_raw="${3:-$DEFAULT_SIZE}"
         local option="$4" # Optional: 'circle'
         local size=$(parse_size "$size_raw") # Parse presets!
         
