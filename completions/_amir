@@ -163,6 +163,11 @@ _amir() {
                             '(-r --right)'{-r,--right}'[Right padding pixels]:pixels'
                         ;;
                 esac
+            elif [[ "$subcmd" == "round" ]]; then
+                 case $((CURRENT)) in
+                    4) _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" ;;
+                    5) _message "Corner Radius (px) [default: 20]" ;;
+                esac
             else
                 # Default / Legacy / Autocomplete selection
                 case $((CURRENT)) in
@@ -172,6 +177,7 @@ _amir() {
                             'resize:Simple resize (no crop)'
                             'crop:Resize and crop to fill'
                             'pad:Resize and fill background'
+                            'round:Round image corners (PNG)'
                             'extend:Extend image borders with custom color'
                             'convert:Convert image to png/jpg'
                          )

@@ -292,6 +292,48 @@ run_img() {
         fi
     }
 
+    do_round() {
+        local input="$1"
+        local radius="${2:-20}"
+        
+        if [[ -z "$input" || ! -f "$input" ]]; then echo "❌ File not found."; return 1; fi
+        
+        # Output filename: force png for transparency
+        local base="${input%.*}"
+        local output="${base}_rounded_${radius}px.png"
+        
+        # Validation for radius
+        if [[ ! "$radius" =~ ^[0-9]+$ ]]; then
+            echo "❌ Error: Radius must be an integer."
+            return 1
+        fi
+
+        echo "🎨 Rounding corners (Radius: ${radius}px)..."
+        
+        if [[ "$cmd" == "sips" ]]; then
+             echo "⚠️ Sips does not support corner rounding."
+             return 1
+        else
+            # Magick: Clean Canvas Masking Strategy
+            # 1. auto-orient + repage (Normalize)
+            # 2. Clone + Transparent Canvas + Draw White RoundRect (Mask creation)
+            # 3. DstIn Composite (Apply Mask)
+            $cmd "$input" \
+                -auto-orient +repage \
+                -format png -alpha on \
+                \( +clone -alpha transparent -fill white -draw "roundrectangle 0,0 %[fx:w-1],%[fx:h-1] $radius,$radius" \) \
+                -compose DstIn -composite \
+                "$output"
+        fi
+        
+        if [[ $? -eq 0 ]]; then
+            echo "✅ Saved: $output"
+        else
+            echo "❌ Rounding failed."
+            return 1
+        fi
+    }
+
     # --- Router ---
 
     local action="$1"
@@ -300,6 +342,8 @@ run_img() {
         shift; do_resize "$@"
     elif [[ "$action" == "crop" ]]; then
         shift; do_crop "$@"
+    elif [[ "$action" == "round" ]]; then
+        shift; do_round "$@"
     elif [[ "$action" == "pad" ]]; then
         shift; do_pad "$@"
     elif [[ "$action" == "convert" ]]; then
@@ -332,6 +376,7 @@ run_img() {
         echo "Usage:"
         echo "  amir img resize  <file> <size|preset> [circle]   (Scale & opt. Circle Crop)"
         echo "  amir img crop    <file> <size|preset> <g>        (Fill & Crop, g=1-9)"
+        echo "  amir img round   <file> [radius]                 (Round corners, def: 20px)"
         echo "  amir img pad     <file> <size|preset> [color]    (Fit & Pad, def: white)"
         echo "  amir img convert <file> [fmt] [size|preset] [circle] (Convert & opt. Circle)"
         echo "  amir img extend  -i <file> [opts]                (Extend borders)"
