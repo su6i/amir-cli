@@ -2,7 +2,7 @@
 
 # Define global variables used by chat/code
 # These were at the top of the original file
-BASE_DIR="$HOME/.su6i_scripts"
+BASE_DIR="$HOME/.amir"
 CHAT_LOG="$BASE_DIR/chat_history.md"
 CODE_LOG="$BASE_DIR/code_history.md"
 

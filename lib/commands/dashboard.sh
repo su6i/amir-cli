@@ -12,7 +12,19 @@ run_dashboard() {
 
         # ۲. لیست کارهای اخیر (TODOs)
         echo -e "\n\033[1;33m📝 Recent TODOs:\033[0m"
-        local todo_file="$HOME/.su6i_scripts/todo_list.txt"
+        
+        # Source Config
+        local SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        local LIB_DIR="$(dirname "$SCRIPT_DIR")"
+        if [[ -f "$LIB_DIR/config.sh" ]]; then
+            source "$LIB_DIR/config.sh"
+        else
+            get_config() { echo "$3"; }
+        fi
+        
+        local default_file="$HOME/.amir/todo_list.txt"
+        local todo_file=$(get_config "todo" "file" "$default_file")
+        todo_file="${todo_file/#\~/$HOME}"
         if [[ -f "$todo_file" ]]; then
             sed 's/ ([0-9][0-9]\/[0-9][0-9])//g' "$todo_file" | nl -w2 -s'. ' | sed 's/^/   / '
         else
