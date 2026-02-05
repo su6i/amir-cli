@@ -39,18 +39,20 @@ _amir() {
     case "${words[2]}" in
         
         pdf)
-            # PDF command: Uses standard argument parsing
-            # We use -s to allow stacking and standard option handling
-            # We filter matches to images/pdf to correctly prioritize flags on '-'
-            _arguments -s \
-                {-o,--output}'[Specify output file]:filename:_files' \
-                {-r,--rotate}'[Rotate images (degrees)]:angle' \
-                {-q,--quality}'[JPEG Quality (default: 60)]:quality (0-100)' \
-                '--resize[Resize percentage (default: 50)]:percentage' \
-                '--radius[Corner radius (px)]:pixels' \
-                '--no-round[Disable corner rounding]' \
-                '--square[Alias for --no-round]' \
-                '*:images:_files -g "*.(jpg|jpeg|png|webp|pdf|JPG|PNG|WEBP|PDF)"'
+            case $((CURRENT)) in
+                *)
+                    # PDF command: Uses standard argument parsing
+                    _arguments -s \
+                        {-o,--output}'[Specify output file]:filename:_files' \
+                        {-r,--rotate}'[Rotate images (degrees)]:angle' \
+                        {-q,--quality}'[JPEG Quality (default: 60)]:quality (0-100)' \
+                        '--resize[Resize percentage (default: 50)]:percentage' \
+                        '--radius[Corner radius (px)]:pixels' \
+                        '--no-round[Disable corner rounding]' \
+                        '--square[Alias for --no-round]' \
+                        '*:images:_files -g "*.(jpg|jpeg|png|webp|pdf|JPG|PNG|WEBP|PDF)"'
+                    ;;
+            esac
             ;;
 
         watermark)
