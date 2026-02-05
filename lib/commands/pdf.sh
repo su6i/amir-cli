@@ -202,6 +202,7 @@ run_pdf() {
         local compress_cmd=(
             "$output"
             "-resize" "${compression_resize}%"
+            "-define" "jpeg:sampling-factor=1x1" 
             "-compress" "jpeg"
             "-quality" "$compression_quality"
             "$output_compressed"
