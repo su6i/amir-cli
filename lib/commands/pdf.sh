@@ -144,9 +144,8 @@ run_pdf() {
              final_cmd+=("-rotate" "$rotate_angle" "+repage")
         fi
         
-        # Resize to fit A4 (2480x3508)
-        # Use simple center gravity extent
-        final_cmd+=("-resize" "2480x3508>" "-gravity" "center" "-background" "white" "-extent" "2480x3508")
+        # Resize to fit A4 (2480x3508) - No extent to prevent white page issues
+        final_cmd+=("-resize" "2480x3508>")
         final_cmd+=(")")
     done
     
