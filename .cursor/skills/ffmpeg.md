@@ -1,4 +1,4 @@
-# 🎥 FFmpeg & FFprobe Mastery: The Definitive Recipe Book
+# FFmpeg & FFprobe Technical Reference
 
 > [!IMPORTANT]
 > This guide documents the "Proven Recipes" used in Amir CLI.
