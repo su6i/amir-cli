@@ -1,21 +1,21 @@
 # FFmpeg & FFprobe Technical Reference
 
 > [!IMPORTANT]
-> This guide documents the "Proven Recipes" used in Amir CLI.
-> **Core Principle:** Always use `-hide_banner -loglevel error -stats` for clean, professional CLI output.
+> This document serves as a technical reference for FFmpeg operations used within the Amir CLI.
+> **Standard Flags:** `-hide_banner -loglevel error -stats` (Clean output).
 
-## 1. 🔍 FFprobe Analysis (The Surgeon's Knife)
-**Why:** Extraction of technical metadata without parsing JSON (faster/simpler).
+## 1. Metadata Analysis (FFprobe)
+**Purpose:** Efficiently extract technical metadata without full JSON parsing.
 
-### A. Get Exact Duration (Seconds)
+### A. Duration Extraction
+**Operation:** Get exact duration in seconds.
 ```bash
 DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$input")
-# Output: 145.2304
 ```
 
-### B. Get Resolution & Codec
+### B. Stream Analysis
+**Operation:** specific video stream properties (Codec, Resolution, Bitrate).
 ```bash
-# Returns wide format info (e.g. "h264, 1920, 1080, 2500 kb/s")
 ffprobe -v error -select_streams v:0 \
     -show_entries stream=codec_name,width,height,bit_rate \
     -of csv=p=0 "$input"
@@ -23,11 +23,11 @@ ffprobe -v error -select_streams v:0 \
 
 ---
 
-## 2. 📉 Video Compression (The "Smart" Way)
-**Protocol:** Use **CRF** (Constant Rate Factor) for quality control, not bitrate.
+## 2. Video Compression Strategy
+**Protocol:** Constant Rate Factor (CRF) for quality control.
 
-### A. Standard CPU Compression (H.264)
-**Best for:** Compatibility & Quality/Size balance.
+### A. CPU Encoding (H.264)
+**Target:** Compatibility and Archiving.
 ```bash
 ffmpeg -hide_banner -loglevel error -stats -y \
     -i "$input" \
@@ -36,23 +36,23 @@ ffmpeg -hide_banner -loglevel error -stats -y \
     -movflags +faststart \
     "$output"
 ```
-*   **`-crf 23`**: Default quality (Lower = Better). Range 18-28 is sane.
-*   **`-preset medium`**: Balance speed vs compression. Use `fast` for iteration, `veryslow` for archiving.
-*   **`-movflags +faststart`**: Optimizes MP4 for web streaming (moves metadata to start).
+*   **`-crf 23`**: Default quality index (18-28 range).
+*   **`-preset medium`**: Encoding speed/ratio balance.
+*   **`-movflags +faststart`**: Web-optimized atom placement.
 
-### B. Hardware Acceleration (macOS / Apple Silicon)
-**Best for:** Speed on Mac.
+### B. Hardware Acceleration (macOS)
+**Target:** Performance on Apple Silicon.
 ```bash
 ffmpeg ... -c:v h264_videotoolbox -b:v 2000k ...
 ```
-*Note: Hardware encoders usually use Bitrate (`-b:v`), not CRF.*
+*Note:* Hardware encoders typically require target bitrate rather than CRF.
 
 ---
 
-## 3. 🎧 Audio Operations
-**Why:** `amir mp3` implementation logic.
+## 3. Audio Operations
 
-### A. Extract Audio (MP3)
+### A. Extraction (MP3)
+**Operation:** Isolate audio stream.
 ```bash
 ffmpeg -hide_banner -loglevel error -stats -y \
     -i "$video_input" \
@@ -60,23 +60,22 @@ ffmpeg -hide_banner -loglevel error -stats -y \
     -c:a libmp3lame -b:a 320k \
     "$audio_output.mp3"
 ```
-*   **`-vn`**: "Video No" (Drop video stream).
-*   **`-b:a 320k`**: Highest quality MP3 bitrate.
+*   **`-vn`**: Disable video recording.
 
-### B. Remove Audio
+### B. Removal
+**Operation:** Strip audio track.
 ```bash
 ffmpeg -i "$input" -c copy -an "$output"
 ```
-*   **`-an`**: "Audio No".
-*   **`-c copy`**: No re-encoding (Instant).
+*   **`-an`**: Disable audio recording.
+*   **`-c copy`**: Stream copy (no re-encoding).
 
 ---
 
-## 4. 🎹 Subtitle Handling
-**Why:** Hardcoding subtitles (burning) vs Soft subs.
+## 4. Subtitle Management
 
-### A. Soft Subtitles (Embed)
-Adds subtitles as a selectable stream (toggleable).
+### A. Soft Subtitles (Container Stream)
+**Operation:** Embed subtitles as selectable track.
 ```bash
 ffmpeg -i "$video" -i "$subs.srt" \
     -c copy -c:s mov_text \
@@ -85,28 +84,28 @@ ffmpeg -i "$video" -i "$subs.srt" \
 ```
 
 ### B. Hard Subtitles (Burn-in)
-**Critical:** Requires re-encoding. Text becomes part of the image.
+**Operation:** Render text onto video frames.
+**Requirement:** Re-encoding.
 ```bash
 ffmpeg -i "$video" -vf "subtitles='$subs.srt':force_style='FontName=Arial,FontSize=24'" \
     -c:a copy \
     "$output"
 ```
-*Note: Special chars in filename must be escaped for the `subtitles` filter.*
 
 ---
 
-## 5. 🛠️ Useful Filters & Tricks
+## 5. Filters & Editing
 
-### A. Scale (Resize)
+### A. Scale
+**Operation:** Resize width/height.
 ```bash
-# Resize to 720p height, auto width (keep aspect ratio)
+# Set height to 720, auto-calculate width (divisible by 2)
 ffmpeg -i "$input" -vf "scale=-2:720" ...
 ```
-*   `scale=-2:720` ensures width is divisible by 2 (required by some encoders).
 
-### B. Cut/Trim
+### B. Trim
+**Operation:** Cut segment without re-encoding.
 ```bash
-# Keep from 00:01:00 to 00:02:30 (No re-encode)
 ffmpeg -ss 00:01:00 -to 00:02:30 -i "$input" -c copy "$output"
 ```
-*   **Tip:** Put `-ss` *before* `-i` for faster seeking.
+*Optimization:* Place `-ss` before `-i` for input seeking.
