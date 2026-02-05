@@ -334,6 +334,32 @@ run_img() {
         fi
     }
 
+    do_rotate() {
+        local input="$1"
+        local angle="$2"
+
+        if [[ -z "$input" || ! -f "$input" ]]; then echo "❌ File not found."; return 1; fi
+        if [[ -z "$angle" ]]; then echo "❌ Angle required (e.g. 90, -90)."; return 1; fi
+
+        local base="${input%.*}"
+        local output="${base}_rotated_${angle}.${input##*.}"
+
+        echo "🔄 Rotating image by ${angle} degrees..."
+
+        if [[ "$cmd" == "sips" ]]; then
+             sips -r "$angle" "$input" --out "$output" > /dev/null
+        else
+            $cmd "$input" -rotate "$angle" "$output"
+        fi
+
+        if [[ $? -eq 0 ]]; then
+            echo "✅ Saved: $output"
+        else
+            echo "❌ Rotation failed."
+            return 1
+        fi
+    }
+
     # --- Router ---
 
     local action="$1"
@@ -346,6 +372,8 @@ run_img() {
         shift; do_round "$@"
     elif [[ "$action" == "pad" ]]; then
         shift; do_pad "$@"
+    elif [[ "$action" == "rotate" ]]; then
+        shift; do_rotate "$@"
     elif [[ "$action" == "convert" ]]; then
         shift; do_convert "$@"
     elif [[ "$action" == "extend" ]]; then
@@ -377,6 +405,7 @@ run_img() {
         echo "  amir img resize  <file> <size|preset> [circle]   (Scale & opt. Circle Crop)"
         echo "  amir img crop    <file> <size|preset> <g>        (Fill & Crop, g=1-9)"
         echo "  amir img round   <file> [radius]                 (Round corners, def: 20px)"
+        echo "  amir img rotate  <file> <angle>                  (Rotate image)"
         echo "  amir img pad     <file> <size|preset> [color]    (Fit & Pad, def: white)"
         echo "  amir img convert <file> [fmt] [size|preset] [circle] (Convert & opt. Circle)"
         echo "  amir img extend  -i <file> [opts]                (Extend borders)"
