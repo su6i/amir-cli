@@ -198,10 +198,7 @@ run_pdf() {
              final_cmd+=("-resize" "2400x")
              final_cmd+=("-bordercolor" "white" "-border" "0x20")
         fi
-             # Collage: Resize to width, append later
-             final_cmd+=("-resize" "2400x")
-             final_cmd+=("-bordercolor" "white" "-border" "0x20")
-        fi
+
         
         final_cmd+=(")")
     done

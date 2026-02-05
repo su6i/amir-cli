@@ -377,29 +377,7 @@ process_video() {
     
     local start_time=$(date +%s)
     
-    # Encoder selection
-    local encoder="libx265"
-    local tag_opt="-tag:v hvc1"
-    
-    # Check available encoders
-    if ffmpeg -encoders 2>/dev/null | grep -q "hevc_videotoolbox"; then
-        encoder="hevc_videotoolbox"
-    elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_nvenc"; then
-        encoder="hevc_nvenc"
-        tag_opt=""
-    elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_amf"; then
-        encoder="hevc_amf"
-        tag_opt=""
-    elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_qsv"; then
-        encoder="hevc_qsv"
-        tag_opt=""
-    fi
-    
-    # Pre-calculate display name
-    local encoder_display="CPU (x265)"
-    [[ "$encoder" == "hevc_videotoolbox" ]] && encoder_display="Apple Silicon"
-    [[ "$encoder" == "hevc_nvenc" ]] && encoder_display="NVIDIA NVENC"
-    [[ "$encoder" == "hevc_qsv" ]] && encoder_display="Intel QSV"
+
     
     # Windows/Linux fix for audio filters
     local audio_filter="aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo"
