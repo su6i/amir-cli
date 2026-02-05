@@ -292,6 +292,9 @@ _amir() {
             fi
             ;;
         pdf)
+            # Use _arguments with standard option parsing (-s)
+            # Key fix: Do not mix positional files and options in a way that blocks options.
+            # Using standard -S (handle options anywhere) logic.
             _arguments -s \
                 {-o,--output}'[Specify output file]:filename:_files' \
                 {-r,--rotate}'[Rotate images (degrees)]:angle' \
@@ -300,7 +303,7 @@ _amir() {
                 '--radius[Corner radius (px)]:pixels' \
                 '--no-round[Disable corner rounding]' \
                 '--square[Alias for --no-round]' \
-                '*:images:_files'
+                '*:images:_files -g "*.(jpg|jpeg|png|webp|pdf|JPG|PNG|WEBP|PDF)"'
             ;;
         subtitle)
             case $((CURRENT)) in
