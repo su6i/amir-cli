@@ -118,19 +118,20 @@ run_pdf() {
     # Overwrite Protection
     local output_compressed="${output%.*}_compressed_q${compression_quality}.pdf"
 
-    # Overwrite Protection (Checks both Main and Compressed output)
-    if [[ -f "$output" || -f "$output_compressed" ]]; then
-        local msg="⚠️  Output files already exist:"
-        [[ -f "$output" ]] && msg+="\n    - $output"
-        [[ -f "$output_compressed" ]] && msg+="\n    - $output_compressed"
-        
-        echo -e "$msg"
-        echo -n "Overwrite? (y/N): "
-        read -r ans
-        if [[ ! "$ans" =~ ^[Yy]$ ]]; then
-            echo "❌ Cancelled."
-            return 1
-        fi
+    # Smart File Naming (Auto-increment if exists)
+    local base_output="${output%.*}"
+    local ext_output="${output##*.}"
+    local counter=1
+    
+    while [[ -f "$output" || -f "$output_compressed" ]]; do
+        output="${base_output}_${counter}.${ext_output}"
+        # Recalculate compressed name based on new output name
+        output_compressed="${output%.*}_compressed_q${compression_quality}.pdf"
+        ((counter++))
+    done
+    
+    if [[ $counter -gt 1 ]]; then
+        echo "⚠️  File exists. Saving as: $output"
     fi
 
     echo "📄 Composing ${#inputs[@]} file(s) into A4 PDF..."
