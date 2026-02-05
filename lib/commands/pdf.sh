@@ -29,14 +29,14 @@ run_pdf() {
     local inputs=()
     local output=""
     # Load defaults from Config
-    local compression_quality=$(get_config "pdf" "quality" "60")
-    local compression_resize=$(get_config "pdf" "resize" "50")
+    local compression_quality=$(get_config "pdf" "quality" "100")
+    local compression_resize=$(get_config "pdf" "resize" "100")
     
     # Ensure values are integers (simple validation)
     [[ "$radius" =~ ^[0-9]+$ ]] || radius=10
     [[ "$rotate_angle" =~ ^-?[0-9]+$ ]] || rotate_angle=0
-    [[ "$compression_quality" =~ ^[0-9]+$ ]] || compression_quality=60
-    [[ "$compression_resize" =~ ^[0-9]+$ ]] || compression_resize=50
+    [[ "$compression_quality" =~ ^[0-9]+$ ]] || compression_quality=100
+    [[ "$compression_resize" =~ ^[0-9]+$ ]] || compression_resize=100
     
     while [[ $# -gt 0 ]]; do
         key="$1"
@@ -87,8 +87,8 @@ run_pdf() {
         echo "   Combines images/PDFs into a single A4 page (Portrait)."
         echo "   --radius <px>    : Set corner radius (default 10)."
         echo "   -r <angle>       : Rotate images by angle (e.g. 90)."
-        echo "   -q <quality>     : JPEG Quality for compressed version (default 60)."
-        echo "   --resize <%>     : Resize percentage for compressed version (default 50)."
+        echo "   -q <quality>     : JPEG Quality for compressed version (default 100)."
+        echo "   --resize <%>     : Resize percentage for compressed version (default 100)."
         return 1
     fi
     
@@ -99,7 +99,7 @@ run_pdf() {
     fi
 
     # Overwrite Protection
-    local output_compressed="${output%.*}_compressed.pdf"
+    local output_compressed="${output%.*}_compressed_q${compression_quality}.pdf"
 
     # Overwrite Protection (Checks both Main and Compressed output)
     if [[ -f "$output" || -f "$output_compressed" ]]; then
