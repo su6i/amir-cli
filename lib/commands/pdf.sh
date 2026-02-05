@@ -38,7 +38,8 @@ run_pdf() {
     [[ "$compression_quality" =~ ^[0-9]+$ ]] || compression_quality=75
     [[ "$compression_resize" =~ ^[0-9]+$ ]] || compression_resize=75
     
-    local multi_page=false
+    local compression_resize=$(get_config "pdf" "resize" "75")
+    local do_deskew=false
     
     while [[ $# -gt 0 ]]; do
         key="$1"
@@ -75,6 +76,12 @@ run_pdf() {
                 ;;
             --pages|--merge)
                 multi_page=true
+            --pages|--merge)
+                multi_page=true
+                shift
+                ;;
+            --deskew|--straighten)
+                do_deskew=true
                 shift
                 ;;
             *)
@@ -96,6 +103,9 @@ run_pdf() {
         echo "   -q <quality>     : JPEG Quality for compressed version (default 75)."
         echo "   --resize <%>     : Resize percentage for compressed version (default 75)."
         echo "   --pages          : Create multi-page PDF (1 image per page) instead of collage."
+        echo "   --pages          : Create multi-page PDF (1 image per page) instead of collage."
+        echo "   --deskew         : Auto-straighten tilted scans (Deskew)."
+        echo "   --deskew         : Auto-straighten tilted scans (Deskew)."
         return 1
     fi
     
@@ -137,7 +147,14 @@ run_pdf() {
     for img in "${inputs[@]}"; do
         final_cmd+=("(")
         final_cmd+=("$img")
+        # Respect EXIF Orientation - FIRST step is normalizing geometry
         final_cmd+=("-auto-orient" "+repage")
+        
+        # Apply Deskew if requested (must be done before rotation/resize)
+        if [[ "$do_deskew" == "true" ]]; then
+             final_cmd+=("-deskew" "40%")
+             final_cmd+=("+repage")
+        fi
         
         # Apply Rotation
         if [[ "$rotate_angle" -ne 0 ]]; then
