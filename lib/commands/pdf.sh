@@ -200,6 +200,7 @@ run_pdf() {
         # Resize percent + JPEG Comp
         
         local compress_cmd=(
+            "-density" "300"
             "$output"
             "-resize" "${compression_resize}%"
             "-define" "jpeg:sampling-factor=1x1" 
