@@ -211,7 +211,7 @@ run_pdf() {
     final_cmd+=("-compress" "jpeg" "-quality" "100") 
     final_cmd+=("$output")
 
-    echo "CMD: $cmd ${final_cmd[@]}"
+
     $cmd "${final_cmd[@]}"
 
     if [[ $? -eq 0 ]]; then
