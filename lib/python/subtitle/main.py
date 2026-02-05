@@ -68,12 +68,22 @@ def load_api_key(config_file: str = '.config') -> str:
         os.path.expanduser('~/.config/amir/config'),     # XDG style
     ]
 
-    # 3. Search for config file
+    # 3. Search for config file and valid key
     found_config = None
     for path in search_paths:
         if os.path.exists(path):
-            found_config = path
-            break
+            config = configparser.ConfigParser()
+            try:
+                config.read(path)
+                if 'DEFAULT' in config and 'DEEPSEEK_API' in config['DEFAULT']:
+                    api_key = config['DEFAULT']['DEEPSEEK_API'].strip()
+                    if api_key and api_key != "REPLACE_WITH_YOUR_KEY" and api_key != "sk-your-key":
+                        return api_key
+            except Exception:
+                continue
+            # Store the first existing config even if invalid, for error reporting
+            if not found_config:
+                found_config = path
             
     if not found_config:
         # If no config found and no env var, raise error with helpful message
@@ -85,16 +95,7 @@ def load_api_key(config_file: str = '.config') -> str:
             "DEEPSEEK_API = your_key_here"
         )
     
-    config = configparser.ConfigParser()
-    config.read(found_config)
-    
-    if 'DEFAULT' in config and 'DEEPSEEK_API' in config['DEFAULT']:
-        api_key = config['DEFAULT']['DEEPSEEK_API'].strip()
-        if not api_key:
-            raise ValueError(f"DEEPSEEK_API key is empty in {found_config}!")
-        return api_key
-    
-    raise ValueError(f"DEEPSEEK_API not found in {found_config}!")
+    raise ValueError(f"DEEPSEEK_API not found or invalid in {found_config} (and other searched paths)!")
 
 
 def fix_persian_text(text: str) -> str:
@@ -694,9 +695,14 @@ def render_video_with_subtitles(video_path: str, ass_path: str, output_path: str
             output_path
         ], stderr=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True, bufsize=1)
         
-        # Track progress
+        # Track progress and capture error logs
         last_percent = 0
+        error_logs = []
         for line in process.stderr:
+            error_logs.append(line)
+            if len(error_logs) > 20:
+                error_logs.pop(0)
+                
             if 'out_time_ms=' in line:
                 try:
                     time_ms = int(line.split('=')[1].strip())
@@ -711,10 +717,14 @@ def render_video_with_subtitles(video_path: str, ass_path: str, output_path: str
                     pass
         
         process.wait()
-        print(f"\r  Encoding: 100% ✓")
         
         if process.returncode != 0:
-            raise RuntimeError(f"FFmpeg rendering failed")
+            print(f"\r  Encoding: Failed (Error code {process.returncode})")
+            print("FFmpeg Error Output:")
+            print("".join(error_logs))
+            raise RuntimeError(f"FFmpeg rendering failed. See output above.")
+            
+        print(f"\r  Encoding: 100% ✓")
             
     finally:
         # Cleanup temporary fixed ASS file
