@@ -124,3 +124,75 @@ magick "$output_file[1x1+0+0]" -format "%[pixel:p{0,0}]" info:
 **Issue:** Black artifacts in JPEG output.
 **Cause:** Missing background layer when converting transparent source.
 **Fix:** Apply `-background white -flatten`.
+
+---
+
+## 7. PDF Optimization Strategy (The "Sweet Spot")
+**Goal:** <1MB file size for A4 documents without blurry text.
+
+**1. Density is King:**
+Never read a PDF without `-density`. ImageMagick defaults to 72 DPI, killing text quality before processing begins.
+```bash
+# BAD
+magick input.pdf -resize 50% out.jpg
+
+# GOOD
+magick -density 300 input.pdf -resize 50% out.jpg
+```
+
+**2. The 75/75 Rule:**
+- **Resize 75%:** (225 DPI valid for screen/ebook).
+- **Quality 75:** (JPEG standard).
+- **Chroma:** `-define jpeg:sampling-factor=4:4:4` (Prevents red/blue text blur).
+- **Strip:** `-strip` (Removes huge EXIF blobs).
+
+**3. Compression Command:**
+```bash
+magick -density 300 "$source" \
+    -strip \
+    -resize 75% \
+    -define jpeg:sampling-factor=1x1 \
+    -compress jpeg \
+    -quality 75 \
+    "$output"
+```
+
+---
+
+## 8. Troubleshooting & Best Practices (Lessons Learned)
+
+### 🔴 The "White Page" / Blank Output Issue
+**Symptoms:** PDF output has correct file size (e.g., 7MB) but pages appear completely white or blank.
+**Common Causes:**
+1.  **Masking Complexity:** Using `-draw roundrectangle` with complex alpha compositing (`DstIn`) can sometimes mask the entire image if not handled perfectly.
+2.  **Extent vs. Flatten:** Using `-extent` on an image with an active alpha channel (from masking) *before* correctly flattening it can lead to the background covering the content.
+3.  **Over-Engineering:** Nesting multiple parentheses `( ( ... ) )` inside loops creates fragile command strings that are prone to "Unbalanced Parenthesis" errors.
+
+**✅ Solution (The "Safe" Path):**
+**Keep It Simple.** Avoid complex nesting for multi-page documents.
+```bash
+# BAD: Complex nesting, masking, and manual flattening per page
+magick \( input.jpg -resize ... \( +clone -draw ... \) -compose ... \) -extent ... output.pdf
+
+# GOOD: Simple Resize Pipeline
+magick input.jpg -resize "2480x3508>" -density 300 output.pdf
+```
+
+### 🔴 Unbalanced Parentheses
+**Symptoms:** `magick: unbalanced parenthesis` error.
+**Cause:** 
+-   Opening a parenthesis `(` inside a loop but failing to close it correctly in all logic branches.
+-   Duplicating `final_cmd+=("(")` lines during refactoring.
+**Fix:** 
+-   Count your parentheses. 
+-   Use linear command structures where possible.
+-   Avoid excessive nesting `( ( ) )` if a single simple chain works.
+
+### 🔴 Flattening Transparency
+**Legacy Method:** `-flatten` (Older, sometimes buggy with specific compose methods).
+**Modern Method:** `-alpha remove -alpha off`.
+**Why?** `-alpha remove` blends the image onto the current background color (white) and removes the alpha channel entirely, ensuring a solid opaque image.
+```bash
+# Robust Flattening
+magick input.png -background white -alpha remove -alpha off output.jpg
+```
