@@ -37,7 +37,21 @@ _amir() {
 
     # Step 2: Subcommand options
     case "${words[2]}" in
-        # (Existing cases...)
+        
+        pdf)
+            # PDF command: Uses standard argument parsing
+            # We use -s to allow stacking and standard option handling
+            # We filter matches to images/pdf to correctly prioritize flags on '-'
+            _arguments -s \
+                {-o,--output}'[Specify output file]:filename:_files' \
+                {-r,--rotate}'[Rotate images (degrees)]:angle' \
+                {-q,--quality}'[JPEG Quality (default: 60)]:quality (0-100)' \
+                '--resize[Resize percentage (default: 50)]:percentage' \
+                '--radius[Corner radius (px)]:pixels' \
+                '--no-round[Disable corner rounding]' \
+                '--square[Alias for --no-round]' \
+                '*:images:_files -g "*.(jpg|jpeg|png|webp|pdf|JPG|PNG|WEBP|PDF)"'
+            ;;
 
         watermark)
             if (( CURRENT >= 3 )); then
@@ -59,26 +73,15 @@ _amir() {
                 local prev="${words[CURRENT-1]}"
                 prev="${(Q)prev}" # Unquote special chars
                 
-                # logic: If previous arg was a number, user is likely typing next number (quality) or done.
-                # If previous arg was a Directory, switch to settings (STOP offering files to break loop).
-                # If previous arg was a File, offer more files OR settings.
-                
                 if [[ -d "$prev" ]]; then
-                    # Previous was directory -> Mode: Batch -> Expecting Resolution FIRST.
                     _amir_resolutions
                 elif [[ "$prev" =~ ^[0-9]+$ ]]; then
                      if [[ "$prev" -gt 100 ]]; then
-                        # Previous was Resolution (e.g. 720, 1080) -> Suggest Quality next
                         _amir_qualities
                      else
-                        # Previous was Quality (e.g. 40, 60) -> We assume command is ready.
-                        # Stop suggesting Resolutions to prevent looping/confusion as requested.
                         _message "✅ Ready to execute! (Press Enter)"
                      fi
                 else
-                    # Previous was file (or other) -> Can add more files OR Start Resolution selection
-                    # We hide Quality here to force "File -> Resolution -> Quality" flow for cleanliness, unless user skips Res.
-                    # But to keep it clean as requested:
                     _alternative \
                         'files:More Video Files:_files -g "*.(mp4|mov|mkv|avi|MP4|MOV|MKV|webm|WEBM)"' \
                         'resolutions:Resolution Options:_amir_resolutions'
@@ -89,11 +92,9 @@ _amir() {
         mp3)
             case $((CURRENT)) in
                 3)
-                    # Audio/video files (audio extraction)
                     _files -g "*.(mp4|mov|mkv|avi|mp3|wav|flac|m4a|MP3|WAV|FLAC|M4A)"
                     ;;
                 4)
-                    # Bitrate options
                     _amir_bitrates
                     ;;
             esac
@@ -134,18 +135,15 @@ _amir() {
                         ;;
                     6) _amir_img_sizes ;;
                     7|*) 
-                        # Check previous argument for context
                         if [[ "${words[CURRENT-1]}" == "-bg" || "${words[CURRENT-1]}" == "--background" ]]; then
                             _amir_bg_colors
                         else
-                            # Offer Flags/Options recursively
                             local -a convert_opts
                             convert_opts=(
                                 'circle:Circular crop output (PNG)'
                                 '-bg:Background Color (Default: Transparent)'
                                 '--background:Background Color (Default: Transparent)'
                             )
-                            # Passing the array name to _describe
                             _describe -t convert_opts 'option' convert_opts
                         fi
                         ;;
@@ -169,7 +167,6 @@ _amir() {
                     5) _message "Corner Radius (px) [default: 20]" ;;
                 esac
             else
-                # Default / Legacy / Autocomplete selection
                 case $((CURRENT)) in
                     3)
                          local -a img_actions
@@ -181,32 +178,23 @@ _amir() {
                             'extend:Extend image borders with custom color'
                             'convert:Convert image to png/jpg'
                          )
-                         # Show both subcommands and files (without _alternative nesting issues)
                          _describe -t img_actions "action" img_actions
                          ;;
-                    4)
-                        # Legacy size
-                         _amir_img_sizes
-                        ;;
-                    5)
-                        # Legacy Gravity
-                        _amir_img_gravity
-                        ;;
+                    4) _amir_img_sizes ;;
+                    5) _amir_img_gravity ;;
                 esac
             fi
             ;;
 
-
-        
         init-project)
              if (( CURRENT == 3 )); then
-                _files -/ # Directories only
+                _files -/ 
              fi
              ;;
 
         info|transfer|lock|unlock|clip)
             if (( CURRENT == 3 )); then
-                _files # Any files
+                _files 
             fi
             ;;
 
@@ -273,63 +261,38 @@ _amir() {
 
         chat)
             if (( CURRENT == 2 )); then
-                # Suggest history switch in the first argument
                 _arguments ': :(--history)'
             else
-                # Chat guide in subsequent arguments
                 _message "💬 Ask Gemini/Gemma anything..."
             fi
             ;;
 
         code)
             if (( CURRENT == 2 )); then
-                # Suggest history switch or file/clipboard selection
                 _arguments ': :(--history clip)'
                 _files
             else
-                # Coding guide
                 _message "💻 Describe the refactoring or logic you want..."
             fi
             ;;
-        pdf)
-            # Use _arguments with standard option parsing (-s)
-            # Key fix: Do not mix positional files and options in a way that blocks options.
-            # Using standard -S (handle options anywhere) logic.
-            _arguments -s \
-                {-o,--output}'[Specify output file]:filename:_files' \
-                {-r,--rotate}'[Rotate images (degrees)]:angle' \
-                {-q,--quality}'[JPEG Quality (default: 60)]:quality (0-100)' \
-                '--resize[Resize percentage (default: 50)]:percentage' \
-                '--radius[Corner radius (px)]:pixels' \
-                '--no-round[Disable corner rounding]' \
-                '--square[Alias for --no-round]' \
-                '*:images:_files -g "*.(jpg|jpeg|png|webp|pdf|JPG|PNG|WEBP|PDF)"'
-            ;;
+        
         subtitle)
             case $((CURRENT)) in
                 3)
-                    # 3: Video File
                     _files -g "*.(mp4|mov|mkv|avi|MP4|MOV|MKV|webm|WEBM)"
                     ;;
                 4|5)
-                    # 4: Suggest -s flag
-                    # 5: Suggest Source Lang (value of -s)
-                    # We only include -s here so user is guided to pick it first.
                     _arguments -s \
                         '1: : ' \
                         '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)'
                     ;;
                 6|7)
-                    # 6: Suggest -t flag (since -s is done)
-                    # 7: Suggest Target Lang (value of -t)
-                    # We include -s (so Zsh knows it's already there) and add -t.
                     _arguments -s \
                         '1: : ' \
                         '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)' \
                         '(-t --target)'{-t,--target}'[Target language code(s)]:target language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)'
                     ;;
                 8)
-                    # 8: Suggest -r flag
                     _arguments -s \
                         '1: : ' \
                         '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)' \
@@ -337,7 +300,6 @@ _amir() {
                         '(-r --render)'{-r,--render}'[Render video with embedded subtitles]'
                     ;;
                 *)
-                    # 9+: All options available
                     _arguments -s \
                         '1: : ' \
                         '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)' \
