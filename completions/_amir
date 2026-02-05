@@ -51,6 +51,8 @@ _amir() {
                         '--radius[Corner radius (px)]:pixels' \
                         '--no-round[Disable corner rounding]' \
                         '--square[Alias for --no-round]' \
+                        '--deskew[Auto-straighten tilted scans (40% tolerance)]' \
+                        '--straighten[Alias for --deskew]' \
                         '*:images:_files -g "*.(jpg|jpeg|png|webp|pdf|JPG|PNG|WEBP|PDF)"'
                     ;;
             esac
