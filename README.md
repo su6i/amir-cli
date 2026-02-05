@@ -118,7 +118,7 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir img pad <file> <size> [color]` | Resize & Fill with Color (Contain). |
 | `amir img extend <file> [opts]` | Extend image borders (custom/auto color). |
 | `amir img <file> <size> [g]` | Legacy mode (detects resize vs crop). |
-| `amir pdf <files> [opts]` | Merge images into A4 PDF (rounded). Opts: `--no-round`, `--rotate` (-r). |
+| `amir pdf <files> [opts]` | Merge images into A4 PDF. Dual output (HQ+XS). Opts: `-q`, `-r`, `--radius`. |
 | `amir watermark <file> [text]` | Add watermark to image (auto-saved or `-o output`). |
 | `amir subtitle <file> [opts]` | Generate multi-language subtitles. See [SUBTITLE.md](docs/SUBTITLE.md) for details. |
 | `amir info <file>` | Show detailed technical metadata for any file. |
