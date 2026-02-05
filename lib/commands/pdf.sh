@@ -211,8 +211,8 @@ run_pdf() {
         
         final_cmd+=("-gravity" "center" "-composite")
     else
-        # Multi-Page: Just end the sequence (Each item is now a full A4 image)
-        final_cmd+=(")")
+        # Multi-Page: Just end the sequence
+        :
     fi
     final_cmd+=("-units" "PixelsPerInch") # Ensure density metadata is correct
     # Ensure HQ file uses high-quality JPEG compression instead of raw/deflate to save space
