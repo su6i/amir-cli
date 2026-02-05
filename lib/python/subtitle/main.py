@@ -15,6 +15,12 @@ from typing import List, Dict, Tuple, Optional
 from pathlib import Path
 import time
 
+try:
+    import static_ffmpeg
+    static_ffmpeg.add_paths()
+except ImportError:
+    pass
+
 
 # Language configuration with native fonts
 LANGUAGE_CONFIG = {
