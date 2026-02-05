@@ -292,7 +292,7 @@ _amir() {
             fi
             ;;
         pdf)
-            _arguments \
+            _arguments -s \
                 {-o,--output}'[Specify output file]:filename:_files' \
                 {-r,--rotate}'[Rotate images (degrees)]:angle' \
                 {-q,--quality}'[JPEG Quality (default: 60)]:quality (0-100)' \
