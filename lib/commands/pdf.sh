@@ -145,27 +145,29 @@ run_pdf() {
     final_cmd+=("-density" "300")
     final_cmd+=("-units" "PixelsPerInch")
     
-    # Simple Loop: Add inputs and basic processing
+    # Process each image: Normalize -> Deskew -> Rotate -> Resize -> A4 Pad -> Flatten
     for img in "${inputs[@]}"; do
         final_cmd+=("(")
+        final_cmd+=("-density" "300")
         final_cmd+=("$img")
-        # Respect EXIF Orientation - FIRST step is normalizing geometry
         final_cmd+=("-auto-orient" "+repage")
         
-        # Apply Deskew if requested (must be done before rotation/resize)
         if [[ "$do_deskew" == "true" ]]; then
-             final_cmd+=("-deskew" "40%")
-             final_cmd+=("+repage")
+             final_cmd+=("-deskew" "40%" "+repage")
         fi
         
-        # Apply Rotation
         if [[ "$rotate_angle" -ne 0 ]]; then
              final_cmd+=("-rotate" "$rotate_angle" "+repage")
         fi
         
-        # Resize to fit A4 (2480x3508) and pad to exact A4 size
+        # Resize to fit A4 (2480x3508)
         final_cmd+=("-resize" "2480x3508>")
+        
+        # Standardize to A4 Canvas: Center and pad with white
         final_cmd+=("-background" "white" "-gravity" "center" "-extent" "2480x3508")
+        
+        # Principled Fix for "White Page": Blends any transparency/edges into the white background
+        final_cmd+=("-alpha" "remove" "-alpha" "off" "+repage")
         final_cmd+=(")")
     done
     
