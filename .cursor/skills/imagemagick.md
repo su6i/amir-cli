@@ -1,4 +1,4 @@
-# 🧙‍♂️ ImageMagick Mastery: The Definitive Recipe Book
+# ImageMagick Technical Reference
 
 > [!IMPORTANT]
 > This is a **Strict Technical Reference**. Do not guess. Use these proven recipes exactly as written.
