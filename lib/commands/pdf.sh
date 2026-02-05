@@ -141,22 +141,18 @@ run_pdf() {
     local final_cmd=()
     final_cmd+=("-density" "300") 
     
-    
     if [[ "$multi_page" == "false" ]]; then
         final_cmd+=("-size" "2480x3508" "xc:white")
-        final_cmd+=("(")
-    else
-        # Multi-Page: Start a sequence
         final_cmd+=("(")
     fi
     
     for img in "${inputs[@]}"; do
         final_cmd+=("(")
         
-        # In multi-page mode, we create a full A4 canvas for EACH image
+        # In multi-page mode, just start the image group
         if [[ "$multi_page" == "true" ]]; then
-            final_cmd+=("-size" "2480x3508" "xc:white")
-            final_cmd+=("(")
+            # No xc:white needed, we will use extent
+             :
         fi
         
         # Read the input file (handles PDF pages too)
@@ -190,13 +186,11 @@ run_pdf() {
         # Resize & Border or Fit to Page
         if [[ "$multi_page" == "true" ]]; then
              # Multi-Page: Resize to fit INSIDE A4 (leaving margin)
-             # 2400x3400 gives roughly 40-50px margin
              final_cmd+=("-resize" "2400x3400>")
-             final_cmd+=(")") # End Input Image
              
-             # Composite onto the A4 white canvas
-             final_cmd+=("-gravity" "center" "-composite")
-             final_cmd+=("+repage") # Finalize page geometry
+             # Use extent to center on A4 canvas (Simpler than composite)
+             final_cmd+=("-gravity" "center" "-background" "white" "-extent" "2480x3508")
+             final_cmd+=("+repage") 
         else
              # Collage: Resize to width, append later
              final_cmd+=("-resize" "2400x")
@@ -214,7 +208,8 @@ run_pdf() {
         
         final_cmd+=("-gravity" "center" "-composite")
     else
-        final_cmd+=(")") # End of process group (Multi-Page Sequence)
+        # Multi-Page: Nothing extra needed, we have a sequence of A4 images
+        :
     fi
     final_cmd+=("-units" "PixelsPerInch") # Ensure density metadata is correct
     # Ensure HQ file uses high-quality JPEG compression instead of raw/deflate to save space
