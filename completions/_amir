@@ -296,26 +296,26 @@ _amir() {
                 4|5)
                     _arguments -s \
                         '1: : ' \
-                        '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)'
+                        '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl mg)'
                     ;;
                 6|7)
                     _arguments -s \
                         '1: : ' \
-                        '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)' \
-                        '(-t --target)'{-t,--target}'[Target language code(s)]:target language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)'
+                        '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl mg)' \
+                        '(-t --target)'{-t,--target}'[Target language code(s)]:target language:(en fa ar es fr de it pt ru ja ko zh hi tr nl mg)'
                     ;;
                 8)
                     _arguments -s \
                         '1: : ' \
-                        '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)' \
-                        '(-t --target)'{-t,--target}'[Target language code(s)]:target language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)' \
+                        '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl mg)' \
+                        '(-t --target)'{-t,--target}'[Target language code(s)]:target language:(en fa ar es fr de it pt ru ja ko zh hi tr nl mg)' \
                         '(-r --render)'{-r,--render}'[Render video with embedded subtitles]'
                     ;;
                 *)
                     _arguments -s \
                         '1: : ' \
-                        '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)' \
-                        '(-t --target)'{-t,--target}'[Target language code(s)]:target language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)' \
+                        '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl mg)' \
+                        '(-t --target)'{-t,--target}'[Target language code(s)]:target language:(en fa ar es fr de it pt ru ja ko zh hi tr nl mg)' \
                         '(-m --model)'{-m,--model}'[Whisper model size]:model:(tiny base small medium large)' \
                         '(-r --render)'{-r,--render}'[Render video with embedded subtitles]' \
                         '--subtitle[Path to an existing subtitle file (SRT/ASS)]:subtitle file:_files -g "*.(srt|ass|SRT|ASS)"' \
