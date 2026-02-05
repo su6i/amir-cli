@@ -149,11 +149,7 @@ run_pdf() {
     for img in "${inputs[@]}"; do
         final_cmd+=("(")
         
-        if [[ "$multi_page" == "true" ]]; then
-            # Multi-Page: Start with a Fresh A4 Canvas for this page
-            final_cmd+=("-size" "2480x3508" "xc:white") 
-            final_cmd+=("(")
-        fi
+        final_cmd+=("(")
         
         # Read the input file (handles PDF pages too)
         final_cmd+=("$img")
@@ -188,10 +184,8 @@ run_pdf() {
         if [[ "$multi_page" == "true" ]]; then
              # Multi-Page: Resize to fit INSIDE A4 (leaving margin)
              final_cmd+=("-resize" "2400x3400>")
-             final_cmd+=(")") # End Input Image Processing
-             
-             # Composite processed image onto the local A4 Canvas
-             final_cmd+=("-gravity" "center" "-composite")
+             # Center on A4 white background using extent (Simpler, no nesting)
+             final_cmd+=("-gravity" "center" "-background" "white" "-extent" "2480x3508")
              final_cmd+=("+repage") 
         else
              # Collage: Resize to width, append later
