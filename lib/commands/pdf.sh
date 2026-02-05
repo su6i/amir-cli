@@ -182,6 +182,8 @@ run_pdf() {
     
     final_cmd+=("-gravity" "center" "-composite")
     final_cmd+=("-units" "PixelsPerInch") # Ensure density metadata is correct
+    # Ensure HQ file uses high-quality JPEG compression instead of raw/deflate to save space
+    final_cmd+=("-compress" "jpeg" "-quality" "100") 
     final_cmd+=("$output")
 
     $cmd "${final_cmd[@]}"
