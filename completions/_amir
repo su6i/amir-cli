@@ -295,6 +295,8 @@ _amir() {
             _arguments \
                 {-o,--output}'[Specify output file]:filename:_files' \
                 {-r,--rotate}'[Rotate images (degrees)]:angle' \
+                {-q,--quality}'[JPEG Quality (default: 60)]:quality (0-100)' \
+                '--resize[Resize percentage (default: 50)]:percentage' \
                 '--radius[Corner radius (px)]:pixels' \
                 '--no-round[Disable corner rounding]' \
                 '--square[Alias for --no-round]' \
