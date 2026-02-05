@@ -957,12 +957,40 @@ def process_video_subtitles(
     render: bool = False,
     force_transcribe: bool = False,
     use_deepseek_transcribe: bool = False,
-    correct_transcription: bool = True
+    correct_transcription: bool = True,
+    custom_subtitle: str = None
 ) -> Dict[str, str]:
     """
     Main processing function
     Returns dict of {lang_code: srt_path}
     """
+    # 0. Handle Custom Subtitle (Bypass generation)
+    if custom_subtitle:
+        if not os.path.exists(custom_subtitle):
+            raise FileNotFoundError(f"Custom subtitle file not found: {custom_subtitle}")
+        
+        print(f"  Using custom subtitle file: {custom_subtitle}")
+        
+        # Determine output path
+        video_name = os.path.splitext(os.path.basename(video_path))[0]
+        output_video = f"{video_name}_subtitled.mp4"
+        
+        # If it's an ASS file, use it directly
+        ext = os.path.splitext(custom_subtitle)[1].lower()
+        if ext == '.ass':
+            render_video_with_subtitles(video_path, custom_subtitle, output_video)
+            return {"custom": custom_subtitle}
+        
+        # If it's SRT, convert to ASS first to apply our formatting
+        final_ass = f"temp_custom_{int(time.time())}.ass"
+        try:
+            create_ass_with_font(custom_subtitle, final_ass, lang_code=source_lang)
+            render_video_with_subtitles(video_path, final_ass, output_video)
+        finally:
+            if os.path.exists(final_ass):
+                os.remove(final_ass)
+        
+        return {"custom": custom_subtitle}
     print(f"Processing video: {video_path}")
     print(f"Source language: {source_lang}")
     print(f"Target languages: {', '.join(target_langs)}\n")
@@ -1201,6 +1229,11 @@ Examples:
         help="Disable automatic transcription correction with DeepSeek"
     )
     parser.add_argument(
+        "--subtitle", "-sub",
+        type=str,
+        help="Path to an existing subtitle file (SRT/ASS) to burn into the video"
+    )
+    parser.add_argument(
         "-l", "--list-languages",
         action="store_true",
         help="List all supported languages"
@@ -1244,7 +1277,8 @@ Examples:
             render=args.render,
             force_transcribe=args.force_transcribe,
             use_deepseek_transcribe=args.deepseek_transcribe,
-            correct_transcription=not args.no_correction
+            correct_transcription=not args.no_correction,
+            custom_subtitle=args.subtitle
         )
     except Exception as e:
         print(f"\nError: {e}")

@@ -74,3 +74,21 @@ copy_to_clipboard() {
         echo "📋 (Clipboard not supported on this OS: $OSTYPE)"
     fi
 }
+
+# Helper to find the full-featured FFmpeg (with libass support)
+get_ffmpeg_path() {
+    local SUBTITLE_DIR="$SCRIPT_DIR/lib/python/subtitle"
+    
+    # Try using our projects local static-ffmpeg managed via uv
+    if [[ -d "$SUBTITLE_DIR" ]] && command -v uv &> /dev/null; then
+        # Use uv run to get the path from the python package we installed
+        local static_ffmpeg_path=$(uv run --project "$SUBTITLE_DIR" python -c "import static_ffmpeg; print(static_ffmpeg.get_ffmpeg_bin())" 2>/dev/null)
+        if [[ -X "$static_ffmpeg_path" ]]; then
+            echo "$static_ffmpeg_path"
+            return 0
+        fi
+    fi
+
+    # Fallback to system ffmpeg if nothing else found
+    which ffmpeg
+}

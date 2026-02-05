@@ -318,9 +318,11 @@ _amir() {
                         '(-t --target)'{-t,--target}'[Target language code(s)]:target language:(en fa ar es fr de it pt ru ja ko zh hi tr nl)' \
                         '(-m --model)'{-m,--model}'[Whisper model size]:model:(tiny base small medium large)' \
                         '(-r --render)'{-r,--render}'[Render video with embedded subtitles]' \
-                        '(-f --force-transcribe)'{-f,--force-transcribe}'[Force re-transcription]' \
-                        '--deepseek-transcribe[Use DeepSeek API for transcription]' \
+                        '--subtitle[Path to an existing subtitle file (SRT/ASS)]:subtitle file:_files -g "*.(srt|ass|SRT|ASS)"' \
+                        '--no-translate[Skip translation step]' \
                         '--no-correction[Disable automatic transcription correction]' \
+                        '--deepseek-transcribe[Use DeepSeek API for transcription]' \
+                        '(-f --force-transcribe)'{-f,--force-transcribe}'[Force re-transcription]' \
                         '(-l --list-languages)'{-l,--list-languages}'[List all supported languages]'
                     ;;
             esac
