@@ -31,10 +31,12 @@ run_pdf() {
     # Load defaults from Config
     local radius=$(get_config "pdf" "radius" "10")
     local rotate_angle=$(get_config "pdf" "rotate" "0")
+    local compression_quality=$(get_config "pdf" "quality" "60")
     
     # Ensure values are integers (simple validation)
     [[ "$radius" =~ ^[0-9]+$ ]] || radius=10
     [[ "$rotate_angle" =~ ^-?[0-9]+$ ]] || rotate_angle=0
+    [[ "$compression_quality" =~ ^[0-9]+$ ]] || compression_quality=60
     
     while [[ $# -gt 0 ]]; do
         key="$1"
@@ -61,6 +63,10 @@ run_pdf() {
                     shift
                 fi
                 ;;
+            -q|--quality)
+                compression_quality="$2"
+                shift; shift
+                ;;
             *)
                 if [[ -f "$1" ]]; then
                     inputs+=("$1")
@@ -73,10 +79,11 @@ run_pdf() {
     done
 
     if [[ ${#inputs[@]} -eq 0 ]]; then
-        echo "Usage: amir pdf <files...> [-o output.pdf] [--radius <px>] [-r <angle>]"
+        echo "Usage: amir pdf <files...> [-o output.pdf] [--radius <px>] [-r <angle>] [-q <quality>]"
         echo "   Combines images/PDFs into a single A4 page (Portrait)."
         echo "   --radius <px> : Set corner radius (default 10). Use 0 or --no-round for square."
         echo "   -r <angle>    : Rotate images by angle (e.g. 90)."
+        echo "   -q <quality>  : Set JPEG quality for compressed output (default 60)."
         return 1
     fi
     
@@ -163,7 +170,38 @@ run_pdf() {
     $cmd "${final_cmd[@]}"
 
     if [[ $? -eq 0 ]]; then
-        echo "✅ PDF Created Successfully!"
+        echo "✅ HQ PDF Created: $output"
+        
+        # ---------------------------------------------------------
+        # Post-Process: Generate Compressed Version
+        # ---------------------------------------------------------
+        local output_compressed="${output%.*}_compressed.pdf"
+        
+        echo "🗜️  Generating Compressed Version (Quality: ${compression_quality})..."
+        
+        # Optimization Strategy:
+        # 1. Resize to 50% (effectively 300 DPI -> 150 DPI)
+        # 2. Compress JPEG logic for internal bitmaps
+        
+        local compress_cmd=(
+            "$output"
+            "-resize" "50%"
+            "-compress" "jpeg"
+            "-quality" "$compression_quality"
+            "$output_compressed"
+        )
+        
+        $cmd "${compress_cmd[@]}"
+            
+        if [[ $? -eq 0 ]]; then
+            local size_hq=$(ls -lh "$output" | awk '{print $5}')
+            local size_lq=$(ls -lh "$output_compressed" | awk '{print $5}')
+            echo "✅ Compressed PDF Created: $output_compressed"
+            echo "📊 Stats: [HQ: $size_hq] ➡️  [LQ: $size_lq]"
+        else
+            echo "⚠️  Compression failed (HQ file preserved)."
+        fi
+        
     else
         echo "❌ PDF Creation Failed."
         return 1

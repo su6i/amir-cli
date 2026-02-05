@@ -176,6 +176,14 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
 - **Table Alignment:** Uses Python's `unicodedata` library to strictly calculate visual string width (East Asian Width), properly handling zero-width combining characters (e.g., Variation Selectors). This ensures standard-compliant table alignment across Linux and macOS.
 - **AI Stats:** Log file tracks compression ratios to optimal settings.
 
+### `pdf` (Document Construction)
+- **Problem:** Merging images into PDF often results in either huge file sizes (raw bitmaps) or poor quality.
+- **Dual Output Strategy:** Generates **two** files automatically to satisfy administrative needs:
+    1. **HQ (Master):** 300 DPI, full quality. Preserves rounding and alpha.
+    2. **Compressed (XS):** 150 DPI (50% resize), JPEG compressed (Quality 60). Ideal for email/upload limits.
+- **Clean Canvas Protocol:** Uses the robust masking technique (Clone -> Draw Mask -> Composite DstIn) to ensure perfect rounded corners even on images with existing offsets or transparency.
+- **Overwrite Protection:** Interactive check prevents accidental data loss.
+
 ## ⚙️ Configuration & Storage
 
 ### Centralized Configuration System
