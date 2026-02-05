@@ -142,6 +142,18 @@ case "$COMMAND" in
         shift
         if [[ -f "$LIB_DIR/commands/subtitle.sh" ]]; then source "$LIB_DIR/commands/subtitle.sh"; run_subtitle "$@"; exit $?; fi
         ;;
+
+    ffmpeg)
+        shift
+        FFMPEG_PATH=$(get_ffmpeg_path)
+        if [[ -x "$FFMPEG_PATH" ]]; then
+            "$FFMPEG_PATH" "$@"
+            exit $?
+        else
+            echo "❌ Error: Full-featured FFmpeg not found."
+            exit 1
+        fi
+        ;;
         
     help|--help|-h)
         if [[ -f "$LIB_DIR/commands/help.sh" ]]; then
