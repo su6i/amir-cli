@@ -128,89 +128,32 @@ run_pdf() {
     fi
 
     echo "📄 Composing ${#inputs[@]} file(s) into A4 PDF..."
-    if [[ "$rotate_angle" -ne 0 ]]; then
-        echo "🔄 Option: Rotating inputs by ${rotate_angle}°."
-    fi
-    if [[ "$radius" -gt 0 ]]; then
-        echo "🎨 Option: Rounding corners (Radius: ${radius}px)."
-    fi
-    echo "🎯 Output: $output"
+    echo " Output: $output"
 
-    # Refactored Logic: Process each file individually
-    # density 300 is critical for high-quality PDF reading/writing
     local final_cmd=()
-    final_cmd+=("-density" "300") 
+    final_cmd+=("-density" "300")
     
-    if [[ "$multi_page" == "false" ]]; then
-        final_cmd+=("-size" "2480x3508" "xc:white")
-        final_cmd+=("(")
-    fi
-    
+    # Simple Loop: Add inputs and basic processing
     for img in "${inputs[@]}"; do
         final_cmd+=("(")
-        
-        # Read the input file (handles PDF pages too)
         final_cmd+=("$img")
-        
-        # Respect EXIF Orientation - FIRST step is normalizing geometry
         final_cmd+=("-auto-orient" "+repage")
-
-        # Apply Manual Rotation if requested
+        
+        # Apply Rotation
         if [[ "$rotate_angle" -ne 0 ]]; then
              final_cmd+=("-rotate" "$rotate_angle" "+repage")
         fi
         
-        # Apply Rounding if requested
-        if [[ "$radius" -gt 0 ]]; then
-            final_cmd+=("-alpha" "on") # Ensure alpha channel exists
-            
-            # Create a separate, clean mask in memory
-            final_cmd+=("(")
-            final_cmd+=("+clone" "-alpha" "transparent") # Create blank transparent canvas of same size
-            final_cmd+=("-fill" "white" "-draw" "roundrectangle 0,0 %[fx:w-1],%[fx:h-1] $radius,$radius")
-            final_cmd+=(")")
-            
-            # Apply mask to the image (DstIn keeps only what's inside the drawing)
-            final_cmd+=("-compose" "DstIn" "-composite")
-        fi
-        
-        # Flatten onto white background (handles both alpha from rounding and original)
-        # Flatten onto white background (Modern approach: alpha remove)
-        final_cmd+=("-background" "white" "-alpha" "remove" "-alpha" "off")
-        
-        # Resize & Border or Fit to Page
-        if [[ "$multi_page" == "true" ]]; then
-             # Multi-Page: Resize to fit INSIDE A4 (leaving margin)
-             final_cmd+=("-resize" "2400x3400>")
-             # Center on A4 white background using extent (Simpler, no nesting)
-             final_cmd+=("-gravity" "center" "-background" "white" "-extent" "2480x3508")
-             final_cmd+=("+repage") 
-        else
-             # Collage: Resize to width, append later
-             final_cmd+=("-resize" "2400x")
-             final_cmd+=("-bordercolor" "white" "-border" "0x20")
-        fi
-
-        
+        # Resize to fit A4 (2480x3508)
+        # Use simple center gravity extent
+        final_cmd+=("-resize" "2480x3508>" "-gravity" "center" "-background" "white" "-extent" "2480x3508")
         final_cmd+=(")")
     done
     
-    # Layout & Output
-    if [[ "$multi_page" == "false" ]]; then
-        final_cmd+=("-background" "white" "-append" "+repage")
-        final_cmd+=("-resize" "2480x3508>" "+repage")
-        final_cmd+=(")") # End of process group (Collage Canvas)
-        
-        final_cmd+=("-gravity" "center" "-composite")
-    else
-        # Multi-Page: Just end the sequence
-        :
-    fi
-    final_cmd+=("-units" "PixelsPerInch") # Ensure density metadata is correct
-    # Ensure HQ file uses high-quality JPEG compression instead of raw/deflate to save space
+    # Output Settings
+    final_cmd+=("-units" "PixelsPerInch")
     final_cmd+=("-compress" "jpeg" "-quality" "100") 
     final_cmd+=("$output")
-
 
     $cmd "${final_cmd[@]}"
 
