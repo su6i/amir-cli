@@ -149,8 +149,6 @@ run_pdf() {
     for img in "${inputs[@]}"; do
         final_cmd+=("(")
         
-        final_cmd+=("(")
-        
         # Read the input file (handles PDF pages too)
         final_cmd+=("$img")
         
