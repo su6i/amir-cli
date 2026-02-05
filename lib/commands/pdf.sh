@@ -29,14 +29,14 @@ run_pdf() {
     local inputs=()
     local output=""
     # Load defaults from Config
-    local radius=$(get_config "pdf" "radius" "10")
-    local rotate_angle=$(get_config "pdf" "rotate" "0")
     local compression_quality=$(get_config "pdf" "quality" "60")
+    local compression_resize=$(get_config "pdf" "resize" "50")
     
     # Ensure values are integers (simple validation)
     [[ "$radius" =~ ^[0-9]+$ ]] || radius=10
     [[ "$rotate_angle" =~ ^-?[0-9]+$ ]] || rotate_angle=0
     [[ "$compression_quality" =~ ^[0-9]+$ ]] || compression_quality=60
+    [[ "$compression_resize" =~ ^[0-9]+$ ]] || compression_resize=50
     
     while [[ $# -gt 0 ]]; do
         key="$1"
@@ -67,6 +67,10 @@ run_pdf() {
                 compression_quality="$2"
                 shift; shift
                 ;;
+            --resize)
+                compression_resize="$2"
+                shift; shift
+                ;;
             *)
                 if [[ -f "$1" ]]; then
                     inputs+=("$1")
@@ -79,11 +83,12 @@ run_pdf() {
     done
 
     if [[ ${#inputs[@]} -eq 0 ]]; then
-        echo "Usage: amir pdf <files...> [-o output.pdf] [--radius <px>] [-r <angle>] [-q <quality>]"
+        echo "Usage: amir pdf <files...> [-o output.pdf] [options]"
         echo "   Combines images/PDFs into a single A4 page (Portrait)."
-        echo "   --radius <px> : Set corner radius (default 10). Use 0 or --no-round for square."
-        echo "   -r <angle>    : Rotate images by angle (e.g. 90)."
-        echo "   -q <quality>  : Set JPEG quality for compressed output (default 60)."
+        echo "   --radius <px>    : Set corner radius (default 10)."
+        echo "   -r <angle>       : Rotate images by angle (e.g. 90)."
+        echo "   -q <quality>     : JPEG Quality for compressed version (default 60)."
+        echo "   --resize <%>     : Resize percentage for compressed version (default 50)."
         return 1
     fi
     
@@ -94,8 +99,16 @@ run_pdf() {
     fi
 
     # Overwrite Protection
-    if [[ -f "$output" ]]; then
-        echo -n "⚠️  File '$output' already exists. Overwrite? (y/N): "
+    local output_compressed="${output%.*}_compressed.pdf"
+
+    # Overwrite Protection (Checks both Main and Compressed output)
+    if [[ -f "$output" || -f "$output_compressed" ]]; then
+        local msg="⚠️  Output files already exist:"
+        [[ -f "$output" ]] && msg+="\n    - $output"
+        [[ -f "$output_compressed" ]] && msg+="\n    - $output_compressed"
+        
+        echo -e "$msg"
+        echo -n "Overwrite? (y/N): "
         read -r ans
         if [[ ! "$ans" =~ ^[Yy]$ ]]; then
             echo "❌ Cancelled."
@@ -175,17 +188,16 @@ run_pdf() {
         # ---------------------------------------------------------
         # Post-Process: Generate Compressed Version
         # ---------------------------------------------------------
-        local output_compressed="${output%.*}_compressed.pdf"
+        # output_compressed defined above at start
         
-        echo "🗜️  Generating Compressed Version (Quality: ${compression_quality})..."
+        echo "🗜️  Generating Compressed Version (Resize: ${compression_resize}%, Quality: ${compression_quality})..."
         
         # Optimization Strategy:
-        # 1. Resize to 50% (effectively 300 DPI -> 150 DPI)
-        # 2. Compress JPEG logic for internal bitmaps
+        # Resize percent + JPEG Comp
         
         local compress_cmd=(
             "$output"
-            "-resize" "50%"
+            "-resize" "${compression_resize}%"
             "-compress" "jpeg"
             "-quality" "$compression_quality"
             "$output_compressed"
