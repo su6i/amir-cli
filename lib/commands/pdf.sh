@@ -95,7 +95,11 @@ run_pdf() {
     # Auto-name output if default and input exists
     if [[ -z "$output" && -n "${inputs[0]}" ]]; then
         local base=$(basename "${inputs[0]}")
-        output="${base%.*}.pdf"
+        local suffix=""
+        if [[ "$rotate_angle" -ne 0 ]]; then
+            suffix="_r${rotate_angle}"
+        fi
+        output="${base%.*}${suffix}.pdf"
     fi
 
     # Overwrite Protection
