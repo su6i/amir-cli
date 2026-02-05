@@ -39,7 +39,7 @@ run_pdf() {
     [[ "$compression_resize" =~ ^[0-9]+$ ]] || compression_resize=75
     
     local compression_resize=$(get_config "pdf" "resize" "75")
-    local do_deskew=false
+    local do_deskew=true
     
     while [[ $# -gt 0 ]]; do
         key="$1"
@@ -82,6 +82,10 @@ run_pdf() {
                 do_deskew=true
                 shift
                 ;;
+            --no-deskew|--no-straighten)
+                do_deskew=false
+                shift
+                ;;
             *)
                 if [[ -f "$1" ]]; then
                     inputs+=("$1")
@@ -101,7 +105,7 @@ run_pdf() {
         echo "   -q <quality>     : JPEG Quality for compressed version (default 75)."
         echo "   --resize <%>     : Resize percentage for compressed version (default 75)."
         echo "   --pages          : Create multi-page PDF (1 image per page) instead of collage."
-        echo "   --deskew         : Auto-straighten tilted scans (Deskew)."
+        echo "   --no-deskew      : Disable auto-straightening (Default: Deskew enabled)."
         return 1
     fi
     
