@@ -130,8 +130,7 @@ _amir() {
                     5) _amir_img_sizes ;;
                     6) _amir_colors ;;
                 esac
-                     6) _amir_colors ;;
-                esac
+
             elif [[ "$subcmd" == "rotate" ]]; then
                  case $((CURRENT)) in
                     4) _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" ;;
