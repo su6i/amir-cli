@@ -33,7 +33,7 @@ run_pdf() {
     local compression_resize=$(get_config "pdf" "resize" "75")
     
     # Ensure values are integers (simple validation)
-    [[ "$radius" =~ ^[0-9]+$ ]] || radius=10
+    [[ "$radius" =~ ^[0-9]+$ ]] || radius=0
     [[ "$rotate_angle" =~ ^-?[0-9]+$ ]] || rotate_angle=0
     [[ "$compression_quality" =~ ^[0-9]+$ ]] || compression_quality=75
     [[ "$compression_resize" =~ ^[0-9]+$ ]] || compression_resize=75
