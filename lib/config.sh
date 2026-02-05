@@ -1,3 +1,4 @@
+
 #!/bin/bash
 
 # Configuration File Path
@@ -36,7 +37,7 @@ get_config() {
             # Remove key: and leading whitespace
             sub(key":", "", $0)
             # Remove inline comments headers
-            sub(/#[^"']*$/, "", $0) 
+            sub(/#[^"'\''*]*$/, "", $0) 
             # Trim leading/trailing whitespace
             gsub(/^[ \t]+|[ \t]+$/, "", $0)
             print $0
