@@ -149,10 +149,10 @@ run_pdf() {
     for img in "${inputs[@]}"; do
         final_cmd+=("(")
         
-        # In multi-page mode, just start the image group
         if [[ "$multi_page" == "true" ]]; then
-            # No xc:white needed, we will use extent
-             :
+            # Multi-Page: Start with a Fresh A4 Canvas for this page
+            final_cmd+=("-size" "2480x3508" "xc:white") 
+            final_cmd+=("(")
         fi
         
         # Read the input file (handles PDF pages too)
@@ -184,14 +184,20 @@ run_pdf() {
         final_cmd+=("-compose" "Over" "-background" "white" "-flatten")
         
         # Resize & Border or Fit to Page
+        # Resize & Border or Fit to Page
         if [[ "$multi_page" == "true" ]]; then
              # Multi-Page: Resize to fit INSIDE A4 (leaving margin)
              final_cmd+=("-resize" "2400x3400>")
+             final_cmd+=(")") # End Input Image Processing
              
-             # Use extent to center on A4 canvas (Simpler than composite)
-             final_cmd+=("-gravity" "center" "-background" "white" "-extent" "2480x3508")
+             # Composite processed image onto the local A4 Canvas
+             final_cmd+=("-gravity" "center" "-composite")
              final_cmd+=("+repage") 
         else
+             # Collage: Resize to width, append later
+             final_cmd+=("-resize" "2400x")
+             final_cmd+=("-bordercolor" "white" "-border" "0x20")
+        fi
              # Collage: Resize to width, append later
              final_cmd+=("-resize" "2400x")
              final_cmd+=("-bordercolor" "white" "-border" "0x20")
@@ -208,14 +214,15 @@ run_pdf() {
         
         final_cmd+=("-gravity" "center" "-composite")
     else
-        # Multi-Page: Nothing extra needed, we have a sequence of A4 images
-        :
+        # Multi-Page: Just end the sequence (Each item is now a full A4 image)
+        final_cmd+=(")")
     fi
     final_cmd+=("-units" "PixelsPerInch") # Ensure density metadata is correct
     # Ensure HQ file uses high-quality JPEG compression instead of raw/deflate to save space
     final_cmd+=("-compress" "jpeg" "-quality" "100") 
     final_cmd+=("$output")
 
+    echo "CMD: $cmd ${final_cmd[@]}"
     $cmd "${final_cmd[@]}"
 
     if [[ $? -eq 0 ]]; then
