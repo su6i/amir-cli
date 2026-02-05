@@ -296,7 +296,32 @@ process_video() {
     
     local quality_factor=${quality_factors[$quality]:-1.0}
     local speed_factor=${speed_factors[$quality]:-6}
+    local speed_factor=${speed_factors[$quality]:-6}
     local sample_count=${sample_counts[$quality]:-0}
+    
+    # Encoder selection
+    local encoder="libx265"
+    local tag_opt="-tag:v hvc1"
+    
+    # Check available encoders
+    if ffmpeg -encoders 2>/dev/null | grep -q "hevc_videotoolbox"; then
+        encoder="hevc_videotoolbox"
+    elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_nvenc"; then
+        encoder="hevc_nvenc"
+        tag_opt=""
+    elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_amf"; then
+        encoder="hevc_amf"
+        tag_opt=""
+    elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_qsv"; then
+        encoder="hevc_qsv"
+        tag_opt=""
+    fi
+    
+    # Pre-calculate display name
+    local encoder_display="CPU (x265)"
+    [[ "$encoder" == "hevc_videotoolbox" ]] && encoder_display="Apple Silicon"
+    [[ "$encoder" == "hevc_nvenc" ]] && encoder_display="NVIDIA NVENC"
+    [[ "$encoder" == "hevc_qsv" ]] && encoder_display="Intel QSV"
     
     echo ""
     echo "🎬 PROCESSING: $(basename "$input_file")"
@@ -332,7 +357,7 @@ process_video() {
     local t_qual=$(pad_to_width "Quality: $quality/100" $col_width)
     
     local t_dur=$(pad_to_width "Duration: $duration_formatted" $col_width)
-    local t_enc=$(pad_to_width "Encoder: ${encoder}" $col_width)
+    local t_enc=$(pad_to_width "Encoder: ${encoder_display}" $col_width)
     local t_audio=$(pad_to_width "Audio: AAC 44.1kHz" $col_width)
 
     printf "│ %s │ %s │ %s │\n" \
@@ -369,6 +394,12 @@ process_video() {
         encoder="hevc_qsv"
         tag_opt=""
     fi
+    
+    # Pre-calculate display name
+    local encoder_display="CPU (x265)"
+    [[ "$encoder" == "hevc_videotoolbox" ]] && encoder_display="Apple Silicon"
+    [[ "$encoder" == "hevc_nvenc" ]] && encoder_display="NVIDIA NVENC"
+    [[ "$encoder" == "hevc_qsv" ]] && encoder_display="Intel QSV"
     
     # Windows/Linux fix for audio filters
     local audio_filter="aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo"
