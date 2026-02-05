@@ -175,9 +175,9 @@ run_pdf() {
         fi
         
         # Flatten onto white background (handles both alpha from rounding and original)
-        final_cmd+=("-compose" "Over" "-background" "white" "-flatten")
+        # Flatten onto white background (Modern approach: alpha remove)
+        final_cmd+=("-background" "white" "-alpha" "remove" "-alpha" "off")
         
-        # Resize & Border or Fit to Page
         # Resize & Border or Fit to Page
         if [[ "$multi_page" == "true" ]]; then
              # Multi-Page: Resize to fit INSIDE A4 (leaving margin)
