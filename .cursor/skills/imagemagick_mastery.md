@@ -92,3 +92,51 @@ Otherwise, transparent areas might turn black.
 ## 5. Performance Tips
 - use `mpr:{label}` (Memory Program Register) to store intermediate images in memory instead of temp files for complex chains.
 - Process explicitly: Load -> Manipulate -> Write.
+
+---
+
+## 6. Advanced Techniques from the Trenches
+
+### 🎨 Auto-Calculate Average Color
+Need to extend an image seamlessly? Calculate the average color of the entire image by scaling it down to a single pixel.
+
+```bash
+# Extract the Hex/RGBA color of the average pixel
+AUTO_BG=$(magick input.jpg -scale 1x1! -format "%[pixel:p{0,0}]" info:)
+# Result: srgb(255,255,255)
+```
+*Used in `amir img extend`.*
+
+### ✂️ Extending Canvas (Splice vs Extent)
+- **`-extent`**: Resizes the canvas. Good for padding to a fixed size (e.g., 1080x1080).
+- **`-splice`**: Inserts pixels (rows/columns). Good for adding a generic "border" or extra space at a specific edge.
+
+```bash
+# Add 100px red bar to the top
+magick input.jpg -background red -gravity North -splice 0x100 output.jpg
+```
+
+### 📄 High-Quality PDF Construction
+When converting images to PDF, density matters.
+- **Critical:** Set `-density 300` **BEFORE** reading the image to tell Magick "treat this as high-res".
+- **Sequence:**
+    1. `-density 300`
+    2. `-size A4` (or pixel equivalent `2480x3508`)
+    3. `xc:white` (create canvas)
+    4. Input images...
+
+```bash
+magick -density 300 -size 2480x3508 xc:white \
+    \( input.jpg -resize 2480x3508 \) \
+    -disterp none -compose Over -composite \
+    output.pdf
+```
+*Used in `amir pdf`.*
+
+### 🎭 Clone & Complex Chains
+The `(` ... `)` parenthesis syntax allows you to create "side-chains" or temporary images in memory.
+- `+clone`: Duplicates the last image in the stack.
+- `-delete 0`: Removes the original if you only need the processed clone.
+- `-swap 0,1`: Re-orders images for composition.
+
+**Pattern:** Load Base -> ( Clone -> Process -> turn into Mask ) -> Apply Mask.
