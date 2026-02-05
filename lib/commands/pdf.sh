@@ -76,8 +76,6 @@ run_pdf() {
                 ;;
             --pages|--merge)
                 multi_page=true
-            --pages|--merge)
-                multi_page=true
                 shift
                 ;;
             --deskew|--straighten)
