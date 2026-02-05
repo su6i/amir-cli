@@ -47,6 +47,7 @@ _amir() {
                         {-r,--rotate}'[Rotate images (degrees)]:angle' \
                         {-q,--quality}'[JPEG Quality (default: 60)]:quality (0-100)' \
                         '--resize[Resize percentage (default: 50)]:percentage' \
+                        '--pages[Create multi-page PDF (1 image per page) instead of collage]' \
                         '--radius[Corner radius (px)]:pixels' \
                         '--no-round[Disable corner rounding]' \
                         '--square[Alias for --no-round]' \

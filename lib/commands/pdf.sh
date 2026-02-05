@@ -38,6 +38,8 @@ run_pdf() {
     [[ "$compression_quality" =~ ^[0-9]+$ ]] || compression_quality=75
     [[ "$compression_resize" =~ ^[0-9]+$ ]] || compression_resize=75
     
+    local multi_page=false
+    
     while [[ $# -gt 0 ]]; do
         key="$1"
         case $key in
@@ -71,6 +73,10 @@ run_pdf() {
                 compression_resize="$2"
                 shift; shift
                 ;;
+            --pages|--merge)
+                multi_page=true
+                shift
+                ;;
             *)
                 if [[ -f "$1" ]]; then
                     inputs+=("$1")
@@ -89,6 +95,7 @@ run_pdf() {
         echo "   -r <angle>       : Rotate images by angle (e.g. 90)."
         echo "   -q <quality>     : JPEG Quality for compressed version (default 75)."
         echo "   --resize <%>     : Resize percentage for compressed version (default 75)."
+        echo "   --pages          : Create multi-page PDF (1 image per page) instead of collage."
         return 1
     fi
     
@@ -133,11 +140,24 @@ run_pdf() {
     # density 300 is critical for high-quality PDF reading/writing
     local final_cmd=()
     final_cmd+=("-density" "300") 
-    final_cmd+=("-size" "2480x3508" "xc:white")
-    final_cmd+=("(")
+    
+    
+    if [[ "$multi_page" == "false" ]]; then
+        final_cmd+=("-size" "2480x3508" "xc:white")
+        final_cmd+=("(")
+    else
+        # Multi-Page: Start a sequence
+        final_cmd+=("(")
+    fi
     
     for img in "${inputs[@]}"; do
         final_cmd+=("(")
+        
+        # In multi-page mode, we create a full A4 canvas for EACH image
+        if [[ "$multi_page" == "true" ]]; then
+            final_cmd+=("-size" "2480x3508" "xc:white")
+            final_cmd+=("(")
+        fi
         
         # Read the input file (handles PDF pages too)
         final_cmd+=("$img")
@@ -167,20 +187,35 @@ run_pdf() {
         # Flatten onto white background (handles both alpha from rounding and original)
         final_cmd+=("-compose" "Over" "-background" "white" "-flatten")
         
-        # Resize & Border
-        # Resize to fit within A4 width (minus margins) - roughly 2400px wide
-        final_cmd+=("-resize" "2400x")
-        final_cmd+=("-bordercolor" "white" "-border" "0x20")
+        # Resize & Border or Fit to Page
+        if [[ "$multi_page" == "true" ]]; then
+             # Multi-Page: Resize to fit INSIDE A4 (leaving margin)
+             # 2400x3400 gives roughly 40-50px margin
+             final_cmd+=("-resize" "2400x3400>")
+             final_cmd+=(")") # End Input Image
+             
+             # Composite onto the A4 white canvas
+             final_cmd+=("-gravity" "center" "-composite")
+             final_cmd+=("+repage") # Finalize page geometry
+        else
+             # Collage: Resize to width, append later
+             final_cmd+=("-resize" "2400x")
+             final_cmd+=("-bordercolor" "white" "-border" "0x20")
+        fi
         
         final_cmd+=(")")
     done
     
     # Layout & Output
-    final_cmd+=("-background" "white" "-append" "+repage")
-    final_cmd+=("-resize" "2480x3508>" "+repage")
-    final_cmd+=(")") # End of process group
-    
-    final_cmd+=("-gravity" "center" "-composite")
+    if [[ "$multi_page" == "false" ]]; then
+        final_cmd+=("-background" "white" "-append" "+repage")
+        final_cmd+=("-resize" "2480x3508>" "+repage")
+        final_cmd+=(")") # End of process group (Collage Canvas)
+        
+        final_cmd+=("-gravity" "center" "-composite")
+    else
+        final_cmd+=(")") # End of process group (Multi-Page Sequence)
+    fi
     final_cmd+=("-units" "PixelsPerInch") # Ensure density metadata is correct
     # Ensure HQ file uses high-quality JPEG compression instead of raw/deflate to save space
     final_cmd+=("-compress" "jpeg" "-quality" "100") 
