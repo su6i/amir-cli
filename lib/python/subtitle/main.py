@@ -685,7 +685,7 @@ def render_video_with_subtitles(video_path: str, ass_path: str, output_path: str
         # Start FFmpeg
         process = subprocess.Popen([
             'ffmpeg', '-y', '-i', video_path,
-            '-vf', f'ass={fixed_ass}',
+            '-vf', f"ass=filename='{fixed_ass}'",
             '-c:a', 'copy',
             '-c:v', 'libx264',
             '-preset', 'medium',
