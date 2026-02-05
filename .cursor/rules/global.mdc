@@ -41,5 +41,11 @@ You are strictly bound by the defined Workflows. You simply CANNOT execute a tas
     - Output files must use **Scientific/Functional** names (e.g., `LeakyReLU_PReLU_Comparative_Analysis.csv`).
     - **Banned:** Promotional/Marketing names (e.g., `awesome_chart.png` or `super_fast_algo.py`).
 
+## 6. Strict Language Protocol
+**Rule:** Use **ONLY** scientific/technical vocabulary.
+- **Banned Words:** "Mastery", "Ultimate", "Recipe Book", "Golden Rules", "Magic", "Super", "Awesome".
+- **Required Tone:** Objective, dry, descriptive, and precise.
+- **Scope:** Applies to ALL documentation content and ALL filenames.
+
 ---
 *If you find yourself guessing, STOP and read the Workflows.*
