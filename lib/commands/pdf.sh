@@ -29,13 +29,13 @@ run_pdf() {
     local inputs=()
     local output=""
     # Load defaults from Config
-    local compression_quality=$(get_config "pdf" "quality" "75")
+    local compression_quality=$(get_config "pdf" "quality" "100")
     local compression_resize=$(get_config "pdf" "resize" "100")
     
     # Ensure values are integers (simple validation)
     [[ "$radius" =~ ^[0-9]+$ ]] || radius=10
     [[ "$rotate_angle" =~ ^-?[0-9]+$ ]] || rotate_angle=0
-    [[ "$compression_quality" =~ ^[0-9]+$ ]] || compression_quality=75
+    [[ "$compression_quality" =~ ^[0-9]+$ ]] || compression_quality=100
     [[ "$compression_resize" =~ ^[0-9]+$ ]] || compression_resize=100
     
     while [[ $# -gt 0 ]]; do
@@ -87,8 +87,8 @@ run_pdf() {
         echo "   Combines images/PDFs into a single A4 page (Portrait)."
         echo "   --radius <px>    : Set corner radius (default 10)."
         echo "   -r <angle>       : Rotate images by angle (e.g. 90)."
-        echo "   -q <quality>     : JPEG Quality for compressed version (default 75)."
-        echo "   --resize <%>     : Resize percentage for compressed version (default 100)."
+        echo "   -q <quality>     : JPEG Quality for compressed version (default 100)."
+        echo "   --resize <%>     : Resize percentage for compressed version (default 50)."
         return 1
     fi
     
