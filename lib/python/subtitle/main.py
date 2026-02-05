@@ -39,6 +39,7 @@ LANGUAGE_CONFIG = {
     'hi': {'name': 'Hindi', 'font': 'Mangal', 'font_size': 0, 'rtl': False},
     'tr': {'name': 'Turkish', 'font': 'Arial', 'font_size': 0, 'rtl': False},
     'nl': {'name': 'Dutch', 'font': 'Arial', 'font_size': 0, 'rtl': False},
+    'mg': {'name': 'Malagasy', 'font': 'Arial', 'font_size': 0, 'rtl': False},
 }
 
 
