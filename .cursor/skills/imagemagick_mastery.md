@@ -42,31 +42,63 @@ AVERAGE_COLOR=$(magick "$input" -scale 1x1! -format "%[pixel:p{0,0}]" info:)
 
 ---
 
-## 4. ✂️ Canvas Extension Patterns
+## 4. 🛠️ Amir CLI Operation Recipes
+These recipes map directly to `amir img` subcommands.
 
-### A. Extent (Padding to Fixed Size)
-**Use Case:** Fit an image into a 1080x1080 square with white background.
+### A. `resize` (Simple Scale)
+**Goal:** Resize image to fit within dimensions, preserving aspect ratio.
 ```bash
-magick "$input" \
-    -auto-orient +repage \
-    -resize "1080x1080" \
-    -background white -gravity center -extent "1080x1080" \
+magick "$input" -auto-orient +repage -resize "${width}x${height}" "$output"
+```
+
+### B. `crop` (Fill & Cut)
+**Goal:** Fill the dimensions completely (zoom) and crop the excess (center or gravity).
+**Technique:** Resize to *Fill* (`^`) then Extent.
+```bash
+# Variables: $width, $height, $gravity (e.g., Center, NorthWest)
+magick "$input" -auto-orient +repage \
+    -resize "${width}x${height}^" \
+    -gravity "$gravity" -extent "${width}x${height}" \
     "$output"
 ```
 
-### B. Splice (Adding Borders)
-**Use Case:** Add a 100px bar to the Top or Bottom.
+### C. `pad` (Fit & Box)
+**Goal:** Fit image inside dimensions and fill the rest with a background color.
+**Technique:** Resize to *Fit* then Extent.
 ```bash
-# Top Border
-magick "$input" -background white -gravity North -splice 0x100 "$output"
+# Variables: $bg_color (default: white)
+magick "$input" -auto-orient +repage \
+    -resize "${width}x${height}" \
+    -background "$bg_color" -gravity center -extent "${width}x${height}" \
+    "$output"
+```
 
-# Right Border
-magick "$input" -background white -gravity East -splice 100x0 "$output"
+### D. `convert` (Format Change)
+**Goal:** Change file format (e.g., SVG/WEBP to PNG/JPG).
+**Critical:** Flatten transparency if saving to JPG.
+```bash
+# To PNG (Supports Transparency)
+magick "$input" -auto-orient +repage "$output.png"
+
+# To JPG (Needs Flattening)
+magick "$input" -auto-orient +repage -background white -flatten "$output.jpg"
 ```
 
 ---
 
-## 5. 📄 High-Fidelity PDF Generation
+## 5. ✂️ Advanced Canvas Operations
+
+### E. `extend` (Add Borders)
+**Goal:** Add pixels to specific sides (Top/Bottom/Left/Right).
+**Technique:** Use `-splice` (inserts pixels).
+```bash
+# Add 100px bar to Top
+magick "$input" -auto-orient +repage -background "$color" -gravity North -splice 0x100 "$output"
+```
+
+---
+
+## 6. 📄 High-Fidelity PDF Generation
 **Problem:** Default conversions are low-res or wrong page size.
 **Solution:** Set density *before* reading, define page size, and composite over white.
 
