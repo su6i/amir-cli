@@ -177,12 +177,19 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
 - **AI Stats:** Log file tracks compression ratios to optimal settings.
 
 ### `pdf` (Document Construction)
-- **Problem:** Merging images into PDF often results in either huge file sizes (raw bitmaps) or poor quality.
+- **Problem:** Merging images into PDF often results in either huge file sizes (raw bitmaps) or poor quality (blurry text).
 - **Dual Output Strategy:** Generates **two** files automatically to satisfy administrative needs:
-    1. **HQ (Master):** 300 DPI, full quality. Preserves rounding and alpha.
-    2. **Compressed (XS):** 150 DPI (50% resize), JPEG compressed (Quality 60). Ideal for email/upload limits.
-- **Clean Canvas Protocol:** Uses the robust masking technique (Clone -> Draw Mask -> Composite DstIn) to ensure perfect rounded corners even on images with existing offsets or transparency.
-- **Overwrite Protection:** Interactive check prevents accidental data loss.
+    1. **HQ (Master):** 
+        - 300 DPI (Archive/Print safe).
+        - Uses `-compress jpeg -quality 100` to avoid raw bitmap bloat (13MB -> 4MB).
+        - Preserves rounding and alpha.
+    2. **Compressed (XS):** 
+        - Optimized for <1MB file size (Email/Admin upload safe).
+        - **Density Fix:** Explicitly reads HQ input at `-density 300` to prevent ImageMagick from reading at 72 DPI (which causes blur).
+        - **Settings:** Resize 75% + Quality 75 + Strip Metadata.
+        - **Chroma Subsampling:** Disabled (`4:4:4`) to ensure text sharpness even at lower quality.
+- **Simplified Pipeline:** Uses a robust "Resize & Center" strategy (`-resize` + `extent`) to ensure reliability. Legacy masking (for rounded corners) is disabled by default to prevent "white page" issues on complex inputs.
+- **Overwrite Protection:** Interactive check prevents accidental data loss. Checks *both* HQ and Compressed filenames before proceeding.
 
 ## ⚙️ Configuration & Storage
 
