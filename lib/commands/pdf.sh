@@ -103,8 +103,6 @@ run_pdf() {
         echo "   -q <quality>     : JPEG Quality for compressed version (default 75)."
         echo "   --resize <%>     : Resize percentage for compressed version (default 75)."
         echo "   --pages          : Create multi-page PDF (1 image per page) instead of collage."
-        echo "   --pages          : Create multi-page PDF (1 image per page) instead of collage."
-        echo "   --deskew         : Auto-straighten tilted scans (Deskew)."
         echo "   --deskew         : Auto-straighten tilted scans (Deskew)."
         return 1
     fi
