@@ -143,6 +143,7 @@ run_pdf() {
 
     local final_cmd=()
     final_cmd+=("-density" "300")
+    final_cmd+=("-units" "PixelsPerInch")
     
     # Simple Loop: Add inputs and basic processing
     for img in "${inputs[@]}"; do
@@ -162,13 +163,15 @@ run_pdf() {
              final_cmd+=("-rotate" "$rotate_angle" "+repage")
         fi
         
-        # Resize to fit A4 (2480x3508) - No extent to prevent white page issues
+        # Resize to fit A4 (2480x3508) and pad to exact A4 size
         final_cmd+=("-resize" "2480x3508>")
+        final_cmd+=("-background" "white" "-gravity" "center" "-extent" "2480x3508")
         final_cmd+=(")")
     done
     
     # Output Settings
     final_cmd+=("-units" "PixelsPerInch")
+    final_cmd+=("-set" "density" "300")
     final_cmd+=("-compress" "jpeg" "-quality" "100") 
     final_cmd+=("$output")
 
