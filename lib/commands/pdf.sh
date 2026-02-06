@@ -143,41 +143,68 @@ run_pdf() {
 
     # Create professional A4 pages
     local tmp_dir=$(mktemp -d "/tmp/amir_pdf_XXXXXX")
-    local page_files=()
+    local ready_pages=()
     
-    echo "📄 Processing ${#inputs[@]} page(s) into standardized A4 canvas..."
-    
-    for i in "${!inputs[@]}"; do
-        local img="${inputs[$i]}"
-        local tmp_page="$tmp_dir/page_$(printf "%03d" $i).png"
+    if [[ "$multi_page" == "true" ]]; then
+        echo "📄 Mode: Multi-page (One A4 page per image)"
+        for i in "${!inputs[@]}"; do
+            local img="${inputs[$i]}"
+            local tmp_page="$tmp_dir/page_$(printf "%03d" $i).png"
+            
+            $cmd -density 300 -size 2480x3508 xc:white \
+                \( -density 300 "$img" -auto-orient +repage \
+                   $( [[ "$do_deskew" == "true" ]] && echo "-deskew 40% +repage" ) \
+                   $( [[ "$rotate_angle" -ne 0 ]] && echo "-rotate $rotate_angle +repage" ) \
+                   -resize 2480x3508 \
+                \) \
+                -gravity center -compose over -composite \
+                -alpha remove -alpha off \
+                -density 300 -units PixelsPerInch "$tmp_page"
+                
+            [[ -f "$tmp_page" ]] && ready_pages+=("$tmp_page")
+        done
+    else
+        echo "📄 Mode: Collage (Fitting multiple images on a single A4 page)"
+        local tmp_collage="$tmp_dir/collage_source.png"
+        local final_page="$tmp_dir/final_a4.png"
         
-        # Build a linear, bulletproof rendering command for each page
-        # xc:white base + input image composite = Guaranteed no blank pages
+        # 1. Process all inputs into oriented, deskewed, and resized segments
+        local processed_imgs=()
+        for i in "${!inputs[@]}"; do
+            local img="${inputs[$i]}"
+            local p_img="$tmp_dir/p_$(printf "%03d" $i).png"
+            
+            $cmd -density 300 "$img" -auto-orient +repage \
+                $( [[ "$do_deskew" == "true" ]] && echo "-deskew 40% +repage" ) \
+                $( [[ "$rotate_angle" -ne 0 ]] && echo "-rotate $rotate_angle +repage" ) \
+                $( [[ ${#inputs[@]} -eq 1 ]] && echo "-resize 2480x3508" || echo "-resize 2480x1754" ) \
+                -alpha remove -alpha off \
+                "$p_img"
+            
+            [[ -f "$p_img" ]] && processed_imgs+=("$p_img")
+        done
+        
+        # 2. Append processed images vertically
+        $cmd "${processed_imgs[@]}" -background None -gravity center -append "$tmp_collage"
+        
+        # 3. Fit collage onto a standardized A4 canvas (300 DPI)
         $cmd -density 300 -size 2480x3508 xc:white \
-            \( -density 300 "$img" -auto-orient +repage \
-               $( [[ "$do_deskew" == "true" ]] && echo "-deskew 40% +repage" ) \
-               $( [[ "$rotate_angle" -ne 0 ]] && echo "-rotate $rotate_angle +repage" ) \
-               -resize 2480x3508 \
-            \) \
+            -density 300 "$tmp_collage" \
             -gravity center -compose over -composite \
             -alpha remove -alpha off \
-            -density 300 -units PixelsPerInch "$tmp_page"
+            -density 300 -units PixelsPerInch "$final_page"
             
-        if [[ -f "$tmp_page" ]]; then
-            page_files+=("$tmp_page")
-        else
-            echo "⚠️  Failed to process page $i ($img)"
-        fi
-    done
+        [[ -f "$final_page" ]] && ready_pages+=("$final_page")
+    fi
     
-    if [[ ${#page_files[@]} -eq 0 ]]; then
+    if [[ ${#ready_pages[@]} -eq 0 ]]; then
         echo "❌ Critical Error: No pages were successfully processed."
         rm -rf "$tmp_dir"
         return 1
     fi
  
     echo "📚 Assembling A4 PDF (HQ)..."
-    $cmd -density 300 -units PixelsPerInch "${page_files[@]}" -compress jpeg -quality 100 "$output"
+    $cmd -density 300 -units PixelsPerInch "${ready_pages[@]}" -compress jpeg -quality 100 "$output"
     
     # Cleanup temp pages
     rm -rf "$tmp_dir"
