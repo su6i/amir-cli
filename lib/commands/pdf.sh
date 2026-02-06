@@ -141,43 +141,46 @@ run_pdf() {
     echo "📄 Composing ${#inputs[@]} file(s) into A4 PDF..."
     echo " Output: $output"
 
-    local final_cmd=()
-    final_cmd+=("-density" "300")
-    final_cmd+=("-units" "PixelsPerInch")
+    # Create professional A4 pages
+    local tmp_dir=$(mktemp -d "/tmp/amir_pdf_XXXXXX")
+    local page_files=()
     
-    # Process each image: Normalize -> Deskew -> Rotate -> Resize -> A4 Pad -> Flatten
-    for img in "${inputs[@]}"; do
-        final_cmd+=("(")
-        final_cmd+=("-density" "300")
-        final_cmd+=("$img")
-        final_cmd+=("-auto-orient" "+repage")
+    echo "📄 Processing ${#inputs[@]} page(s) into standardized A4 canvas..."
+    
+    for i in "${!inputs[@]}"; do
+        local img="${inputs[$i]}"
+        local tmp_page="$tmp_dir/page_$(printf "%03d" $i).png"
         
-        if [[ "$do_deskew" == "true" ]]; then
-             final_cmd+=("-deskew" "40%" "+repage")
+        # Build a linear, bulletproof rendering command for each page
+        # xc:white base + input image composite = Guaranteed no blank pages
+        $cmd -density 300 -size 2480x3508 xc:white \
+            \( -density 300 "$img" -auto-orient +repage \
+               $( [[ "$do_deskew" == "true" ]] && echo "-deskew 40% +repage" ) \
+               $( [[ "$rotate_angle" -ne 0 ]] && echo "-rotate $rotate_angle +repage" ) \
+               -resize 2480x3508 \
+            \) \
+            -gravity center -compose over -composite \
+            -alpha remove -alpha off \
+            -density 300 -units PixelsPerInch "$tmp_page"
+            
+        if [[ -f "$tmp_page" ]]; then
+            page_files+=("$tmp_page")
+        else
+            echo "⚠️  Failed to process page $i ($img)"
         fi
-        
-        if [[ "$rotate_angle" -ne 0 ]]; then
-             final_cmd+=("-rotate" "$rotate_angle" "+repage")
-        fi
-        
-        # Resize to fit A4 (2480x3508)
-        final_cmd+=("-resize" "2480x3508>")
-        
-        # Standardize to A4 Canvas: Center and pad with white
-        final_cmd+=("-background" "white" "-gravity" "center" "-extent" "2480x3508")
-        
-        # Principled Fix for "White Page": Blends any transparency/edges into the white background
-        final_cmd+=("-alpha" "remove" "-alpha" "off" "+repage")
-        final_cmd+=(")")
     done
     
-    # Output Settings
-    final_cmd+=("-units" "PixelsPerInch")
-    final_cmd+=("-set" "density" "300")
-    final_cmd+=("-compress" "jpeg" "-quality" "100") 
-    final_cmd+=("$output")
-
-    $cmd "${final_cmd[@]}"
+    if [[ ${#page_files[@]} -eq 0 ]]; then
+        echo "❌ Critical Error: No pages were successfully processed."
+        rm -rf "$tmp_dir"
+        return 1
+    fi
+ 
+    echo "📚 Assembling A4 PDF (HQ)..."
+    $cmd -density 300 -units PixelsPerInch "${page_files[@]}" -compress jpeg -quality 100 "$output"
+    
+    # Cleanup temp pages
+    rm -rf "$tmp_dir"
 
     if [[ $? -eq 0 ]]; then
         echo "✅ HQ PDF Created: $output"
