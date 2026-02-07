@@ -497,22 +497,46 @@ run_img() {
     }
 
     do_upscale() {
+        # echo "DEBUG: do_upscale args: '$@'"
         local input=""
         local scale=$(get_config "img" "upscale_scale" "4")
         local model=$(get_config "img" "upscale_model" "ultrasharp")
         local output=""
         
+        # Robust Shift-Based Parsing
         while [[ $# -gt 0 ]]; do
             case "$1" in
-                -s|--scale) scale="$2"; shift 2 ;;
-                -m|--model) model="$2"; shift 2 ;;
-                -o|--output) output="$2"; shift 2 ;;
+                -s|--scale)
+                    if [[ -n "$2" && ! "$2" =~ ^- ]]; then
+                        scale="$2"
+                        shift 2
+                    else
+                        shift
+                    fi
+                    ;;
+                -m|--model)
+                    if [[ -n "$2" && ! "$2" =~ ^- ]]; then
+                        model="$2"
+                        shift 2
+                    else
+                        shift
+                    fi
+                    ;;
+                -o|--output)
+                    if [[ -n "$2" && ! "$2" =~ ^- ]]; then
+                        output="$2"
+                        shift 2
+                    else
+                        shift
+                    fi
+                    ;;
+                -*)
+                    # Unknown flag, skip
+                    shift
+                    ;;
                 *)
+                    # Positional input
                     if [[ -z "$input" ]]; then
-                        input="$1"
-                    elif [[ "$input" =~ ^[0-9]+$ ]]; then
-                        # Support positional scale: amir img upscale file <scale> [model]
-                        scale="$input"
                         input="$1"
                     fi
                     shift
@@ -520,11 +544,7 @@ run_img() {
             esac
         done
         
-        # Simple positional fallback if not using flags
-        # amir img upscale file <scale> [model] [output]
-        # (Already handled by the loop if input was provided first)
-        
-        if [[ -z "$input" || ! -f "$input" ]]; then echo "❌ File not found."; return 1; fi
+        if [[ -z "$input" || ! -f "$input" ]]; then echo "❌ File not found: $input"; return 1; fi
         
         local tool_dir="$HOME/.amir-cli/tools/realesrgan"
         local tool_bin="$tool_dir/realesrgan-cli"
@@ -538,7 +558,6 @@ run_img() {
         local base="${input%.*}"
         local ext="${input##*.}"
         
-        # Suffix management
         local suffix="_upscaled_${scale}x_${model}"
         if [[ "$scale" == "1" ]]; then
             suffix="_enhanced_1x_${model}"
@@ -550,42 +569,44 @@ run_img() {
         
         echo "🚀 Enhancing image using $model model..."
         
-        # Always run AI at 4x (native model scale) to avoid tiling issues
-        # Then downsample to desired scale (1, 2, 3, or 4)
         local ai_scale="4"
+        local tmp_output="${output}.tmp.${ext}"
         
-        # Run Real-ESRGAN
-        # Note: Model names from Upscayl have -4x suffix
-        # Added -t 0 for auto tiling
-        "$tool_bin" -i "$input" -o "$output.tmp.$ext" -s "$ai_scale" -n "$model-4x" -m "$models_dir" -t 0
+        # Run Real-ESRGAN with a surgically clean progress filter
+        # Hides all metadata noise and only updates the percentage on one line (\r)
+        # Using a more robust regex and explicit flushing
+        "$tool_bin" -i "$input" -o "$tmp_output" -s "$ai_scale" -n "$model-4x" -m "$models_dir" -t 0 2>&1 | \
+            python3 -u -c 'import sys,re; [print(f"\r   ⏳ {m.group(1)}", end="", flush=True) for l in sys.stdin for m in [re.search(r"([0-9.]+\s*%)", l)] if m]'
+        local exit_code=${PIPESTATUS[0]}
         
-        if [[ $? -eq 0 ]]; then
-            case "$scale" in
-                1)
-                    echo "   📉 Finalizing 1x enhancement (Downsampling 25%)..."
-                    $cmd "$output.tmp.$ext" -resize 25% "$output"
-                    rm "$output.tmp.$ext"
-                    ;;
-                2)
-                    echo "   📉 Finalizing 2x upscale (Downsampling 50%)..."
-                    $cmd "$output.tmp.$ext" -resize 50% "$output"
-                    rm "$output.tmp.$ext"
-                    ;;
-                3)
-                    echo "   📉 Finalizing 3x upscale (Downsampling 75%)..."
-                    $cmd "$output.tmp.$ext" -resize 75% "$output"
-                    rm "$output.tmp.$ext"
-                    ;;
-                *)
-                    # 4x or other
-                    mv "$output.tmp.$ext" "$output"
-                    ;;
-            esac
-            echo "✅ Saved: $output"
+        # Clear the progress line
+        echo -ne "\r\033[K"
+        
+        if [[ $exit_code -eq 0 && -f "$tmp_output" ]]; then
+             # proceed with resizing if needed
+             if [[ "$scale" == "1" ]]; then
+                 echo "   📉 Finalizing 1x enhancement (Downsampling 25%)..."
+                 magick "$tmp_output" -resize 25% "$output"
+                 rm "$tmp_output"
+             elif [[ "$scale" == "2" ]]; then
+                  echo "   📉 Finalizing 2x upscale (Downsampling 50%)..."
+                  magick "$tmp_output" -resize 50% "$output"
+                  rm "$tmp_output"
+             elif [[ "$scale" == "3" ]]; then
+                  echo "   📉 Finalizing 3x upscale (Downsampling 75%)..."
+                  magick "$tmp_output" -resize 75% "$output"
+                  rm "$tmp_output"
+             else
+                  # 4x
+                  mv "$tmp_output" "$output"
+             fi
+             echo "✅ Saved: $output"
+             return 0
         else
-            echo "❌ Upscaling failed."
-            rm -f "$output.tmp.$ext"
-            return 1
+             echo "❌ AI Upscale failed or output file missing."
+             # Cleanup if partial
+             [[ -f "$tmp_output" ]] && rm "$tmp_output"
+             return 1
         fi
     }
 
@@ -607,71 +628,379 @@ run_img() {
         local base=$(basename "$input")
         local base_noext="${base%.*}"
         local root_lab_dir="lab_${base_noext}"
+        
         mkdir -p "$root_lab_dir"
+        
+        # Robust absolute path resolution (Bash-native)
+        local abs_lab_dir="$(cd "$root_lab_dir" && pwd)"
+        
+        echo "📍 Target Laboratory: $abs_lab_dir"
         
         local models=("$requested_model")
         if [[ "$requested_model" == "all" ]]; then
             models=("ultrasharp" "digital-art" "high-fidelity" "remacri" "ultramix-balanced" "upscayl-lite" "upscayl-standard")
-            echo "🧪 Multi-model mode enabled. Testing ${#models[@]} models..."
+        fi
+
+        # Pure ImageMagick Optimization: If scale is 1, we don't need AI models.
+        if [[ "$scale" == "1" ]]; then
+            models=("native")
+            echo "✨ Pure ImageMagick Mode enabled (No AI Upscale)."
+        else
+            [[ "$requested_model" == "all" ]] && echo "🧪 Multi-model mode enabled. Testing ${#models[@]} models..."
         fi
         
-        for current_model in "${models[@]}"; do
-            local lab_dir="$root_lab_dir"
-            if [[ "${#models[@]}" -gt 1 ]]; then
-                lab_dir="${root_lab_dir}/${current_model}"
-                mkdir -p "$lab_dir"
-            fi
-            
-            local processing_input="$input"
-            
-            # 1. AI Upscale (if scale > 1)
-            if [[ "$scale" != "1" ]]; then
+        # Pre-process models (AI Upscale) if scale > 1
+        if [[ "$scale" != "1" ]]; then
+            local upscale_dir="${root_lab_dir}/_upscaled"
+            for current_model in "${models[@]}"; do
                 echo "🚀 [$current_model] Pre-processing with AI Upscale ($scale x)..."
-                local upscaled_file="${lab_dir}/00_upscaled_${scale}x_${current_model}.png"
-                do_upscale "$input" "$scale" "$current_model" "$upscaled_file"
-                if [[ $? -eq 0 ]]; then
-                    processing_input="$upscaled_file"
-                else
-                    echo "❌ [$current_model] Pre-scaling failed. Proceeding with original."
+                mkdir -p "$upscale_dir"
+                local upscaled_file="${upscale_dir}/upscaled_${scale}x_${current_model}.png"
+                do_upscale -s "$scale" -m "$current_model" -o "$upscaled_file" "$input"
+                if [[ $? -ne 0 ]]; then
+                    echo "❌ [$current_model] Pre-scaling failed. Using original."
                 fi
+            done
+        fi
+
+        # Variation Progress Tracking
+        local progress_idx=0
+        local total_variations=60 # Fixed for now as we have 60 variations
+        local total_steps=$(( total_variations * ${#models[@]} ))
+        
+        _print_lab_progress() {
+            local current=$1
+            local total=$2
+            local percent=$(( current * 100 / total ))
+            local filled=$(( percent / 5 ))
+            local empty=$(( 20 - filled ))
+            local bar=""
+            for ((i=0; i<filled; i++)); do bar="${bar}█"; done
+            for ((i=0; i<empty; i++)); do bar="${bar}░"; done
+            printf "\r   🧪 Lab Progress: |%s| %d%% (%d/%d)" "$bar" "$percent" "$current" "$total"
+        }
+
+        # Reorganized Variation Engine: Loop through Alg -> then Models
+        _run_variations() {
+            local var_name="$1"
+            shift 1
+            
+            # Smart Categorization:
+            # If scale is 1, we put all 60 files in one folder named 'lab'.
+            # If scale > 1 (multi-model), we use subfolders per algorithm (420+ files).
+            local var_dir=""
+            if [[ "$scale" == "1" ]]; then
+                var_dir="${root_lab_dir}/lab"
+            else
+                var_dir="${root_lab_dir}/${var_name}"
             fi
+            mkdir -p "$var_dir"
+
+            for m in "${models[@]}"; do
+                local m_input="$input"
+                if [[ "$m" != "native" ]]; then
+                    m_input="${root_lab_dir}/_upscaled/upscaled_${scale}x_${m}.png"
+                fi
+                [[ ! -f "$m_input" ]] && m_input="$input"
+                
+                local output_file=""
+                if [[ "$scale" == "1" ]]; then
+                    output_file="${var_dir}/${var_name}.jpg"
+                else
+                    output_file="${var_dir}/${m}.jpg"
+                fi
+
+                magick "$m_input" "$@" "$output_file"
+                
+                ((progress_idx++))
+                _print_lab_progress "$progress_idx" "$total_steps"
+            done
+        }
+
+        echo "🔬 Generating 60 enhancement combinations for ${#models[@]} models..."
             
-            echo "🔬 [$current_model] Generating 20 enhancement combinations..."
+            # Standard Series
+            _run_variations "01_norm_only" -normalize
+            _run_variations "02_auto_level" -auto-level
+            _run_variations "03_auto_gamma" -auto-gamma
+            _run_variations "04_norm_sharp1.0" -normalize -sharpen 0x1.0
+            _run_variations "05_norm_sharp1.5" -normalize -sharpen 0x1.5
+            _run_variations "06_norm_sharp2.0" -normalize -sharpen 0x2.0
+            _run_variations "07_lev10-90_sharp1.5" -normalize -level 10%,90% -sharpen 0x1.5
+            _run_variations "08_lev5-95_sharp1.5" -normalize -level 5%,95% -sharpen 0x1.5
+            _run_variations "09_lev2-98_sharp1.0" -normalize -level 2%,98% -sharpen 0x1.0
+            _run_variations "10_unsharp_soft" -normalize -unsharp 0x0.5+0.5+0
+            _run_variations "11_unsharp_std" -normalize -unsharp 0x1+1+0.05
+            _run_variations "12_unsharp_hard" -normalize -unsharp 0x2+1.5+0.1
+            _run_variations "13_bright+10_cont+20" -brightness-contrast 10x20
+            _run_variations "14_bright-10_cont+40" -brightness-contrast -10x40
+            _run_variations "15_sigmoidal_contrast" -sigmoidal-contrast 5x50%
+            _run_variations "16_adaptive_blur" -adaptive-sharpen 0x2
+            _run_variations "17_local_contrast" -unsharp 0x5+1.0+0
+            _run_variations "18_clahe_lite" -clahe 25x25%+64+3
+            _run_variations "19_doc_threshold" -white-threshold 90% -black-threshold 10% -sharpen 0x1.5
+            _run_variations "20_final_boost" -normalize -level 5%,95% -unsharp 0x1+1+0.05 -quality 98
             
-            # Helper for lab commands (local to loop)
-            # Note: We use eval to handle the dynamic parameters correctly
-            _run_lab() {
-                local name="$1"
-                local current_lab_dir="$2"
-                local current_input="$3"
-                shift 3
-                $cmd "$current_input" "$@" "${current_lab_dir}/${name}.jpg"
-            }
+            # --- Advanced Series ---
+            _run_variations "21_despeckle" -despeckle
+            _run_variations "22_lat_shadow_removal" -lat 25x25+10%
+            _run_variations "23_morph_dilate_thicken" -morphology Dilate Disk:1
+            _run_variations "24_morph_erode_thin" -morphology Erode Disk:1
+            _run_variations "25_text_cleaner_sim" -colorspace gray -respect-parenthesis \( -clone 0 -blur 0x100 \) -compose Divide -composite -linear-stretch 1%x1%
+            _run_variations "26_gamma_lighten" -gamma 1.2
+            _run_variations "27_gamma_darken" -gamma 0.8
+            _run_variations "28_median_denoise" -statistic median 3x3
+            _run_variations "29_posterize_6" -posterize 6
+            _run_variations "30_monochrome_lat" -colorspace gray -lat 20x20+10%
             
-            # The 20 combinations
-            _run_lab "01_norm_only" "$lab_dir" "$processing_input" -normalize
-            _run_lab "02_auto-level" "$lab_dir" "$processing_input" -auto-level
-            _run_lab "03_auto-gamma" "$lab_dir" "$processing_input" -auto-gamma
-            _run_lab "04_norm_sharp1.0" "$lab_dir" "$processing_input" -normalize -sharpen 0x1.0
-            _run_lab "05_norm_sharp1.5" "$lab_dir" "$processing_input" -normalize -sharpen 0x1.5
-            _run_lab "06_norm_sharp2.0" "$lab_dir" "$processing_input" -normalize -sharpen 0x2.0
-            _run_lab "07_lev10-90_sharp1.5" "$lab_dir" "$processing_input" -normalize -level 10%,90% -sharpen 0x1.5
-            _run_lab "08_lev5-95_sharp1.5" "$lab_dir" "$processing_input" -normalize -level 5%,95% -sharpen 0x1.5
-            _run_lab "09_lev2-98_sharp1.0" "$lab_dir" "$processing_input" -normalize -level 2%,98% -sharpen 0x1.0
-            _run_lab "10_unsharp_soft" "$lab_dir" "$processing_input" -normalize -unsharp 0x0.5+0.5+0
-            _run_lab "11_unsharp_std" "$lab_dir" "$processing_input" -normalize -unsharp 0x1+1+0.05
-            _run_lab "12_unsharp_hard" "$lab_dir" "$processing_input" -normalize -unsharp 0x2+1.5+0.1
-            _run_lab "13_bright+10_cont+20" "$lab_dir" "$processing_input" -brightness-contrast 10x20
-            _run_lab "14_bright-10_cont+40" "$lab_dir" "$processing_input" -brightness-contrast -10x40
-            _run_lab "15_sigmoidal_contrast" "$lab_dir" "$processing_input" -sigmoidal-contrast 5x50%
-            _run_lab "16_adaptive_blur" "$lab_dir" "$processing_input" -adaptive-sharpen 0x2
-            _run_lab "17_local_contrast" "$lab_dir" "$processing_input" -unsharp 0x5+1.0+0
-            _run_lab "18_clahe_lite" "$lab_dir" "$processing_input" -clahe 25x25%+64+3
-            _run_lab "19_doc_threshold" "$lab_dir" "$processing_input" -white-threshold 90% -black-threshold 10% -sharpen 0x1.5
-            _run_lab "20_final_boost" "$lab_dir" "$processing_input" -normalize -level 5%,95% -unsharp 0x1+1+0.05 -quality 98
+            # --- Heritage Classic Series ---
+            _run_variations "31_heritage_bg_clean" -colorspace gray -respect-parenthesis \( -clone 0 -blur 0x20 \) -compose Divide -composite
+            _run_variations "32_heritage_bg_flatten" -colorspace gray -respect-parenthesis \( -clone 0 -blur 0x50 \) -compose Divide -composite -normalize
+            _run_variations "33_heritage_ink_thicken" -colorspace gray -respect-parenthesis \( -clone 0 -blur 0x20 \) -compose Divide -composite -morphology Dilate Disk:1
+            _run_variations "34_heritage_ink_darken" -colorspace gray -respect-parenthesis \( -clone 0 -blur 0x30 \) -compose Divide -composite -level 20%,80%
+            _run_variations "35_heritage_manuscript_bw" -colorspace gray -respect-parenthesis \( -clone 0 -blur 0x25 \) -compose Divide -composite -lat 25x25+5%
+            _run_variations "36_heritage_sauvola_sim" -colorspace gray -respect-parenthesis \( -clone 0 -blur 0x15 \) -compose Divide -composite -threshold 50% -despeckle
+            _run_variations "37_heritage_bleed_removal" -colorspace gray -level 15%,85% -sharpen 0x2
+            _run_variations "38_heritage_handwritten_soft" -colorspace gray -respect-parenthesis \( -clone 0 -blur 0x20 \) -compose Divide -composite -unsharp 0x5+1.0+0
+            _run_variations "39_heritage_script_restore" -colorspace gray -respect-parenthesis \( -clone 0 -blur 0x20 \) -compose Divide -composite -morphology Close Disk:1 -sharpen 0x1
+            _run_variations "40_heritage_final_archive" -colorspace gray -respect-parenthesis \( -clone 0 -blur 0x30 \) -compose Divide -composite -normalize -sharpen 0x1.5
+
+            # --- Heritage Pro Series ---
+            _run_variations "41_hpro_bg_clean_p100" -colorspace gray -respect-parenthesis \( -clone 0 -blur 0x100 \) -compose Divide -composite -normalize
+            _run_variations "42_hpro_bg_flatten_p200" -colorspace gray -respect-parenthesis \( -clone 0 -blur 0x200 \) -compose Divide -composite -linear-stretch 1x1%
+            _run_variations "43_hpro_dog_text_isolation" -colorspace gray -respect-parenthesis \( -clone 0 -blur 0x1 \) \( -clone 0 -blur 0x2 \) -compose minus -composite -negate -normalize
+            _run_variations "44_hpro_sauvola_clean" -colorspace gray -level 10%,90% -lat 25x25+10%
+            _run_variations "45_hpro_ink_restore_close" -colorspace gray -respect-parenthesis \( -clone 0 -blur 0x100 \) -compose Divide -composite -morphology Close Disk:1
+            _run_variations "46_hpro_shadow_removal_lat" -colorspace gray -lat 50x50+5%
+            _run_variations "47_hpro_contrast_stretch" -colorspace gray -linear-stretch 5x5%
+            _run_variations "48_hpro_script_focus" -colorspace gray -statistic median 3x3 -unsharp 0x5+1.0+0
+            _run_variations "49_hpro_binarize_adaptive" -colorspace gray -negate -lat 20x20+10% -negate
+            _run_variations "50_hpro_master_archive" -colorspace gray -respect-parenthesis \( -clone 0 -blur 0x150 \) -compose Divide -composite -normalize -sharpen 0x1
+
+            # --- Forensic Series ---
+            _run_variations "51_forensic_k_isolator" -colorspace CMYK -separate -delete 0,1,2 -negate -normalize
+            _run_variations "52_forensic_red_pass" -channel R -separate -normalize
+            _run_variations "53_forensic_highpass_conv" -colorspace gray -convolve "-1,-1,-1,-1,8,-1,-1,-1,-1" -normalize
+            _run_variations "54_forensic_dog_precise" -colorspace gray -respect-parenthesis \( -clone 0 -blur 0x1 \) \( -clone 0 -blur 0x1.5 \) -compose minus -composite -negate -normalize
+            _run_variations "55_forensic_adaptive_binarize" -colorspace gray -negate -lat 15x15+5% -negate
+            _run_variations "56_forensic_ink_extract" -fuzz 20% -fill white +opaque black -normalize
+            _run_variations "57_forensic_edge_enhance" -colorspace gray -edge 1 -negate -normalize
+            _run_variations "58_forensic_contrast_crush" -colorspace gray -contrast-stretch 2x98% -sharpen 0x3
+            _run_variations "59_forensic_bilateral_denoise" -statistic median 3x3 -unsharp 0x2+1+0.05
+            _run_variations "60_forensic_ultimate_k" -colorspace CMYK -separate -delete 0,1,2 -negate -lat 25x25+10%
+
+        echo -e "\n\n✅ Success! All Variations saved to:"
+        local final_out_dir="$abs_lab_dir"
+        [[ "$scale" == "1" ]] && final_out_dir="${abs_lab_dir}/lab"
+        echo "👉 $final_out_dir"
+        
+        # Automatically open the folder for the user (macOS specific)
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            open "$final_out_dir"
+        fi
+    }
+
+    do_scan() {
+        local input=""
+        local output=""
+        local requested_mode=""
+        
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --fast) requested_mode="fast"; shift ;;
+                --pro) requested_mode="pro"; shift ;;
+                --ocr) requested_mode="ocr"; shift ;;
+                --py|--python) requested_mode="py"; shift ;;
+                --all) requested_mode="all"; shift ;;
+                -o|--output) output="$2"; shift 2 ;;
+                *) input="$1"; shift ;;
+            esac
         done
         
-        echo "✅ Finished! Results in: $root_lab_dir"
+        if [[ -z "$input" || ! -f "$input" ]]; then echo "❌ File not found."; return 1; fi
+        
+        local base=$(basename "$input")
+        local base_noext="${base%.*}"
+        local root_scan_dir="lab_${base_noext}"
+        local scan_dir="${root_scan_dir}/scans"
+        
+        mkdir -p "$scan_dir"
+        local abs_scan_dir="$(cd "$scan_dir" && pwd)"
+        
+        # Internal helper to execute specific methods
+        _exec_scan_method() {
+            local method="$1"
+            local m_output="${scan_dir}/${base_noext}_scan_${method}.png"
+            
+            case "$method" in
+                "fast")
+                    echo "� Running Quick Scan (Method 1)..."
+                    magick "$input" -colorspace Gray -auto-level -contrast-stretch 0 "$m_output"
+                    ;;
+                "pro")
+                    echo "🟡 Running Professional Scan (Method 2)..."
+                    magick "$input" -colorspace Gray \
+                        \( +clone -blur 0x150 \) -compose Divide -composite \
+                        -normalize -level 10%,90% -white-threshold 90% -despeckle \
+                        "$m_output"
+                    ;;
+                "ocr")
+                    echo "🔵 Running OCR-Grade Scan (Method 3)..."
+                    magick "$input" -colorspace Gray \
+                        \( +clone -blur 0x200 \) -compose Divide -composite \
+                        -normalize -white-threshold 95% -despeckle \
+                        "$m_output"
+                    ;;
+                "py")
+                    echo "🐍 Running High-Fidelity Python Scan (OpenCV)..."
+                    local python_script="${LIB_DIR}/python/doc_scan.py"
+                    uv run --with opencv-python "$python_script" "$input" "$m_output"
+                    ;;
+            esac
+        }
+
+        if [[ -n "$requested_mode" && "$requested_mode" != "all" ]]; then
+            _exec_scan_method "$requested_mode"
+        else
+            echo "🧪 Comparison Mode: Generating all 4 scanning levels..."
+            _exec_scan_method "fast"
+            _exec_scan_method "pro"
+            _exec_scan_method "ocr"
+            _exec_scan_method "py"
+        fi
+            
+        if [[ $? -eq 0 ]]; then
+            echo -e "\n✅ Success! Scans are ready for comparison in:"
+            echo "👉 $abs_scan_dir"
+            [[ "$OSTYPE" == "darwin"* ]] && open "$abs_scan_dir"
+        else
+            echo "❌ Scan processing failed."
+            return 1
+        fi
+    }
+
+    do_deskew() {
+        # Check for batch mode:
+        # 1. More than 2 arguments
+        # 2. Exactly 2 arguments, but the second one is an existing file (implies batch of 2)
+        local is_batch=0
+        if [[ $# -gt 2 ]]; then
+            is_batch=1
+        elif [[ $# -eq 2 && -f "$2" ]]; then
+            is_batch=1
+        fi
+
+        if [[ $is_batch -eq 1 ]]; then
+            echo "📐 Batch Deskew Mode detected. Processing $# files..."
+            for file in "$@"; do
+                if [[ -f "$file" ]]; then
+                   do_deskew "$file" # Recursive call for single file auto-naming
+                else
+                   echo "⚠️ Skipped (not found): $file"
+                fi
+            done
+            return 0
+        fi
+
+        # Single file mode (logical fall-through)
+        local input="$1"
+        local output="$2"
+        
+        if [[ -z "$input" ]]; then echo "❌ Input file required."; return 1; fi
+        if [[ ! -f "$input" ]]; then echo "❌ File not found: $input"; return 1; fi
+        
+        # Default output name if not provided
+        if [[ -z "$output" ]]; then
+            local dir=$(dirname "$input")
+            local base=$(basename "$input")
+            local name="${base%.*}"
+            local ext="${base##*.}"
+            output="${dir}/${name}_deskew.${ext}"
+        fi
+        
+        echo "📐 Deskewing: $input -> $output"
+        magick "$input" -deskew 40% "$output"
+        echo "✅ Saved as: $output"
+    }
+
+    do_burst() {
+        local recursive=0
+        local inputs=()
+        local output=""
+
+        # 1. Parse Options
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                -r|--recursive) recursive=1; shift ;;
+                -o|--output) output="$2"; shift 2 ;;
+                *) inputs+=("$1"); shift ;;
+            esac
+        done
+
+        if [[ ${#inputs[@]} -eq 0 ]]; then
+            echo "Usage: amir img burst <files|dirs...> [-o output] [-r]"
+            return 1
+        fi
+
+        # 2. Heuristic for output if not provided via -o
+        # If the last input doesn't exist AND has an extension, treat as output
+        if [[ -z "$output" ]]; then
+            local last_input="${inputs[${#inputs[@]}-1]}"
+            if [[ ! -e "$last_input" && "$last_input" == *.* ]]; then
+                output="$last_input"
+                unset 'inputs[${#inputs[@]}-1]'
+            fi
+        fi
+
+        # 3. Resolve all files
+        local final_files=()
+        for item in "${inputs[@]}"; do
+            if [[ -d "$item" ]]; then
+                # Find images in directory
+                if [[ $recursive -eq 1 ]]; then
+                    # Recursive find
+                    while IFS= read -r f; do
+                        final_files+=("$f")
+                    done < <(find "$item" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" -o -iname "*.tiff" \) | sort)
+                else
+                    # Non-recursive find (maxdepth 1)
+                    while IFS= read -r f; do
+                        final_files+=("$f")
+                    done < <(find "$item" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" -o -iname "*.tiff" \) | sort)
+                fi
+            elif [[ -f "$item" ]]; then
+                final_files+=("$item")
+            else
+                echo "⚠️ Warning: Input not found or not a valid image/dir: $item"
+            fi
+        done
+
+        if [[ ${#final_files[@]} -lt 2 ]]; then
+            echo "❌ Error: At least 2 image files required for burst reconstruction (found ${#final_files[@]})."
+            return 1
+        fi
+
+        # 4. Default output if still empty
+        if [[ -z "$output" ]]; then
+            local first_base=$(basename "${final_files[0]}")
+            local name="${first_base%.*}"
+            local ext="${first_base##*.}"
+            output="reconstructed_${name}.${ext}"
+        fi
+
+        # Resolve absolute path for clarity
+        local abs_output=$(python3 -c "import os; print(os.path.abspath('$output'))")
+
+        echo "📸 Multi-frame Burst Mode: Aligning and merging ${#final_files[@]} frames..."
+        echo "📍 Target Output: $abs_output"
+        [[ $recursive -eq 1 ]] && echo "🔍 Recursive search enabled."
+        
+        # Verify and install deps if needed (handled by uv)
+        # Python script is in lib/python/mfsr.py
+        local MFSR_SCRIPT="$LIB_DIR/python/mfsr.py"
+        
+        # Use uv run for automatic dependency management
+        uv run --with opencv-python --with numpy "$MFSR_SCRIPT" "$output" "${final_files[@]}"
     }
 
     # --- Router ---
@@ -694,8 +1023,14 @@ run_img() {
         shift; do_upscale "$@"
     elif [[ "$action" == "lab" ]]; then
         shift; do_lab "$@"
+    elif [[ "$action" == "scan" ]]; then
+        shift; do_scan "$@"
     elif [[ "$action" == "convert" ]]; then
         shift; do_convert "$@"
+    elif [[ "$action" == "deskew" ]]; then
+        shift; do_deskew "$@"
+    elif [[ "$action" == "burst" ]]; then
+        shift; do_burst "$@"
     elif [[ "$action" == "extend" ]]; then
         shift
         # Get script dir relative to this function logic if needed, but assuming LIB_DIR is available
@@ -725,13 +1060,16 @@ run_img() {
         echo "  amir img resize  <file> <size|preset> [circle]   (Scale & opt. Circle Crop)"
         echo "  amir img crop    <file> <size|preset> <g>        (Fill & Crop, g=1-9)"
         echo "  amir img upscale <file> [scale] [model]          (AI-Upscale, def: 4x, ultrasharp)"
-        echo "  amir img lab     <file> [-s scale] [-m model]    (Generate 20 enhancement combinations)"
+        echo "  amir img lab     <file> [-s scale] [-m model]    (Generate 60/420 enhancement combinations)"
+        echo "  amir img scan    <file> [--bw] [-o output]       (Professional Doc Cleanup: White BG, Black Ink)"
         echo "  amir img round   <file> [radius] [fmt|out]       (Round corners, def: 20px, PNG/JPG)"
         echo "  amir img rotate  <file> <angle>                  (Rotate image)"
         echo "  amir img pad     <file> <size|preset> [color]    (Fit & Pad, def: white)"
         echo "  amir img convert <file> [fmt] [size|preset] [circle] (Convert & opt. Circle)"
         echo "  amir img stack   <file1> <file2> [...] [-g gap] [-p a4|b5] [--deskew]"
         echo "  amir img extend  -i <file> [opts]                (Extend borders)"
+        echo "  amir img deskew  <file> [output]                 (Auto-straighten image)"
+        echo "  amir img burst   <files...> [output]             (Multi-frame Reconstruction)"
         echo ""
         echo "Presets:"
         echo "  yt-banner    : 2560x1440"

@@ -190,7 +190,9 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
   - **Tiling Fix:** ESRGAN models are native 4x. To prevent tiling artifacts at other scales, the CLI always upscales to 4x internally and then downsamples via ImageMagick to the target scale (1x, 2x, 3x).
   - **Hardware Support:** Utilizes Vulkan for acceleration (Metal on macOS).
 - **Enhancement Lab (`lab`):** 
-  - **Logic:** Automates the testing of 140 unique combinations (7 AI models × 20 curated ImageMagick filter chains).
+  - **Logic:** Automates the testing of 20 unique ImageMagick filter chains per model.
+  - **Single Mode (Default):** Runs on 1 selected model (default: ultrasharp) → **20 images**.
+  - **Multi Mode (`-m all`):** Iterates through all 7 AI models → **140 images** (7 models × 20 filters).
   - **Hierarchical Storage:** Organizes results into `lab_{base}/{model}/{filter}.jpg` for easy comparison.
 - **Stacking:** Combines images with auto-orient and deskew. Uses paper-size presets (A4/B5 at 150DPI) for standardized document preparation.
 

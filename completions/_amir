@@ -209,6 +209,94 @@ _amir() {
                         fi
                         ;;
                 esac
+            elif [[ "$subcmd" == "deskew" ]]; then
+                case $((CURRENT)) in
+                    4) _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" ;;
+                    5) _files ;; # Output file
+                esac
+            elif [[ "$subcmd" == "lab" ]]; then
+                case "$prev" in
+                    -s|--scale)
+                        _describe -t scales 'scale' "(1:Quality\ enhancement\ (no\ resize) 2:Upscale\ 2x 4:Upscale\ 4x)" && return 0
+                        ;;
+                    -m|--model)
+                        _describe -t models 'model' "(all:Test\ all\ models ultrasharp digital-art high-fidelity upscayl-standard upscayl-lite remacri ultramix-balanced)" && return 0
+                        ;;
+                    *)
+                        # If the command line already contains a file (at position 4), suggest only flags
+                        if [[ -n "${words[4]}" && "${words[4]}" != -* ]]; then
+                            local -a lab_opts
+                            lab_opts=(
+                                '-s:Upscale factor (1, 2, 4)'
+                                '--scale:Upscale factor (1, 2, 4)'
+                                '-m:AI Model'
+                                '--model:AI Model'
+                            )
+                            _describe -t lab_opts 'option' lab_opts && return 0
+                        else
+                            # Otherwise, suggest files
+                            _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" && return 0
+                        fi
+                        ;;
+                esac
+            elif [[ "$subcmd" == "scan" ]]; then
+                case "$prev" in
+                    -o|--output)
+                        _files && return 0
+                        ;;
+                    *)
+                        # If the command line already contains a target file, suggest only flags
+                        if [[ -n "${words[4]}" && "${words[4]}" != -* ]]; then
+                             local -a scan_flags
+                             scan_flags=(
+                                '--fast:Quick Scan (Level 1)'
+                                '--pro:Professional BW Scan (Level 2)'
+                                '--ocr:OCR-Grade Grayscale Scan (Level 3)'
+                                '--py:High-Fidelity Python/OpenCV Scan'
+                                '--all:Generate all variations for comparison'
+                                '-o:Output filename'
+                                '--output:Output filename'
+                             )
+                             _describe -t scan_flags 'option' scan_flags && return 0
+                        fi
+
+                        if [[ "$PREFIX" == -* ]]; then
+                            local -a scan_opts
+                            scan_opts=(
+                                '--fast:Quick Scan (Level 1)'
+                                '--pro:Professional BW Scan (Level 2)'
+                                '--ocr:OCR-Grade Grayscale Scan (Level 3)'
+                                '--py:High-Fidelity Python/OpenCV Scan'
+                                '--all:Generate all variations for comparison'
+                                '-o:Output filename'
+                                '--output:Output filename'
+                            )
+                            _describe -t scan_opts 'option' scan_opts && return 0
+                        else
+                            _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" && return 0
+                        fi
+                        ;;
+                esac
+            elif [[ "$subcmd" == "burst" ]]; then
+                case "$prev" in
+                    -o|--output)
+                        _files && return 0
+                        ;;
+                    *)
+                        if [[ "$PREFIX" == -* ]]; then
+                            local -a burst_opts
+                            burst_opts=(
+                                '-r:Recursive directory search'
+                                '--recursive:Recursive directory search'
+                                '-o:Output filename'
+                                '--output:Output filename'
+                            )
+                            _describe -t burst_opts 'option' burst_opts && return 0
+                        else
+                            _files -g "*.(jpg|jpeg|png|webp|tiff|JPG|JPEG|PNG|WEBP|TIFF)" && return 0
+                        fi
+                        ;;
+                esac
             else
                 case $((CURRENT)) in
                     3)
@@ -221,13 +309,16 @@ _amir() {
                             'round:Round image corners (PNG)'
                             'stack:Combine multiple images vertically'
                             'upscale:AI-Upscale image (2x, 3x, 4x or 1x enhancement)'
-                            'lab:Generate 20 enhancement combinations for testing'
+                            'lab:Generate 60/420 enhancement combinations for testing'
+                            'scan:Professional document cleanup (White BG, Black Ink)'
+                            'burst:Multi-frame State of the Art Reconstruction'
                             'extend:Extend image borders with custom color'
                             'convert:Convert image to png/jpg'
+                            'deskew:Auto-straighten image'
                          )
                          _describe -t img_actions "action" img_actions
                          ;;
-                    4) 
+                     4) 
                         if [[ "$subcmd" == "upscale" ]]; then
                             _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)"
                         else
@@ -242,7 +333,7 @@ _amir() {
                         fi
                         ;;
                     6)
-                        if [[ "$subcmd" == "upscale" || "$subcmd" == "lab" ]]; then
+                        if [[ "$subcmd" == "upscale" ]]; then
                             local -a models; models=('all:Test all models' 'ultrasharp' 'digital-art' 'high-fidelity' 'upscayl-standard' 'upscayl-lite' 'remacri' 'ultramix-balanced'); _describe -t models "model" models
                         fi
                         ;;
