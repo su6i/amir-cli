@@ -61,5 +61,17 @@ You are strictly bound by the defined Workflows. You simply CANNOT execute a tas
 - **Completion:** Only after Verification and User Approval can you merge the branch and delete it.
 - **Cleanup:** `git branch -D feature/name-of-feature` after successful merge.
 
+## 9. Research-First & Skill Documentation Protocol
+**Rule:** You MUST research thoroughly on the internet BEFORE attempting any unfamiliar technical task.
+- **Phase 1 (Research):** Search the web for best practices, official documentation, and community solutions. Understand the problem deeply before writing code.
+- **Phase 2 (Implementation):** Apply the researched solution.
+- **Phase 3 (Verification):** Wait for USER to confirm the output is correct.
+- **Phase 4 (Documentation):** After USER verification, document the learned technique in the relevant `.cursor/skills/*.md` file with:
+    - **Problem Context:** What issue was being solved.
+    - **Solution:** The exact, working code/command with explanations.
+    - **Gotchas:** Any edge cases or common mistakes to avoid.
+    - **References:** Links to official docs or helpful resources.
+- **Purpose:** Skills are reusable knowledge. Future tasks benefit from documented solutions.
+
 ---
 *If you find yourself guessing, STOP and read the Workflows.*
