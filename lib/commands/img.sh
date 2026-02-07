@@ -497,10 +497,32 @@ run_img() {
     }
 
     do_upscale() {
-        local input="$1"
-        local scale="${2:-4}"
-        local model="${3:-ultrasharp}"
-        local output="$4"
+        local input=""
+        local scale="4"
+        local model="ultrasharp"
+        local output=""
+        
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                -s|--scale) scale="$2"; shift 2 ;;
+                -m|--model) model="$2"; shift 2 ;;
+                -o|--output) output="$2"; shift 2 ;;
+                *)
+                    if [[ -z "$input" ]]; then
+                        input="$1"
+                    elif [[ "$input" =~ ^[0-9]+$ ]]; then
+                        # Support positional scale: amir img upscale file <scale> [model]
+                        scale="$input"
+                        input="$1"
+                    fi
+                    shift
+                    ;;
+            esac
+        done
+        
+        # Simple positional fallback if not using flags
+        # amir img upscale file <scale> [model] [output]
+        # (Already handled by the loop if input was provided first)
         
         if [[ -z "$input" || ! -f "$input" ]]; then echo "❌ File not found."; return 1; fi
         
@@ -526,25 +548,39 @@ run_img() {
             output="${base}${suffix}.${ext}"
         fi
         
-        echo "🚀 Upscaling to ${scale}x using $model model..."
+        echo "🚀 Enhancing image using $model model..."
         
-        local actual_scale="$scale"
-        if [[ "$scale" == "1" ]]; then
-            actual_scale="2" # Upscale to 2x then downsample for 1x "enhancement"
-        fi
+        # Always run AI at 4x (native model scale) to avoid tiling issues
+        # Then downsample to desired scale (1, 2, 3, or 4)
+        local ai_scale="4"
         
         # Run Real-ESRGAN
         # Note: Model names from Upscayl have -4x suffix
-        "$tool_bin" -i "$input" -o "$output.tmp.$ext" -s "$actual_scale" -n "$model-4x" -m "$models_dir"
+        # Added -t 0 for auto tiling
+        "$tool_bin" -i "$input" -o "$output.tmp.$ext" -s "$ai_scale" -n "$model-4x" -m "$models_dir" -t 0
         
         if [[ $? -eq 0 ]]; then
-            if [[ "$scale" == "1" ]]; then
-                echo "   📉 Downsampling to 1x for enhancement..."
-                $cmd "$output.tmp.$ext" -resize 50% "$output"
-                rm "$output.tmp.$ext"
-            else
-                mv "$output.tmp.$ext" "$output"
-            fi
+            case "$scale" in
+                1)
+                    echo "   📉 Finalizing 1x enhancement (Downsampling 25%)..."
+                    $cmd "$output.tmp.$ext" -resize 25% "$output"
+                    rm "$output.tmp.$ext"
+                    ;;
+                2)
+                    echo "   📉 Finalizing 2x upscale (Downsampling 50%)..."
+                    $cmd "$output.tmp.$ext" -resize 50% "$output"
+                    rm "$output.tmp.$ext"
+                    ;;
+                3)
+                    echo "   📉 Finalizing 3x upscale (Downsampling 75%)..."
+                    $cmd "$output.tmp.$ext" -resize 75% "$output"
+                    rm "$output.tmp.$ext"
+                    ;;
+                *)
+                    # 4x or other
+                    mv "$output.tmp.$ext" "$output"
+                    ;;
+            esac
             echo "✅ Saved: $output"
         else
             echo "❌ Upscaling failed."
