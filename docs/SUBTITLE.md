@@ -196,6 +196,7 @@ python video_multilang_translate.py podcast.mp4 -s en -t fa -m large
 | `hi` | Hindi | Mangal |
 | `tr` | Turkish | Arial |
 | `nl` | Dutch | Arial |
+| `mg` | Malagasy | Arial |
 
 View full list: `python video_multilang_translate.py -l`
 
@@ -275,15 +276,9 @@ LANGUAGE_CONFIG = {
 ## 🐛 Troubleshooting
 
 ### "FFmpeg not found"
-```bash
-# Ubuntu/Debian
-sudo apt-get install ffmpeg
-
-# macOS
-brew install ffmpeg
-
-# Windows
-# Download from: https://ffmpeg.org/download.html
+# Professional Setup (Internal)
+# The amir CLI automatically installs FFmpeg 8.0 with libass support to ~/.local/bin/
+# This ensures perfect subtitle rendering regardless of system defaults.
 ```
 
 ### "API key not found"

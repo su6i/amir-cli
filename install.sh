@@ -24,8 +24,7 @@ install_deps() {
                  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
             fi
             brew install ffmpeg --with-libx265 --with-tools
-            brew install ffmpeg --with-libx265 --with-tools
-            brew install bc qrencode uv
+            brew install bc qrencode uv imagemagick
             ;;
         linux-gnu*)
             if check_dep apt; then
@@ -145,6 +144,15 @@ if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
     fi
 else
     echo "ℹ️  Skipped configuration. You can add .env manually later."
+fi
+
+# 5. Tools Setup (Real-ESRGAN)
+echo "-------------------------------------"
+echo "🛠️  Setting up AI Background Tools..."
+mkdir -p "$HOME/.amir-cli/tools/realesrgan"
+if [[ ! -f "$HOME/.amir-cli/tools/realesrgan/realesrgan-cli" ]]; then
+    echo "ℹ️  Real-ESRGAN binary is required for 'amir img upscale'."
+    echo "   Please follow instructions in docs/TECHNICAL.md to install it."
 fi
 
 echo "-------------------------------------"

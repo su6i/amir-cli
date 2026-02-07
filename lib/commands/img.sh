@@ -498,8 +498,8 @@ run_img() {
 
     do_upscale() {
         local input=""
-        local scale="4"
-        local model="ultrasharp"
+        local scale=$(get_config "img" "upscale_scale" "4")
+        local model=$(get_config "img" "upscale_model" "ultrasharp")
         local output=""
         
         while [[ $# -gt 0 ]]; do
@@ -591,8 +591,8 @@ run_img() {
 
     do_lab() {
         local input=""
-        local scale="4"
-        local requested_model="ultrasharp"
+        local scale=$(get_config "img" "upscale_scale" "4")
+        local requested_model=$(get_config "img" "upscale_model" "ultrasharp")
         
         while [[ $# -gt 0 ]]; do
             case "$1" in

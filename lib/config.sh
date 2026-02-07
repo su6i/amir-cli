@@ -76,6 +76,8 @@ mp3:
 # Image Manipulation Settings
 img:
   default_size: 1080  # Default resize target if not specified
+  upscale_model: ultrasharp # Default AI model
+  upscale_scale: 4    # Default AI scale
 
 # QR Code Settings
 qr:
