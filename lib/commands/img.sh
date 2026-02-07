@@ -448,16 +448,17 @@ run_img() {
         local resize_opt=""
         local target_size=$(get_paper_size "$paper_size")
         if [[ -n "$target_size" ]]; then
-            resize_opt="-resize ${target_size}>"
+            resize_opt="-resize ${target_size}"
             echo "   📄 Resizing to $paper_size ($target_size)"
         fi
         
         # Build smush command with auto-orient and optional processing
+        # Note: resize is AFTER smush so final stacked image is resized
         $cmd -background "$bg_color" \
             "${files[@]}" \
             $process_opts \
-            $resize_opt \
             -gravity center -smush $gap \
+            $resize_opt \
             -quality 95 \
             "$output"
         
