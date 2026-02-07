@@ -589,6 +589,74 @@ run_img() {
         fi
     }
 
+    do_lab() {
+        local input=""
+        local scale="1"
+        local model="ultrasharp"
+        
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                -s|--scale) scale="$2"; shift 2 ;;
+                -m|--model) model="$2"; shift 2 ;;
+                *) input="$1"; shift ;;
+            esac
+        done
+        
+        if [[ -z "$input" || ! -f "$input" ]]; then echo "❌ File not found."; return 1; fi
+        
+        local base=$(basename "$input")
+        local base_noext="${base%.*}"
+        local lab_dir="lab_${base_noext}"
+        mkdir -p "$lab_dir"
+        
+        local processing_input="$input"
+        
+        # 1. AI Upscale (if scale > 1)
+        if [[ "$scale" != "1" ]]; then
+            echo "🚀 Pre-processing with AI Upscale ($scale x $model)..."
+            local upscaled_file="${lab_dir}/00_upscaled_${scale}x_${model}.png"
+            do_upscale "$input" "$scale" "$model" "$upscaled_file"
+            if [[ $? -eq 0 ]]; then
+                processing_input="$upscaled_file"
+            else
+                echo "❌ Pre-scaling failed. Proceeding with original."
+            fi
+        fi
+        
+        echo "🔬 Generating 20 enhancement combinations in: $lab_dir"
+        
+        # Helper for lab commands
+        run_lab() {
+            local name="$1"
+            shift
+            $cmd "$processing_input" "$@" "${lab_dir}/${name}.jpg"
+        }
+        
+        # The 20 combinations (Curated for document quality)
+        run_lab "01_norm_only" -normalize
+        run_lab "02_auto-level" -auto-level
+        run_lab "03_auto-gamma" -auto-gamma
+        run_lab "04_norm_sharp1.0" -normalize -sharpen 0x1.0
+        run_lab "05_norm_sharp1.5" -normalize -sharpen 0x1.5
+        run_lab "06_norm_sharp2.0" -normalize -sharpen 0x2.0
+        run_lab "07_lev10-90_sharp1.5" -normalize -level 10%,90% -sharpen 0x1.5
+        run_lab "08_lev5-95_sharp1.5" -normalize -level 5%,95% -sharpen 0x1.5
+        run_lab "09_lev2-98_sharp1.0" -normalize -level 2%,98% -sharpen 0x1.0
+        run_lab "10_unsharp_soft" -normalize -unsharp 0x0.5+0.5+0
+        run_lab "11_unsharp_std" -normalize -unsharp 0x1+1+0.05
+        run_lab "12_unsharp_hard" -normalize -unsharp 0x2+1.5+0.1
+        run_lab "13_bright+10_cont+20" -brightness-contrast 10x20
+        run_lab "14_bright-10_cont+40" -brightness-contrast -10x40
+        run_lab "15_sigmoidal_contrast" -sigmoidal-contrast 5x50%
+        run_lab "16_adaptive_blur" -adaptive-sharpen 0x2
+        run_lab "17_local_contrast" -unsharp 0x5+1.0+0
+        run_lab "18_clahe_lite" -clahe 25x25%+64+3
+        run_lab "19_doc_threshold" -white-threshold 90% -black-threshold 10% -sharpen 0x1.5
+        run_lab "20_final_boost" -normalize -level 5%,95% -unsharp 0x1+1+0.05 -quality 98
+        
+        echo "✅ Finished! Results in: $lab_dir"
+    }
+
     # --- Router ---
 
     local action="$1"
@@ -607,6 +675,8 @@ run_img() {
         shift; do_stack "$@"
     elif [[ "$action" == "upscale" ]]; then
         shift; do_upscale "$@"
+    elif [[ "$action" == "lab" ]]; then
+        shift; do_lab "$@"
     elif [[ "$action" == "convert" ]]; then
         shift; do_convert "$@"
     elif [[ "$action" == "extend" ]]; then
@@ -638,6 +708,7 @@ run_img() {
         echo "  amir img resize  <file> <size|preset> [circle]   (Scale & opt. Circle Crop)"
         echo "  amir img crop    <file> <size|preset> <g>        (Fill & Crop, g=1-9)"
         echo "  amir img upscale <file> [scale] [model]          (AI-Upscale, def: 4x, ultrasharp)"
+        echo "  amir img lab     <file> [-s scale] [-m model]    (Generate 20 enhancement combinations)"
         echo "  amir img round   <file> [radius] [fmt|out]       (Round corners, def: 20px, PNG/JPG)"
         echo "  amir img rotate  <file> <angle>                  (Rotate image)"
         echo "  amir img pad     <file> <size|preset> [color]    (Fit & Pad, def: white)"
