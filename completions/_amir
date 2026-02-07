@@ -221,6 +221,7 @@ _amir() {
                             'round:Round image corners (PNG)'
                             'stack:Combine multiple images vertically'
                             'upscale:AI-Upscale image (2x, 3x, 4x or 1x enhancement)'
+                            'lab:Generate 20 enhancement combinations for testing'
                             'extend:Extend image borders with custom color'
                             'convert:Convert image to png/jpg'
                          )
