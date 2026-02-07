@@ -592,12 +592,12 @@ run_img() {
     do_lab() {
         local input=""
         local scale="1"
-        local model="ultrasharp"
+        local requested_model="ultrasharp"
         
         while [[ $# -gt 0 ]]; do
             case "$1" in
                 -s|--scale) scale="$2"; shift 2 ;;
-                -m|--model) model="$2"; shift 2 ;;
+                -m|--model) requested_model="$2"; shift 2 ;;
                 *) input="$1"; shift ;;
             esac
         done
@@ -606,55 +606,72 @@ run_img() {
         
         local base=$(basename "$input")
         local base_noext="${base%.*}"
-        local lab_dir="lab_${base_noext}"
-        mkdir -p "$lab_dir"
+        local root_lab_dir="lab_${base_noext}"
+        mkdir -p "$root_lab_dir"
         
-        local processing_input="$input"
-        
-        # 1. AI Upscale (if scale > 1)
-        if [[ "$scale" != "1" ]]; then
-            echo "🚀 Pre-processing with AI Upscale ($scale x $model)..."
-            local upscaled_file="${lab_dir}/00_upscaled_${scale}x_${model}.png"
-            do_upscale "$input" "$scale" "$model" "$upscaled_file"
-            if [[ $? -eq 0 ]]; then
-                processing_input="$upscaled_file"
-            else
-                echo "❌ Pre-scaling failed. Proceeding with original."
-            fi
+        local models=("$requested_model")
+        if [[ "$requested_model" == "all" ]]; then
+            models=("ultrasharp" "digital-art" "high-fidelity" "remacri" "ultramix-balanced" "upscayl-lite" "upscayl-standard")
+            echo "🧪 Multi-model mode enabled. Testing ${#models[@]} models..."
         fi
         
-        echo "🔬 Generating 20 enhancement combinations in: $lab_dir"
+        for current_model in "${models[@]}"; do
+            local lab_dir="$root_lab_dir"
+            if [[ "${#models[@]}" -gt 1 ]]; then
+                lab_dir="${root_lab_dir}/${current_model}"
+                mkdir -p "$lab_dir"
+            fi
+            
+            local processing_input="$input"
+            
+            # 1. AI Upscale (if scale > 1)
+            if [[ "$scale" != "1" ]]; then
+                echo "🚀 [$current_model] Pre-processing with AI Upscale ($scale x)..."
+                local upscaled_file="${lab_dir}/00_upscaled_${scale}x_${current_model}.png"
+                do_upscale "$input" "$scale" "$current_model" "$upscaled_file"
+                if [[ $? -eq 0 ]]; then
+                    processing_input="$upscaled_file"
+                else
+                    echo "❌ [$current_model] Pre-scaling failed. Proceeding with original."
+                fi
+            fi
+            
+            echo "🔬 [$current_model] Generating 20 enhancement combinations..."
+            
+            # Helper for lab commands (local to loop)
+            # Note: We use eval to handle the dynamic parameters correctly
+            _run_lab() {
+                local name="$1"
+                local current_lab_dir="$2"
+                local current_input="$3"
+                shift 3
+                $cmd "$current_input" "$@" "${current_lab_dir}/${name}.jpg"
+            }
+            
+            # The 20 combinations
+            _run_lab "01_norm_only" "$lab_dir" "$processing_input" -normalize
+            _run_lab "02_auto-level" "$lab_dir" "$processing_input" -auto-level
+            _run_lab "03_auto-gamma" "$lab_dir" "$processing_input" -auto-gamma
+            _run_lab "04_norm_sharp1.0" "$lab_dir" "$processing_input" -normalize -sharpen 0x1.0
+            _run_lab "05_norm_sharp1.5" "$lab_dir" "$processing_input" -normalize -sharpen 0x1.5
+            _run_lab "06_norm_sharp2.0" "$lab_dir" "$processing_input" -normalize -sharpen 0x2.0
+            _run_lab "07_lev10-90_sharp1.5" "$lab_dir" "$processing_input" -normalize -level 10%,90% -sharpen 0x1.5
+            _run_lab "08_lev5-95_sharp1.5" "$lab_dir" "$processing_input" -normalize -level 5%,95% -sharpen 0x1.5
+            _run_lab "09_lev2-98_sharp1.0" "$lab_dir" "$processing_input" -normalize -level 2%,98% -sharpen 0x1.0
+            _run_lab "10_unsharp_soft" "$lab_dir" "$processing_input" -normalize -unsharp 0x0.5+0.5+0
+            _run_lab "11_unsharp_std" "$lab_dir" "$processing_input" -normalize -unsharp 0x1+1+0.05
+            _run_lab "12_unsharp_hard" "$lab_dir" "$processing_input" -normalize -unsharp 0x2+1.5+0.1
+            _run_lab "13_bright+10_cont+20" "$lab_dir" "$processing_input" -brightness-contrast 10x20
+            _run_lab "14_bright-10_cont+40" "$lab_dir" "$processing_input" -brightness-contrast -10x40
+            _run_lab "15_sigmoidal_contrast" "$lab_dir" "$processing_input" -sigmoidal-contrast 5x50%
+            _run_lab "16_adaptive_blur" "$lab_dir" "$processing_input" -adaptive-sharpen 0x2
+            _run_lab "17_local_contrast" "$lab_dir" "$processing_input" -unsharp 0x5+1.0+0
+            _run_lab "18_clahe_lite" "$lab_dir" "$processing_input" -clahe 25x25%+64+3
+            _run_lab "19_doc_threshold" "$lab_dir" "$processing_input" -white-threshold 90% -black-threshold 10% -sharpen 0x1.5
+            _run_lab "20_final_boost" "$lab_dir" "$processing_input" -normalize -level 5%,95% -unsharp 0x1+1+0.05 -quality 98
+        done
         
-        # Helper for lab commands
-        run_lab() {
-            local name="$1"
-            shift
-            $cmd "$processing_input" "$@" "${lab_dir}/${name}.jpg"
-        }
-        
-        # The 20 combinations (Curated for document quality)
-        run_lab "01_norm_only" -normalize
-        run_lab "02_auto-level" -auto-level
-        run_lab "03_auto-gamma" -auto-gamma
-        run_lab "04_norm_sharp1.0" -normalize -sharpen 0x1.0
-        run_lab "05_norm_sharp1.5" -normalize -sharpen 0x1.5
-        run_lab "06_norm_sharp2.0" -normalize -sharpen 0x2.0
-        run_lab "07_lev10-90_sharp1.5" -normalize -level 10%,90% -sharpen 0x1.5
-        run_lab "08_lev5-95_sharp1.5" -normalize -level 5%,95% -sharpen 0x1.5
-        run_lab "09_lev2-98_sharp1.0" -normalize -level 2%,98% -sharpen 0x1.0
-        run_lab "10_unsharp_soft" -normalize -unsharp 0x0.5+0.5+0
-        run_lab "11_unsharp_std" -normalize -unsharp 0x1+1+0.05
-        run_lab "12_unsharp_hard" -normalize -unsharp 0x2+1.5+0.1
-        run_lab "13_bright+10_cont+20" -brightness-contrast 10x20
-        run_lab "14_bright-10_cont+40" -brightness-contrast -10x40
-        run_lab "15_sigmoidal_contrast" -sigmoidal-contrast 5x50%
-        run_lab "16_adaptive_blur" -adaptive-sharpen 0x2
-        run_lab "17_local_contrast" -unsharp 0x5+1.0+0
-        run_lab "18_clahe_lite" -clahe 25x25%+64+3
-        run_lab "19_doc_threshold" -white-threshold 90% -black-threshold 10% -sharpen 0x1.5
-        run_lab "20_final_boost" -normalize -level 5%,95% -unsharp 0x1+1+0.05 -quality 98
-        
-        echo "✅ Finished! Results in: $lab_dir"
+        echo "✅ Finished! Results in: $root_lab_dir"
     }
 
     # --- Router ---
