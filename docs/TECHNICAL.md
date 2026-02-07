@@ -159,7 +159,12 @@ amir qr "+989123456789" contact.png
 - **Tool Abstraction:** It attempts to use `magick` (ImageMagick v7) first. If not found, it falls back to `convert` (IM v6). On macOS, it has a limited fallback to `sips` (Apple's native image tool) for basic operations.
 - **Smart Legacy Mode:** If no subcommand (`resize`/`crop`) is given, it inspects arguments to guess the user's intent (e.g., presence of gravity code = crop).
 - **Extend Subcommand:** Uses `magick` -splice capabilities to add borders. Supports auto-average background color calculating and independent per-side coloring.
-- **Smart File Naming:** Output filenames automatically append used options (e.g., `_bg-blue_circle`) to prevent accidental overwrites. Includes interactive overwrite protection if a collision occurs.
+- **Smart File Naming**: Output filenames automatically append used options (e.g., `_bg-blue_circle`) to prevent accidental overwrites. Includes interactive overwrite protection if a collision occurs.
+
+#### 🎨 Image Corner Rounding (`round`)
+- **Format Support**: `amir img round` now supports both PNG (for transparency) and JPG (flattened against a white background).
+- **macOS Compatibility**: Uses shell-safe `tr` translations instead of Bash 4+ `${var^^}` syntax to maintain full compatibility with macOS default Bash 3.2.
+- **Robust Masking (CopyOpacity Strategy)**: Uses `-compose CopyOpacity` to strictly separate alpha channel manipulation from color channels. This prevents the "white page" bug where DstIn composition could replace image color with mask color on certain ImageMagick versions.
 
 #### 🎥 Static SVG Baking (Animated SVGs)
 When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir CLI uses a custom Python script (`lib/python/svg_bake.py`) instead of a headless browser.
@@ -176,19 +181,13 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
 - **Table Alignment:** Uses Python's `unicodedata` library to strictly calculate visual string width (East Asian Width), properly handling zero-width combining characters (e.g., Variation Selectors). This ensures standard-compliant table alignment across Linux and macOS.
 - **AI Stats:** Log file tracks compression ratios to optimal settings.
 
-### `pdf` (Document Construction)
-- **Problem:** Merging images into PDF often results in either huge file sizes (raw bitmaps) or poor quality (blurry text).
-- **Dual Output Strategy:** Generates **two** files automatically to satisfy administrative needs:
-    1. **HQ (Master):** 
-        - 300 DPI (Archive/Print safe).
-        - Uses `-compress jpeg -quality 100` to avoid raw bitmap bloat (13MB -> 4MB).
-        - Preserves rounding and alpha.
-    2. **Compressed (XS):** 
-        - Optimized for <1MB file size (Email/Admin upload safe).
-        - **Density Fix:** Explicitly reads HQ input at `-density 300` to prevent ImageMagick from reading at 72 DPI (which causes blur).
-        - **Settings:** Resize 75% + Quality 75 + Strip Metadata.
-        - **Chroma Subsampling:** Disabled (`4:4:4`) to ensure text sharpness even at lower quality.
-- **Simplified Pipeline:** Uses a robust "Resize & Center" strategy (`-resize` + `extent`) to ensure reliability. Legacy masking (for rounded corners) is disabled by default to prevent "white page" issues on complex inputs.
+### `pdf` (PDF Generation)
+- **Dual-Mode Rendering Pipeline:** 
+    1. **Collage Mode (Default):** Stacks images on a single A4 canvas with professional 5% margins, 100px inter-image spacing, and 50px rounded corners.
+    2. **Multi-page Mode (`--pages`):** Processes each input into its own standardized A4 page.
+- **Robustness (CopyOpacity Strategy):** Uses `-compose CopyOpacity` masking to prevent 'white page' rendering bugs. This strictly separates alpha channel manipulation from color channels, ensuring image content is preserved during corner rounding.
+- **Performance:** Uses intermediate PNG clips for transparency, then flattens with `-alpha remove -alpha off` for solid JPEG output.
+- **Simplified Pipeline:** Uses a robust "Resize & Center" strategy (`-resize` + `extent`) to ensure reliability. 
 - **Overwrite Protection:** Interactive check prevents accidental data loss. Checks *both* HQ and Compressed filenames before proceeding.
 
 ## ⚙️ Configuration & Storage

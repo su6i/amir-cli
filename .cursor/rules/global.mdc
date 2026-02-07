@@ -47,5 +47,19 @@ You are strictly bound by the defined Workflows. You simply CANNOT execute a tas
 - **Required Tone:** Objective, dry, descriptive, and precise.
 - **Scope:** Applies to ALL documentation content and ALL filenames.
 
+## 7. Commitment & Git Protocol
+**Rule:** You are FORBIDDEN from committing code until the USER has explicitly verified that the work is correct and has provided final approval.
+- **No Premature Commits:** Never assume a task is finished or a bug is fixed without USER confirmation.
+- **Verification First:** Only once the USER confirms the feature/fix works as expected, can you proceed with the next steps.
+- **Pre-Commit Documentation:** After USER approval and BEFORE committing, you MUST update all relevant documentation including `README.md`, Technical Docs, `Project_Timeline.md`, `task.md`, and any relevant skills.
+- **Unified Step:** The documentation update and the final `git commit` must be the final coordinated actions of the task.
+
+## 8. Feature Branch Workflow
+**Rule:** You are FORBIDDEN from working directly on the `main` or `master` branch for new features or non-trivial fixes.
+- **Branch Strategy:** Create a new branch for every task: `git checkout -b feature/name-of-feature`.
+- **Isolation:** All work must happen in this isolated branch.
+- **Completion:** Only after Verification and User Approval can you merge the branch and delete it.
+- **Cleanup:** `git branch -D feature/name-of-feature` after successful merge.
+
 ---
 *If you find yourself guessing, STOP and read the Workflows.*

@@ -33,6 +33,16 @@ magick "$input" \
 ```
 *Note:* `%[fx:w-1]` ensures drawing occurs within 0-indexed bounds.
 
+> [!TIP]
+> **Robust Alternative (CopyOpacity):** If `DstIn` causes color loss (white output), use:
+> ```bash
+> magick "$input" -alpha set \
+>     \( +clone -fill black -colorize 100 -fill white -draw "roundrectangle 0,0 %[fx:w-1],%[fx:h-1] $radius,$radius" \) \
+>     -alpha off -compose CopyOpacity -composite \
+>     "$output"
+> ```
+> This strictly isolates alpha manipulation from color channels.
+
 ---
 
 ## 3. Average Color Extraction

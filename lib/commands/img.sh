@@ -295,12 +295,9 @@ run_img() {
     do_round() {
         local input="$1"
         local radius="${2:-20}"
+        local out_spec="${3:-png}" # Can be format (jpg) or full filename
         
         if [[ -z "$input" || ! -f "$input" ]]; then echo "❌ File not found."; return 1; fi
-        
-        # Output filename: force png for transparency
-        local base="${input%.*}"
-        local output="${base}_rounded_${radius}px.png"
         
         # Validation for radius
         if [[ ! "$radius" =~ ^[0-9]+$ ]]; then
@@ -308,21 +305,45 @@ run_img() {
             return 1
         fi
 
-        echo "🎨 Rounding corners (Radius: ${radius}px)..."
+        # Determine Output Filename
+        local output=""
+        if [[ "$out_spec" == *"."* ]]; then
+            output="$out_spec"
+        else
+            # It's a format (e.g. "jpg" or "png")
+            local base="${input%.*}"
+            output="${base}_rounded_${radius}px.${out_spec#.}"
+        fi
+        
+        local out_ext="${output##*.}"
+        local out_ext_upper=$(echo "$out_ext" | tr '[:lower:]' '[:upper:]')
+        echo "🎨 Rounding corners (Radius: ${radius}px) -> $out_ext_upper..."
         
         if [[ "$cmd" == "sips" ]]; then
              echo "⚠️ Sips does not support corner rounding."
              return 1
         else
-            # Magick: Clean Canvas Masking Strategy
-            # 1. auto-orient + repage (Normalize)
-            # 2. Clone + Transparent Canvas + Draw White RoundRect (Mask creation)
-            # 3. DstIn Composite (Apply Mask)
-            $cmd "$input" \
-                -auto-orient +repage \
-                -format png -alpha on \
-                \( +clone -alpha transparent -fill white -draw "roundrectangle 0,0 %[fx:w-1],%[fx:h-1] $radius,$radius" \) \
-                -compose DstIn -composite \
+            # Verified Robust Strategy: CopyOpacity
+            # This strictly separates Alpha Channel from Color Channels, preventing color bleed/whiteout.
+            local out_ext="${output##*.}"
+            out_ext=$(echo "$out_ext" | tr '[:upper:]' '[:lower:]')
+
+            # 1. Start with Input (Color Preserved)
+            # 2. Setup Alpha Channel
+            # 3. Create Mask (Black Bg = Transparent, White Shape = Opaque)
+            # 4. Copy Mask to Alpha (CopyOpacity)
+            
+            local flatten_arg=""
+            if [[ "$out_ext" == "jpg" || "$out_ext" == "jpeg" ]]; then
+                flatten_arg="-background white -alpha remove -alpha off"
+            fi
+
+            $cmd "$input" -auto-orient +repage \
+                -alpha set \
+                \( +clone -fill black -colorize 100 -fill white \
+                   -draw "roundrectangle 0,0 %[fx:w-1],%[fx:h-1] $radius,$radius" \) \
+                -alpha off -compose CopyOpacity -composite \
+                $flatten_arg \
                 "$output"
         fi
         
@@ -404,7 +425,7 @@ run_img() {
         echo "Usage:"
         echo "  amir img resize  <file> <size|preset> [circle]   (Scale & opt. Circle Crop)"
         echo "  amir img crop    <file> <size|preset> <g>        (Fill & Crop, g=1-9)"
-        echo "  amir img round   <file> [radius]                 (Round corners, def: 20px)"
+        echo "  amir img round   <file> [radius] [fmt|out]       (Round corners, def: 20px, PNG/JPG)"
         echo "  amir img rotate  <file> <angle>                  (Rotate image)"
         echo "  amir img pad     <file> <size|preset> [color]    (Fit & Pad, def: white)"
         echo "  amir img convert <file> [fmt] [size|preset] [circle] (Convert & opt. Circle)"

@@ -176,6 +176,11 @@ _amir() {
                  case $((CURRENT)) in
                     4) _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" ;;
                     5) _message "Corner Radius (px) [default: 20]" ;;
+                    6) 
+                        local -a round_formats
+                        round_formats=('jpg' 'png')
+                        _describe -t round_formats 'format' round_formats
+                        ;;
                 esac
             else
                 case $((CURRENT)) in
