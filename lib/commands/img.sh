@@ -496,6 +496,63 @@ run_img() {
         fi
     }
 
+    do_upscale() {
+        local input="$1"
+        local scale="${2:-4}"
+        local model="${3:-ultrasharp}"
+        local output="$4"
+        
+        if [[ -z "$input" || ! -f "$input" ]]; then echo "❌ File not found."; return 1; fi
+        
+        local tool_dir="$HOME/.amir-cli/tools/realesrgan"
+        local tool_bin="$tool_dir/realesrgan-cli"
+        local models_dir="$tool_dir/models"
+        
+        if [[ ! -f "$tool_bin" ]]; then
+            echo "❌ Real-ESRGAN tool not found in $tool_bin"
+            return 1
+        fi
+        
+        local base="${input%.*}"
+        local ext="${input##*.}"
+        
+        # Suffix management
+        local suffix="_upscaled_${scale}x_${model}"
+        if [[ "$scale" == "1" ]]; then
+            suffix="_enhanced_1x_${model}"
+        fi
+        
+        if [[ -z "$output" ]]; then
+            output="${base}${suffix}.${ext}"
+        fi
+        
+        echo "🚀 Upscaling to ${scale}x using $model model..."
+        
+        local actual_scale="$scale"
+        if [[ "$scale" == "1" ]]; then
+            actual_scale="2" # Upscale to 2x then downsample for 1x "enhancement"
+        fi
+        
+        # Run Real-ESRGAN
+        # Note: Model names from Upscayl have -4x suffix
+        "$tool_bin" -i "$input" -o "$output.tmp.$ext" -s "$actual_scale" -n "$model-4x" -m "$models_dir"
+        
+        if [[ $? -eq 0 ]]; then
+            if [[ "$scale" == "1" ]]; then
+                echo "   📉 Downsampling to 1x for enhancement..."
+                $cmd "$output.tmp.$ext" -resize 50% "$output"
+                rm "$output.tmp.$ext"
+            else
+                mv "$output.tmp.$ext" "$output"
+            fi
+            echo "✅ Saved: $output"
+        else
+            echo "❌ Upscaling failed."
+            rm -f "$output.tmp.$ext"
+            return 1
+        fi
+    }
+
     # --- Router ---
 
     local action="$1"
@@ -512,6 +569,8 @@ run_img() {
         shift; do_rotate "$@"
     elif [[ "$action" == "stack" ]]; then
         shift; do_stack "$@"
+    elif [[ "$action" == "upscale" ]]; then
+        shift; do_upscale "$@"
     elif [[ "$action" == "convert" ]]; then
         shift; do_convert "$@"
     elif [[ "$action" == "extend" ]]; then
@@ -542,6 +601,7 @@ run_img() {
         echo "Usage:"
         echo "  amir img resize  <file> <size|preset> [circle]   (Scale & opt. Circle Crop)"
         echo "  amir img crop    <file> <size|preset> <g>        (Fill & Crop, g=1-9)"
+        echo "  amir img upscale <file> [scale] [model]          (AI-Upscale, def: 4x, ultrasharp)"
         echo "  amir img round   <file> [radius] [fmt|out]       (Round corners, def: 20px, PNG/JPG)"
         echo "  amir img rotate  <file> <angle>                  (Rotate image)"
         echo "  amir img pad     <file> <size|preset> [color]    (Fit & Pad, def: white)"

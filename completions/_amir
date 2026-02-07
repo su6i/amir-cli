@@ -220,13 +220,31 @@ _amir() {
                             'rotate:Rotate image by angle (degrees)'
                             'round:Round image corners (PNG)'
                             'stack:Combine multiple images vertically'
+                            'upscale:AI-Upscale image (2x, 3x, 4x or 1x enhancement)'
                             'extend:Extend image borders with custom color'
                             'convert:Convert image to png/jpg'
                          )
                          _describe -t img_actions "action" img_actions
                          ;;
-                    4) _amir_img_sizes ;;
-                    5) _amir_img_gravity ;;
+                    4) 
+                        if [[ "$subcmd" == "upscale" ]]; then
+                            _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)"
+                        else
+                            _amir_img_sizes
+                        fi
+                        ;;
+                    5) 
+                        if [[ "$subcmd" == "upscale" ]]; then
+                            local -a scales; scales=('1:Quality enhancement (no resize)' '2:Upscale 2x' '3:Upscale 3x' '4:Upscale 4x'); _describe -t scales "scale" scales
+                        else
+                            _amir_img_gravity
+                        fi
+                        ;;
+                    6)
+                        if [[ "$subcmd" == "upscale" ]]; then
+                            local -a models; models=('ultrasharp' 'digital-art' 'high-fidelity' 'upscayl-standard' 'upscayl-lite' 'remacri' 'ultramix-balanced'); _describe -t models "model" models
+                        fi
+                        ;;
                 esac
             fi
             ;;
