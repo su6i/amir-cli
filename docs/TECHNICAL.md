@@ -182,13 +182,17 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
 - **AI Stats:** Log file tracks compression ratios to optimal settings.
 
 ### `pdf` (PDF Generation)
-- **Dual-Mode Rendering Pipeline:** 
-    1. **Collage Mode (Default):** Stacks images on a single A4 canvas with professional 5% margins, 100px inter-image spacing, and 50px rounded corners.
-    2. **Multi-page Mode (`--pages`):** Processes each input into its own standardized A4 page.
-- **Robustness (CopyOpacity Strategy):** Uses `-compose CopyOpacity` masking to prevent 'white page' rendering bugs. This strictly separates alpha channel manipulation from color channels, ensuring image content is preserved during corner rounding.
-- **Performance:** Uses intermediate PNG clips for transparency, then flattens with `-alpha remove -alpha off` for solid JPEG output.
 - **Simplified Pipeline:** Uses a robust "Resize & Center" strategy (`-resize` + `extent`) to ensure reliability. 
 - **Overwrite Protection:** Interactive check prevents accidental data loss. Checks *both* HQ and Compressed filenames before proceeding.
+
+### `img` (Image Manipulation) - AI & Laboratory
+- **Upscaling Architecture:** Uses the `realesrgan-ncnn-vulkan` binary. 
+  - **Tiling Fix:** ESRGAN models are native 4x. To prevent tiling artifacts at other scales, the CLI always upscales to 4x internally and then downsamples via ImageMagick to the target scale (1x, 2x, 3x).
+  - **Hardware Support:** Utilizes Vulkan for acceleration (Metal on macOS).
+- **Enhancement Lab (`lab`):** 
+  - **Logic:** Automates the testing of 140 unique combinations (7 AI models × 20 curated ImageMagick filter chains).
+  - **Hierarchical Storage:** Organizes results into `lab_{base}/{model}/{filter}.jpg` for easy comparison.
+- **Stacking:** Combines images with auto-orient and deskew. Uses paper-size presets (A4/B5 at 150DPI) for standardized document preparation.
 
 ## ⚙️ Configuration & Storage
 

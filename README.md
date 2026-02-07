@@ -17,10 +17,7 @@ Built with modularity and ease of use in mind, `amir` works seamlessly across **
 
 ## ✨ Features
 
-- **🎬 Smart Video Compression:** Auto-detects hardware (Apple Silicon, NVENC, QSV) and optimizes settings for the best quality/size ratio. Features "AI Learning" to adapt to your preferences over time.
-- **🤖 AI Powered:** Chat with Gemini/Gemma directly from your terminal and generate code snippets.
-- **🛠️ System Utilities:** One-command system cleanup, password generation, file locking/unlocking, and QR code generation.
-- **☁️ File Transfer:** Instantly upload files to temporary hosting services and get a shareable link.
+- **🖼️ Advanced Image Processing:** AI-powered upscaling (Real-ESRGAN), document enhancement lab, smart stacking (front/back), and professional corner rounding.
 - **⚡ Super Fast:** Written in optimized Bash/Zsh with minimal overhead.
 
 ## 📦 Installation
@@ -82,6 +79,8 @@ mp3:
 
 img:
   default_size: 1080  # Default image resize target
+  upscale_model: ultrasharp 
+  upscale_scale: 4
 
 qr:
   size: 10            # QR code module size
@@ -112,13 +111,10 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir compress <file/dir>` | Smart video compression. Supports **Batch Mode** (directories) & multiple files. |
 | `amir compress stats` | View AI learning statistics & compression history. |
 | `amir mp3 <file>` | Extract high-quality MP3 audio from a video file. |
-| `amir img convert <svg> [fmt] [size]` | Convert SVG/Image to PNG/JPG. Supports **Animated SVGs** (bakes last frame). |
-| `amir img resize <file> <size> [circle]` | Resize. Optional `circle` crop (transparent corners). |
-| `amir img crop <file> <size> <g>` | Resize & Fill + Crop. `g`=1-9. |
-| `amir img pad <file> <size> [color]` | Resize & Fill with Color (Contain). |
-| `amir img round <file> [radius] [fmt]` | Round image corners (PNG/JPG). |
-| `amir img extend <file> [opts]` | Extend image borders (custom/auto color). |
-| `amir img <file> <size> [g]` | Legacy mode (detects resize vs crop). |
+| `amir img upscale <file> [scale] [model]` | AI-Upscale or quality enhancement (1x mode). |
+| `amir img lab <file> [-s scale] [-m model]` | Generate 140 enhancement variations for testing. |
+| `amir img stack <files> [opts]` | Combine images vertically (A4/B5 presets + deskew). |
+| `amir img rotate <file> <angle>` | Rotate image by degrees. |
 | `amir pdf <files> [opts]` | Merge images into A4 PDF. Dual output (HQ+XS). Opts: `-q`, `-r`, `--radius`. |
 | `amir watermark <file> [text]` | Add watermark to image (auto-saved or `-o output`). |
 | `amir subtitle <file> [opts]` | Generate multi-language subtitles. See [SUBTITLE.md](docs/SUBTITLE.md) for details. |
