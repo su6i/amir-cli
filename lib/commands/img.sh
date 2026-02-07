@@ -591,7 +591,7 @@ run_img() {
 
     do_lab() {
         local input=""
-        local scale="1"
+        local scale="4"
         local requested_model="ultrasharp"
         
         while [[ $# -gt 0 ]]; do

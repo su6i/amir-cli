@@ -13,136 +13,71 @@ description: Complete pipeline for enhancing scanned official documents (ID card
 
 | Tool | Type | Purpose |
 |------|------|---------|
-| **Upscayl** | Desktop | AI Upscaling (4x) |
-| **ImageMagick** | CLI | Contrast, sharpening, levels |
-| **amir CLI** | CLI | Image stacking, PDF conversion |
+| **amir CLI** | CLI | All-in-one: AI Upscale, Filter Lab, Stacking, PDF |
+| **Real-ESRGAN** | Engine | Underlying AI engine (integrated in amir CLI) |
+| **ImageMagick** | Engine | Underlying filter engine (integrated in amir CLI) |
+| **Upscayl** | Desktop | GUI alternative for AI Upscaling |
 
 ---
 
-## Complete Pipeline (Step-by-Step)
+## 🚀 Recommended CLI Pipeline
 
-### Step 1: AI Upscaling
-**Tool:** Upscayl (Desktop App)
-
-| Setting | Value |
-|---------|-------|
-| Model | `Ultrasharp` |
-| Scale | `4x` |
-| Output Format | `PNG` |
-
-**Output:** `{filename}_upscaled_4x.png` (~300MB)
-
----
-
-### Step 2: Contrast & Sharpening
-**Tool:** ImageMagick
-
-**Native Command:**
+### Step 1: Quality Exploration (The Lab)
+Before processing everything, find the "Golden Formula" for your specific scanner/document.
 ```bash
-magick "input_upscaled_4x.png" \
-    -normalize \
-    -level 10%,90% \
-    -sharpen 0x1.5 \
-    -quality 95 \
-    "output_enhanced.jpg"
+# Generate 140 variations (7 AI models x 20 filters)
+# Logic: AI at 4x native -> Downsample to 1x -> Apply 20 filters
+amir img lab input.jpg -s 1 -m all
 ```
+**Results:** Check the `lab_input/` folder. Each subfolder corresponds to an AI model.
 
-| Parameter | Effect |
-|-----------|--------|
-| `-normalize` | Auto contrast adjustment |
-| `-level 10%,90%` | Darken text, whiten background |
-| `-sharpen 0x1.5` | Sharpen edges |
-| `-quality 95` | High quality JPEG |
-
----
-
-### Step 3: Combine Front/Back (Optional)
-**Tool:** ImageMagick / amir CLI
-
-**Native ImageMagick:**
+### Step 2: AI Upscaling & Enhancement
+Once you find a model (e.g., `ultrasharp`), apply it.
 ```bash
-magick front.jpg back.jpg -auto-orient -gravity center -smush 20 -quality 95 output.jpg
+# AI-Upscale (4x default)
+amir img upscale input.jpg
+
+# OR: AI-Enhance at 1x (No size change, just better quality)
+amir img upscale input.jpg 1
 ```
 
-**amir CLI (with extras):**
+### Step 3: Manual Filter (Optional)
+If you don't want the full lab, apply the "Best" filter manually:
 ```bash
-amir img stack front.jpg back.jpg --deskew -p a4 -o combined.jpg
+magick "input.jpg" -normalize -level 10%,90% -sharpen 0x1.5 "output.jpg"
 ```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `-g` | `20` | Gap between images (pixels) |
-| `-bg` | `white` | Background color |
-| `-o` | `{first}_stacked.jpg` | Output filename |
-| `-p` | - | Paper size: `a4` or `b5` (150dpi) |
-| `--deskew` | - | Auto-correct skewed scans |
-
-**Auto-features:**
-- ✅ Auto-orient: Fixes EXIF rotation
-- ✅ Filename includes options (e.g., `_stacked_deskew_a4`)
-
----
-
-### Step 4: Convert to PDF (Optional)
-**Tool:** amir CLI
-
+### Step 4: Stacking & PDF
 ```bash
-amir pdf "combined.jpg" -o "Document.pdf"
+# Stack front/back with A4 preset and Auto-Straighten
+amir img stack front.jpg back.jpg -p a4 --deskew -o id_card.jpg
+
+# Convert to final PDF
+amir pdf id_card.jpg -o id_card.pdf
 ```
 
 ---
 
-## Pipeline Summary
+## 🔬 AI Model Guide
 
-```
-Original (77KB JPG)
-     ↓
-Step 1: Upscayl 4x (Ultrasharp) → PNG 300MB
-     ↓
-Step 2: normalize + level + sharpen → JPG 45MB
-     ↓
-Step 3: amir img stack --deskew -p a4 → A4 JPG
-     ↓
-Step 4: amir pdf → A4 PDF
-```
+| Model | Recommendation | Key Feature |
+|-------|----------------|-------------|
+| **`ultrasharp`** | **Official Documents** | Sharpens text edges, best for reading |
+| **`upscayl-lite`** | **Speed** | 3x faster, good for quick previews |
+| **`remacri`** | High Detail | Recovers fine textures |
+| **`digital-art`** | Logos/Graphics | Smooths surfaces, removes JPG noise |
 
 ---
 
-## Processing Order Rule
-> **Always:** Enhancement BEFORE Resize
-> 
-> 1. AI Upscale (more pixels = more data to work with)
-> 2. Enhancement (normalize, sharpen, levels)
-> 3. Resize to final size (shrinking preserves quality)
+## 📏 Processing Rules
+1. **Always use 4x internally:** ESRGAN models are native 4x. Using them at 1x/2x directly causes "Tiling" corruption.
+   * *The amir CLI handles this automatically by upscaling to 4x and then downsampling.*
+2. **Enhance BEFORE Resize:** AI-Upscale first to give ImageMagick more pixels to work with.
+3. **Deskew after Stacking:** High-resolution stacks allow for more precise rotation math.
 
 ---
 
-## Alternative Techniques (Testing)
-
-### High-Pass + Overlay
-```bash
-magick input.png \
-    \( +clone -blur 0x10 \) \
-    +swap -compose Minus -composite \
-    -level 45%,55% \
-    input.png +swap \
-    -compose SoftLight -composite \
-    -quality 95 output.jpg
-```
-
-### Selective Text Darkening
-```bash
-magick input.png -black-threshold 40% output.jpg
-```
-**Status:** ❌ Not recommended (affects entire image)
-
----
-
-## Test Log
-
-| Date | Technique | Result |
-|------|-----------|--------|
-| 2026-02-07 | Upscayl 4x + Normalize + Level + Sharpen | ✅ BEST |
-| 2026-02-07 | Normalize + black-threshold | ❌ Ruined image |
-| 2026-02-07 | High-Pass + Overlay | ⚠️ OK but complex |
-| 2026-02-07 | Morphology Dilate | ❌ Ineffective |
+## Technical Log (milestones)
+- ✅ **Real-ESRGAN CLI Integration:** Fixed tiling artifact by standardizing 4x native upscale + downsample.
+- ✅ **Lab Integration:** Automated 140-variation generation.
+- ✅ **Default Scale 4x:** Standardized across all commands.
