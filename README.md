@@ -116,9 +116,17 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir compress stats` | View AI learning statistics & compression history. |
 | `amir mp3 <file>` | Extract high-quality MP3 audio from a video file. |
 | `amir img upscale <file> [scale] [model]` | AI-Upscale or quality enhancement (1x mode). |
-| `amir img lab <file> [-s scale] [-m model]` | Generate 140 enhancement variations for testing. |
+| `amir img lab <file> [-s scale] [-m model]` | Generate 60/420 enhancement variations for testing. |
 | `amir img stack <files> [opts]` | Combine images vertically (A4/B5 presets + deskew). |
 | `amir img rotate <file> <angle>` | Rotate image by degrees. |
+| `amir img convert <svg> [fmt] [size]` | Convert SVG/Image to PNG/JPG. Supports **Animated SVGs**. |
+| `amir img resize <file> <size> [circle]` | Resize. Optional `circle` crop (transparent corners). |
+| `amir img crop <file> <size> <g>` | Resize & Fill + Crop. `g`=1-9 (Gravity). |
+| `amir img pad <file> <size> [color]` | Resize & Fill with Color (Contain). |
+| `amir img round <file> [radius] [fmt]` | Round image corners (PNG/JPG). |
+| `amir img extend <file> [opts]` | Extend image borders (custom/auto color). |
+| `amir img deskew <file> [output]` | Auto-straighten scanned documents. |
+| `amir img <file> <size> [g]` | Legacy mode (detects resize vs crop). |
 | `amir pdf <files> [opts]` | Merge images into A4 PDF. Dual output (HQ+XS). Opts: `-q`, `-r`, `--radius`. |
 | `amir watermark <file> [text]` | Add watermark to image (auto-saved or `-o output`). |
 | `amir subtitle <file> [opts]` | Generate multi-language subtitles. See [SUBTITLE.md](docs/SUBTITLE.md) for details. |
