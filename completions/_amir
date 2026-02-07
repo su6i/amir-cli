@@ -242,8 +242,8 @@ _amir() {
                         fi
                         ;;
                     6)
-                        if [[ "$subcmd" == "upscale" ]]; then
-                            local -a models; models=('ultrasharp' 'digital-art' 'high-fidelity' 'upscayl-standard' 'upscayl-lite' 'remacri' 'ultramix-balanced'); _describe -t models "model" models
+                        if [[ "$subcmd" == "upscale" || "$subcmd" == "lab" ]]; then
+                            local -a models; models=('all:Test all models' 'ultrasharp' 'digital-art' 'high-fidelity' 'upscayl-standard' 'upscayl-lite' 'remacri' 'ultramix-balanced'); _describe -t models "model" models
                         fi
                         ;;
                 esac
