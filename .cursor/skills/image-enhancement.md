@@ -1,41 +1,125 @@
 ---
-description: Enhancing scanned documents and low-quality images for official use
+description: Complete pipeline for enhancing scanned official documents (ID cards, passports, etc.)
 ---
 
-# Document & Image Enhancement Skill
-
-## Tools
-| Tool | Type | Purpose |
-|------|------|---------|
-| **Upscayl** | Desktop | AI Upscaling (4x) |
-| **GIMP** | Desktop | High-Pass + Overlay |
-| **ImageMagick** | CLI | Selective darkening |
-| **imgupscaler.ai** | Online | AI sharpening (free) |
-| **Fotor** | Online | AI enhancement |
-| **Topaz Labs** | Online | Pro sharpening (10 free) |
+# Document Quality Enhancement Skill
 
 > [!CAUTION]
 > **Legal Warning:** For official documents, use ONLY non-generative techniques (contrast, sharpen, levels). AI-generated content modification (like NanoBana, DALL-E, Gemini Imagen) may be considered document forgery.
 
 ---
 
-## Techniques
+## Tools Required
 
-### 1. AI Upscaling (Upscayl)
-**Status:** ✅ Works
-**Models:** `High Fidelity` or `Ultrasharp`
-**Scale Options:**
-- `1x` = Quality enhancement only (no size change) - good for online tools
-- `4x` = Full upscale + enhancement
+| Tool | Type | Purpose |
+|------|------|---------|
+| **Upscayl** | Desktop | AI Upscaling (4x) |
+| **ImageMagick** | CLI | Contrast, sharpening, levels |
+| **amir CLI** | CLI | Image stacking, PDF conversion |
 
-### 2. High-Pass + Overlay
-**Status:** 🧪 Testing
-**GIMP Steps:**
-1. `Filters → Enhance → High Pass`
-2. `Std. Dev: 8.0`, `Contrast: 1.5`
-3. Layer Mode: `Overlay`, Opacity: 50-70%
+---
 
-**ImageMagick (for large files):**
+## Complete Pipeline (Step-by-Step)
+
+### Step 1: AI Upscaling
+**Tool:** Upscayl (Desktop App)
+
+| Setting | Value |
+|---------|-------|
+| Model | `Ultrasharp` |
+| Scale | `4x` |
+| Output Format | `PNG` |
+
+**Output:** `{filename}_upscaled_4x.png` (~300MB)
+
+---
+
+### Step 2: Contrast & Sharpening
+**Tool:** ImageMagick
+
+**Native Command:**
+```bash
+magick "input_upscaled_4x.png" \
+    -normalize \
+    -level 10%,90% \
+    -sharpen 0x1.5 \
+    -quality 95 \
+    "output_enhanced.jpg"
+```
+
+| Parameter | Effect |
+|-----------|--------|
+| `-normalize` | Auto contrast adjustment |
+| `-level 10%,90%` | Darken text, whiten background |
+| `-sharpen 0x1.5` | Sharpen edges |
+| `-quality 95` | High quality JPEG |
+
+---
+
+### Step 3: Combine Front/Back (Optional)
+**Tool:** ImageMagick / amir CLI
+
+**Native ImageMagick:**
+```bash
+magick front.jpg back.jpg -auto-orient -gravity center -smush 20 -quality 95 output.jpg
+```
+
+**amir CLI (with extras):**
+```bash
+amir img stack front.jpg back.jpg --deskew -p a4 -o combined.jpg
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-g` | `20` | Gap between images (pixels) |
+| `-bg` | `white` | Background color |
+| `-o` | `{first}_stacked.jpg` | Output filename |
+| `-p` | - | Paper size: `a4` or `b5` (150dpi) |
+| `--deskew` | - | Auto-correct skewed scans |
+
+**Auto-features:**
+- ✅ Auto-orient: Fixes EXIF rotation
+- ✅ Filename includes options (e.g., `_stacked_deskew_a4`)
+
+---
+
+### Step 4: Convert to PDF (Optional)
+**Tool:** amir CLI
+
+```bash
+amir pdf "combined.jpg" -o "Document.pdf"
+```
+
+---
+
+## Pipeline Summary
+
+```
+Original (77KB JPG)
+     ↓
+Step 1: Upscayl 4x (Ultrasharp) → PNG 300MB
+     ↓
+Step 2: normalize + level + sharpen → JPG 45MB
+     ↓
+Step 3: amir img stack --deskew -p a4 → A4 JPG
+     ↓
+Step 4: amir pdf → A4 PDF
+```
+
+---
+
+## Processing Order Rule
+> **Always:** Enhancement BEFORE Resize
+> 
+> 1. AI Upscale (more pixels = more data to work with)
+> 2. Enhancement (normalize, sharpen, levels)
+> 3. Resize to final size (shrinking preserves quality)
+
+---
+
+## Alternative Techniques (Testing)
+
+### High-Pass + Overlay
 ```bash
 magick input.png \
     \( +clone -blur 0x10 \) \
@@ -46,97 +130,19 @@ magick input.png \
     -quality 95 output.jpg
 ```
 
-**Online Alternative:** [imgupscaler.ai](https://imgupscaler.ai)
-> ⚠️ Max ~5MB. Resize first: `amir img resize big.png 2000`
-
-### 3. Selective Text Darkening (ImageMagick)
-**Status:** 🧪 Testing
+### Selective Text Darkening
 ```bash
 magick input.png -black-threshold 40% output.jpg
 ```
-
-### 4. Morphological Thickening
-**Status:** ❌ Ineffective
-```bash
-magick input.png -negate -morphology Dilate Octagon:1 -negate output.jpg
-```
-
-### 5. Frequency Separation (Advanced)
-**Status:** 🧪 Testing
-**Purpose:** Isolate text layer from background, enhance separately
-```bash
-# Step 1: Low-freq (background)
-magick input.jpg -blur 0x8 /tmp/low.png
-# Step 2: High-freq (text details)
-magick input.jpg /tmp/low.png -compose Minus -composite -evaluate Add 50% /tmp/high.png
-# Step 3: Enhance text layer
-magick /tmp/high.png -sigmoidal-contrast 4x40% /tmp/high_enh.png
-# Step 4: Recombine
-magick /tmp/low.png /tmp/high_enh.png -compose Plus -composite -evaluate Subtract 50% output.jpg
-```
-
-## ✅ Best Result Pipeline
-**File:** `2-FINAL_text_normalize.jpg`
-
-```
-Step 1: ID Guénot.JPG (original 77KB)
-    ↓
-Step 2: Upscayl 4x (Ultrasharp model) → 285MB PNG
-    ↓
-Step 3: ImageMagick:
-    magick input.png -normalize -level 10%,90% -sharpen 0x1.5 -quality 95 output.jpg
-```
-
----
-
-## Recommended Workflow
-```
-1. Upscayl 4x (High Fidelity or Ultrasharp)
-   ↓
-2. Normalize + Level + Sharpen (ImageMagick)
-   magick input.png -normalize -level 10%,90% -sharpen 0x1.5 output.jpg
-```
+**Status:** ❌ Not recommended (affects entire image)
 
 ---
 
 ## Test Log
+
 | Date | Technique | Result |
 |------|-----------|--------|
-| 2026-02-07 | Upscayl 4x | ✅ |
-| 2026-02-07 | **Normalize+Level+Sharpen** | **✅ BEST so far** |
+| 2026-02-07 | Upscayl 4x + Normalize + Level + Sharpen | ✅ BEST |
 | 2026-02-07 | Normalize + black-threshold | ❌ Ruined image |
-| 2026-02-07 | High-Pass + Overlay | ⚠️ OK |
-| 2026-02-07 | Morphology Dilate | ❌ |
-
----
-
-## AI Prompt Method (for selective text fix)
-When automated tools fail, use AI image editors (NanoBana, etc.) with targeted prompt - see conversation for full prompt.
-
----
-
-## Image Stacking (Combine Front/Back)
-
-Combine front/back ID cards or multi-page documents into single image.
-
-**Native ImageMagick:**
-```bash
-magick front.jpg back.jpg -auto-orient -gravity center -smush 20 -quality 95 output.jpg
-```
-
-**Amir CLI (wrapper with extras):**
-```bash
-amir img stack front.jpg back.jpg [-g 20] [-bg white] [-o output.jpg] [-p a4|b5] [--deskew]
-```
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `-g` | `20` | Gap between images (pixels) |
-| `-bg` | `white` | Background color |
-| `-o` | `{first}_stacked.jpg` | Output filename |
-| `-p` | - | Paper size preset (`a4` or `b5` at 150dpi) |
-| `--deskew` | - | Auto-correct skewed scans |
-
-**Auto-features (both methods):**
-- ✅ Auto-orient: Fixes EXIF rotation automatically
-- ✅ Quality: 95% JPEG
+| 2026-02-07 | High-Pass + Overlay | ⚠️ OK but complex |
+| 2026-02-07 | Morphology Dilate | ❌ Ineffective |
