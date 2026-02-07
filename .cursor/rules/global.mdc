@@ -46,6 +46,9 @@ You are strictly bound by the defined Workflows. You simply CANNOT execute a tas
 - **Banned Words:** "Mastery", "Ultimate", "Recipe Book", "Golden Rules", "Magic", "Super", "Awesome".
 - **Required Tone:** Objective, dry, descriptive, and precise.
 - **Scope:** Applies to ALL documentation content and ALL filenames.
+- **Output Filenames:** Generated output files MUST include selected options as suffixes.
+    - **Example:** `image_stacked_deskew_a4.jpg` (shows: stacked + deskew enabled + A4 size)
+    - **Format:** `{base}_{action}_{option1}_{option2}.{ext}`
 
 ## 7. Commitment & Git Protocol
 **Rule:** You are FORBIDDEN from committing code until the USER has explicitly verified that the work is correct and has provided final approval.

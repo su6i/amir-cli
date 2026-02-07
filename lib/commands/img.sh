@@ -410,10 +410,23 @@ run_img() {
             return 1
         fi
         
-        # Default output name
+        # Default output name with option suffixes
         if [[ -z "$output" ]]; then
             local base="${files[0]%.*}"
-            output="${base}_stacked.jpg"
+            local suffix="_stacked"
+            
+            # Add option indicators to filename
+            if [[ "$deskew" == true ]]; then
+                suffix="${suffix}_deskew"
+            fi
+            if [[ -n "$paper_size" ]]; then
+                suffix="${suffix}_${paper_size}"
+            fi
+            if [[ "$gap" != "20" ]]; then
+                suffix="${suffix}_g${gap}"
+            fi
+            
+            output="${base}${suffix}.jpg"
         fi
         
         echo "📚 Stacking ${#files[@]} images (gap: ${gap}px, bg: $bg_color)..."
