@@ -182,6 +182,33 @@ _amir() {
                         _describe -t round_formats 'format' round_formats
                         ;;
                 esac
+            elif [[ "$subcmd" == "stack" ]]; then
+                case $((CURRENT)) in
+                    4) _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" ;;  # First image
+                    5) _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" ;;  # Second image
+                    *)
+                        # Check if previous word is -p, show paper sizes
+                        if [[ "${words[CURRENT-1]}" == "-p" || "${words[CURRENT-1]}" == "--paper" ]]; then
+                            local -a paper_sizes
+                            paper_sizes=(
+                                'a4:A4 size (210x297mm at 150dpi)'
+                                'b5:B5 size (176x250mm at 150dpi)'
+                            )
+                            _describe -t paper_sizes 'paper size' paper_sizes
+                        else
+                            # After 2 files, show only options
+                            local -a stack_options
+                            stack_options=(
+                                '-g:Gap between images in pixels (default 20)'
+                                '-bg:Background color (default white)'
+                                '-o:Output filename (default {first}_stacked.jpg)'
+                                '-p:Paper size preset (a4 or b5, 150dpi)'
+                                '--deskew:Auto-correct skewed scans'
+                            )
+                            _describe -t stack_options 'options' stack_options
+                        fi
+                        ;;
+                esac
             else
                 case $((CURRENT)) in
                     3)
@@ -192,6 +219,7 @@ _amir() {
                             'pad:Resize and fill background'
                             'rotate:Rotate image by angle (degrees)'
                             'round:Round image corners (PNG)'
+                            'stack:Combine multiple images vertically'
                             'extend:Extend image borders with custom color'
                             'convert:Convert image to png/jpg'
                          )

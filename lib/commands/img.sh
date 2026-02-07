@@ -355,6 +355,107 @@ run_img() {
         fi
     }
 
+    do_stack() {
+        local gap=20  # Default gap in pixels (reduced from 50)
+        local bg_color="white"
+        local files=()
+        local output=""
+        local paper_size=""
+        local deskew=false
+        
+        # Helper: Get paper size (bash 3.2 compatible - no associative arrays)
+        get_paper_size() {
+            case "$1" in
+                a4|A4) echo "1240x1754" ;;   # 210x297mm at 150dpi
+                b5|B5) echo "1039x1476" ;;   # 176x250mm at 150dpi
+                *) echo "" ;;
+            esac
+        }
+        
+        # Parse arguments
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                -g|--gap)
+                    gap="$2"
+                    shift 2
+                    ;;
+                -bg|--background)
+                    bg_color="$2"
+                    shift 2
+                    ;;
+                -o|--output)
+                    output="$2"
+                    shift 2
+                    ;;
+                -p|--paper)
+                    paper_size="$2"
+                    shift 2
+                    ;;
+                --deskew)
+                    deskew=true
+                    shift
+                    ;;
+                *)
+                    if [[ -f "$1" ]]; then
+                        files+=("$1")
+                    fi
+                    shift
+                    ;;
+            esac
+        done
+        
+        if [[ ${#files[@]} -lt 2 ]]; then
+            echo "❌ Error: At least 2 image files required."
+            echo "Usage: amir img stack <file1> <file2> [...] [-g gap] [-bg color] [-o output] [-p a4|b5] [--deskew]"
+            return 1
+        fi
+        
+        # Default output name
+        if [[ -z "$output" ]]; then
+            local base="${files[0]%.*}"
+            output="${base}_stacked.jpg"
+        fi
+        
+        echo "📚 Stacking ${#files[@]} images (gap: ${gap}px, bg: $bg_color)..."
+        
+        if [[ "$cmd" == "sips" ]]; then
+            echo "⚠️ Sips does not support image stacking. Install ImageMagick."
+            return 1
+        fi
+        
+        # Build processing options
+        local process_opts="-auto-orient"  # Always fix EXIF rotation
+        
+        if [[ "$deskew" == true ]]; then
+            process_opts="$process_opts -deskew 40%"
+            echo "   📐 Deskew enabled"
+        fi
+        
+        # Get target size if paper size specified
+        local resize_opt=""
+        local target_size=$(get_paper_size "$paper_size")
+        if [[ -n "$target_size" ]]; then
+            resize_opt="-resize ${target_size}>"
+            echo "   📄 Resizing to $paper_size ($target_size)"
+        fi
+        
+        # Build smush command with auto-orient and optional processing
+        $cmd -background "$bg_color" \
+            "${files[@]}" \
+            $process_opts \
+            $resize_opt \
+            -gravity center -smush $gap \
+            -quality 95 \
+            "$output"
+        
+        if [[ $? -eq 0 ]]; then
+            echo "✅ Saved: $output"
+        else
+            echo "❌ Stacking failed."
+            return 1
+        fi
+    }
+
     do_rotate() {
         local input="$1"
         local angle="$2"
@@ -395,6 +496,8 @@ run_img() {
         shift; do_pad "$@"
     elif [[ "$action" == "rotate" ]]; then
         shift; do_rotate "$@"
+    elif [[ "$action" == "stack" ]]; then
+        shift; do_stack "$@"
     elif [[ "$action" == "convert" ]]; then
         shift; do_convert "$@"
     elif [[ "$action" == "extend" ]]; then
@@ -429,6 +532,7 @@ run_img() {
         echo "  amir img rotate  <file> <angle>                  (Rotate image)"
         echo "  amir img pad     <file> <size|preset> [color]    (Fit & Pad, def: white)"
         echo "  amir img convert <file> [fmt] [size|preset] [circle] (Convert & opt. Circle)"
+        echo "  amir img stack   <file1> <file2> [...] [-g gap] [-p a4|b5] [--deskew]"
         echo "  amir img extend  -i <file> [opts]                (Extend borders)"
         echo ""
         echo "Presets:"
