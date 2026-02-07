@@ -17,7 +17,11 @@ Built with modularity and ease of use in mind, `amir` works seamlessly across **
 
 ## ✨ Features
 
-- **🖼️ Advanced Image Processing:** AI-powered upscaling (Real-ESRGAN), document enhancement lab, smart stacking (front/back), and professional corner rounding.
+- **🎬 Smart Video Compression:** Auto-detects hardware (Apple Silicon, NVENC, QSV) and optimizes settings for the best quality/size ratio. Features "AI Learning" to adapt to your preferences over time.
+- **🖼️ Advanced Image Processing:** AI-powered upscaling (Real-ESRGAN), document enhancement lab (140 variations), smart stacking (front/back), and professional corner rounding.
+- **🤖 AI Powered:** Chat with Gemini/Gemma directly from your terminal and generate code snippets.
+- **🛠️ System Utilities:** One-command system cleanup, password generation, file locking/unlocking, and QR code generation.
+- **☁️ File Transfer:** Instantly upload files to temporary hosting services and get a shareable link.
 - **⚡ Super Fast:** Written in optimized Bash/Zsh with minimal overhead.
 
 ## 📦 Installation
