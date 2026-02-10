@@ -166,6 +166,15 @@ amir qr "+989123456789" contact.png
 - **macOS Compatibility**: Uses shell-safe `tr` translations instead of Bash 4+ `${var^^}` syntax to maintain full compatibility with macOS default Bash 3.2.
 - **Robust Masking (CopyOpacity Strategy)**: Uses `-compose CopyOpacity` to strictly separate alpha channel manipulation from color channels. This prevents the "white page" bug where DstIn composition could replace image color with mask color on certain ImageMagick versions.
 
+#### 🧠 Smart Crop (Content-Aware)
+- **Algorithm:** Uses `lib/python/smart_crop.py` with OpenCV.
+- **Pipeline:**
+  1. **Preprocessing:** Gaussian Blur + Canny Edge Detection.
+  2. **Morphology:** Dilates edges to connect disjoint parts (e.g., text lines in a receipt) into a single "blob".
+  3. **Detection:** Finds the largest external contour and computes its bounding box.
+  4. **Fallback:** If no distinct subject is found, it returns the original image to prevent accidental data loss.
+- **Integration:** Available in `amir img crop --smart` and `amir pdf --smart` (auto-crops before merging).
+
 #### 🎥 Static SVG Baking (Animated SVGs)
 When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir CLI uses a custom Python script (`lib/python/svg_bake.py`) instead of a headless browser.
 - **Mechanism:** It parses the SVG text, identifies keyframe animations, calculates the final state properties, and injects them as inline `style` overrides with `!important`.

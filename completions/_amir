@@ -43,6 +43,7 @@ _amir() {
                 *)
                     # PDF command: Uses standard argument parsing
                     _arguments -s \
+                        '--smart[Smart Crop (content-aware trimming)]' \
                         {-o,--output}'[Specify output file]:filename:_files' \
                         {-r,--rotate}'[Rotate images (degrees)]:angle' \
                         {-q,--quality}'[JPEG Quality (default: 60)]:quality (0-100)' \
@@ -119,6 +120,22 @@ _amir() {
                         ;;
                 esac
             elif [[ "$subcmd" == "crop" ]]; then
+                 
+                 # Handle flags
+                 if [[ "$PREFIX" == -* ]]; then
+                     local -a crop_flags
+                     crop_flags=(
+                        '--smart:Smart Crop (Content-Aware)'
+                        '--gravity:Gravity'
+                        '-g:Gravity'
+                     )
+                     _describe -t crop_flags 'option' crop_flags && return 0
+                 fi
+                 
+                 if [[ "$prev" == "-g" || "$prev" == "--gravity" ]]; then
+                    _amir_img_gravity && return 0
+                 fi
+
                  case $((CURRENT)) in
                     4) _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" ;;
                     5) _amir_img_sizes ;;

@@ -40,6 +40,7 @@ run_pdf() {
     
     local compression_resize=$(get_config "pdf" "resize" "75")
     local do_deskew=true
+    local smart_crop=false
     
     while [[ $# -gt 0 ]]; do
         key="$1"
@@ -55,6 +56,10 @@ run_pdf() {
             --radius)
                 radius="$2"
                 shift; shift
+                ;;
+            --smart)
+                smart_crop=true
+                shift
                 ;;
             -r|--rotate)
                 if [[ "$2" =~ ^-?[0-9]+$ ]]; then
@@ -100,6 +105,7 @@ run_pdf() {
     if [[ ${#inputs[@]} -eq 0 ]]; then
         echo "Usage: amir pdf <files...> [-o output.pdf] [options]"
         echo "   Combines images/PDFs into a single A4 page (Portrait)."
+        echo "   --smart          : Smart Crop (Auto-detect receipt/document)."
         echo "   --radius <px>    : Set corner radius (default 10)."
         echo "   -r <angle>       : Rotate images by angle (e.g. 90)."
         echo "   -q <quality>     : JPEG Quality for compressed version (default 75)."
@@ -113,9 +119,9 @@ run_pdf() {
     if [[ -z "$output" && -n "${inputs[0]}" ]]; then
         local base=$(basename "${inputs[0]}")
         local suffix=""
-        if [[ "$rotate_angle" -ne 0 ]]; then
-            suffix="_r${rotate_angle}"
-        fi
+        [[ "$rotate_angle" -ne 0 ]] && suffix="${suffix}_r${rotate_angle}"
+        [[ "$smart_crop" == "true" ]] && suffix="${suffix}_smart"
+        
         output="${base%.*}${suffix}.pdf"
     fi
 
@@ -150,6 +156,30 @@ run_pdf() {
 
     # Create temporary workspace
     local tmp_dir=$(mktemp -d "/tmp/amir_pdf_XXXXXX")
+    
+    # --- Pre-Process: Smart Crop ---
+    if [[ "$smart_crop" == "true" ]]; then
+        echo "🧠 Smart Crop Enabled: Detecting subjects..."
+        local python_script="${LIB_DIR}/python/smart_crop.py"
+        
+        for i in "${!inputs[@]}"; do
+             local raw_input="${inputs[$i]}"
+             local base_name=$(basename "$raw_input")
+             local cropped_output="$tmp_dir/smart_${i}_${base_name%.*}.png"
+             
+             # Absolute paths
+             local abs_input=$(cd "$(dirname "$raw_input")" && pwd)/$(basename "$raw_input")
+             
+             uv run --with opencv-python --with numpy "$python_script" "$abs_input" "$cropped_output" "20" > /dev/null
+             
+             if [[ -f "$cropped_output" ]]; then
+                 inputs[$i]="$cropped_output"
+                 echo "  ✅ Cropped: $base_name"
+             else
+                 echo "  ⚠️ Failed to smart crop $base_name, using original."
+             fi
+        done
+    fi
     local ready_pages=()
     
     # Calculate slot height for collage mode
