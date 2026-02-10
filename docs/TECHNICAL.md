@@ -172,6 +172,17 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
 - **Why?** Eliminates the heavy dependency on Puppeteer/Chromium, making the CLI faster and more portable (no installation of Node.js required).
 - **Whitespace Handling:** Uses literal `\u00A0` (Non-Breaking Space) and `xml:space="preserve"` to ensure `rsvg-convert` renders text spacing correctly.
 
+### `img scan` (Document Scanning)
+- **Purpose:** Converts photos of documents into "Official Administrative" scans (Pure white background, sharp black text).
+- **Architecture:** Hybrid Shell/Python pipeline.
+- **Modes:**
+  1.  **Fast (Shell/IM):** Simple histogram stretch.
+  2.  **Pro (Shell/IM):** Uses "Global Illumination Normalization" (Divide by large version of self) + Histogram Crushing.
+  3.  **OCR (Shell/IM):** Aggressive binary-like grayscale for machine reading.
+  4.  **Python (OpenCV):** Uses `uv run` to execute `lib/python/doc_scan.py`. Implements adaptive Gaussian thresholding and median blurring for "Official Letter" quality.
+- **Dependencies:** The Python mode automatically manages `opencv-python` via `uv`, requiring no manual user installation.
+
+
 ### `compress` (Video)
 - **Unified Entry:** Single command handles single files, multiple files, and directories (Batch Mode).
 - **Batch Mode:** If a directory is passed (e.g., `amir compress ./Videos`), it automatically finds and processes all video files inside.
