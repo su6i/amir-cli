@@ -123,25 +123,78 @@ run_img() {
     }
 
     do_crop() {
-        local input="$1"
-        local size=$(parse_size "$2")
-        local g_code="$3"
-        local width=$(echo $size | cut -dx -f1)
-        local height=$(echo $size | cut -dx -f2)
-        local output="${input%.*}_cropped_${width}x${height}.${input##*.}"
+        local input=""
+        local size=""
+        local gravity="Center"
+        local smart=false
+
+        # Argument Parsing Loop
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --smart) 
+                    smart=true
+                    shift 
+                    ;;
+                -g|--gravity) 
+                    gravity="$2"
+                    shift 2 
+                    ;;
+                *) 
+                    if [[ -z "$input" ]]; then 
+                        input="$1"
+                        shift
+                    elif [[ -z "$size" && "$smart" == "false" ]]; then 
+                        # Only consume size if not smart mode (smart mode fits to content)
+                        size=$(parse_size "$1")
+                        shift
+                    else 
+                        shift
+                    fi 
+                    ;;
+            esac
+        done
 
         if [[ -z "$input" || ! -f "$input" ]]; then echo "❌ File not found."; return 1; fi
-        if [[ -z "$size" ]]; then echo "❌ Size required."; return 1; fi
+
+        # --- Smart Crop Logic ---
+        if [[ "$smart" == true ]]; then
+            echo "🧠 Detecting subject and cropping smart..."
+            local python_script="${LIB_DIR}/python/smart_crop.py"
+            
+            local output="${input%.*}_smart.png"
+            
+            # Absolute paths for robustness
+            local abs_input=$(cd "$(dirname "$input")" && pwd)/$(basename "$input")
+            local abs_output_dir=$(cd "$(dirname "$output")" && pwd)
+            local abs_output="${abs_output_dir}/$(basename "$output")"
+
+            # Execute Python Script via UV
+            uv run --with opencv-python --with numpy "$python_script" "$abs_input" "$abs_output" "20"
+            
+            if [[ $? -eq 0 ]]; then
+                echo "✅ Smart crop successful: $output"
+                [[ "$OSTYPE" == "darwin"* ]] && open "$output"
+                return 0
+            else
+                echo "❌ Smart crop failed (Fallback to manual? No size provided)."
+                return 1
+            fi
+        fi
+
+        # --- Standard Logic ---
+        if [[ -z "$size" ]]; then echo "❌ Size required for manual crop."; return 1; fi
         
-        local g=$(get_gravity "$g_code")
+        local width=$(echo $size | cut -dx -f1)
+        local height=$(echo $size | cut -dx -f2)
+        local output="${input%.*}_crop_${width}x${height}.${input##*.}"
+        
+        local g=$(get_gravity "$gravity") # Resolve gravity string/code
         echo "✂️  Cropping (Fill & Cut) with gravity: $g..."
 
         if [[ "$cmd" == "sips" ]]; then
-             # Sips fallback (limited)
              sips -Z $width "$input" --out "$output" > /dev/null
              sips --cropToHeightWidth $height $width "$output" > /dev/null
         else
-            # Resize to FILL (^) then Extent (Crop)
             $cmd "$input" -resize "${width}x${height}^" -gravity "$g" -extent "${width}x${height}" "$output"
         fi
         echo "✅ Saved: $output"
