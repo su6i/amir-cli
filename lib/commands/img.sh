@@ -127,6 +127,13 @@ run_img() {
         local size=""
         local gravity="Center"
         local smart=false
+        local margin=20
+        local dilation=9
+        local smart_mode="crop"
+        local output_arg=""
+        local top=0 bottom=0 left=0 right=0
+
+        local pos_args=()
 
         # Argument Parsing Loop
         while [[ $# -gt 0 ]]; do
@@ -135,45 +142,120 @@ run_img() {
                     smart=true
                     shift 
                     ;;
+                --scan)
+                    smart=true
+                    smart_mode="scan"
+                    shift
+                    ;;
+                --preview)
+                    smart_mode="preview"
+                    shift
+                    ;;
+                --tuning)
+                    smart_mode="tuning"
+                    shift
+                    ;;
+                --margin)
+                    margin="$2"
+                    shift 2
+                    ;;
+                --expand)
+                    dilation="$2"
+                    shift 2
+                    ;;
                 -g|--gravity) 
                     gravity="$2"
                     shift 2 
                     ;;
+                --output)
+                    output_arg="$2"
+                    shift 2
+                    ;;
+                --top|-t)
+                    top="${2#+}"
+                    shift 2
+                    ;;
+                --bottom|-b)
+                    bottom="${2#+}"
+                    shift 2
+                    ;;
+                --left|-l)
+                    left="${2#+}"
+                    shift 2
+                    ;;
+                --right|-r)
+                    right="${2#+}"
+                    shift 2
+                    ;;
+                +[0-9]*)
+                    local val="${1#+}"
+                    top=$val; bottom=$val; left=$val; right=$val
+                    shift
+                    ;;
+                -*)
+                    # Unknown flag
+                    shift
+                    ;;
                 *) 
-                    if [[ -z "$input" ]]; then 
-                        input="$1"
-                        shift
-                    elif [[ -z "$size" && "$smart" == "false" ]]; then 
-                        # Only consume size if not smart mode (smart mode fits to content)
-                        size=$(parse_size "$1")
-                        shift
-                    else 
-                        shift
-                    fi 
+                    pos_args+=("$1")
+                    shift
                     ;;
             esac
         done
 
+        input="${pos_args[0]}"
+
         if [[ -z "$input" || ! -f "$input" ]]; then echo "❌ File not found."; return 1; fi
+
+        # Handle second positional argument
+        if [[ ${#pos_args[@]} -gt 1 ]]; then
+            if [[ "$smart" == true ]]; then
+                # In smart mode, second arg is ALWAYS output filename/path
+                if [[ -z "$output_arg" ]]; then
+                    output_arg="${pos_args[1]}"
+                fi
+            else
+                # In manual mode, second arg is size
+                if [[ -z "$size" ]]; then
+                    size=$(parse_size "${pos_args[1]}")
+                fi
+            fi
+        fi
+
+        # --- Smart Crop Logic ---
 
         # --- Smart Crop Logic ---
         if [[ "$smart" == true ]]; then
-            echo "🧠 Detecting subject and cropping smart..."
+            echo "🧠 Detecting subject and cropping smart (Margin: ${margin}px, Expand: $dilation)..."
             local python_script="${LIB_DIR}/python/smart_crop.py"
-            
-            local output="${input%.*}_smart.png"
             
             # Absolute paths for robustness
             local abs_input=$(cd "$(dirname "$input")" && pwd)/$(basename "$input")
-            local abs_output_dir=$(cd "$(dirname "$output")" && pwd)
-            local abs_output="${abs_output_dir}/$(basename "$output")"
+            
+            local abs_output=""
+            if [[ -n "$output_arg" ]]; then
+                # User provided output
+                if [[ "$output_arg" == */ ]]; then
+                    # It's a directory
+                    mkdir -p "$output_arg"
+                    abs_output=$(cd "$output_arg" && pwd)/
+                else
+                    # It's a file
+                    local out_dir=$(dirname "$output_arg")
+                    mkdir -p "$out_dir"
+                    abs_output=$(cd "$out_dir" && pwd)/$(basename "$output_arg")
+                fi
+            else
+                # Default: Current Working Directory
+                abs_output="$(pwd)/"
+            fi
 
             # Execute Python Script via UV
-            uv run --with opencv-python --with numpy "$python_script" "$abs_input" "$abs_output" "20"
+            # Usage: python smart_crop.py <input> <output> [margin] [mode] [dilation] [offsets]
+            local offset_str="top=$top,bottom=$bottom,left=$left,right=$right"
+            uv run --with opencv-python --with numpy --with pytesseract "$python_script" "$abs_input" "$abs_output" "$margin" "$smart_mode" "$dilation" "$offset_str"
             
             if [[ $? -eq 0 ]]; then
-                echo "✅ Smart crop successful: $output"
-                [[ "$OSTYPE" == "darwin"* ]] && open "$output"
                 return 0
             else
                 echo "❌ Smart crop failed (Fallback to manual? No size provided)."

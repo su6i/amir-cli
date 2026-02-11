@@ -193,12 +193,12 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
 
 
 ### `compress` (Video)
-- **Unified Entry:** Single command handles single files, multiple files, and directories (Batch Mode).
-- **Batch Mode:** If a directory is passed (e.g., `amir compress ./Videos`), it automatically finds and processes all video files inside.
-- **Smart Arguments:** Allows flexible mixing of inputs (files/dirs) and settings (Resolution/Quality).
-- **Hardware Acceleration:** Auto-detects macOS Silicon (`videotoolbox`), NVIDIA (`nvenc`), or Intel (`qsv`) to speed up FFmpeg encoding.
-- **Quiet Progress:** Uses `script -q /dev/null` (macOS) to force pseudo-TTY allocation, allowing FFmpeg to print single-line progress updates (`\r`) without buffering or log spam.
-- **Table Alignment:** Uses Python's `unicodedata` library to strictly calculate visual string width (East Asian Width), properly handling zero-width combining characters (e.g., Variation Selectors). This ensures standard-compliant table alignment across Linux and macOS.
+- **Unified Entry:** Single command handles single files, multiple files, and the `batch` subcommand.
+- **Batch Mode:** Optimized for directories (e.g., `amir compress batch ./Videos`). Subcommand filtering ensures only directories are suggested during completion.
+- **Orientation Awareness:** Automatically detects Portrait vs. Landscape orientation. Portrait videos (e.g., 720x1280) are scaled correctly to avoid black landscape padding.
+- **Hardware Acceleration:** Auto-detects macOS Silicon (`videotoolbox`), NVIDIA (`nvenc`), or Intel (`qsv`).
+- **Clean Progress:** Uses a custom `while read -d $'\r'` filter to capture FFmpeg status and display it as a single, updating line in the terminal, preventing scroll-spam on all platforms.
+- **Table Alignment:** Uses Python's `unicodedata` library to strictly calculate visual string width (East Asian Width).
 - **AI Stats:** Log file tracks compression ratios to optimal settings.
 
 ### `pdf` (PDF Generation)

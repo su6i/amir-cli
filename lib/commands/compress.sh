@@ -256,8 +256,40 @@ process_video() {
         return
     fi
     
-    # Calculate target dimensions
-    local target_w=$(( (target_h * 16 / 9 + 1) / 2 * 2 ))
+    # Detect input dimensions (Width, Height, and Rotation from side data or tags)
+    local ff_output=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height:stream_side_data=rotation -of csv=s=x:p=0 "$input_file" 2>/dev/null)
+    local in_w=$(echo "$ff_output" | cut -d'x' -f1)
+    local in_h=$(echo "$ff_output" | cut -d'x' -f2)
+    local rotation=$(echo "$ff_output" | cut -d'x' -f3)
+
+    # Clean rotation (remove minus sign if any, handle empty)
+    rotation=${rotation#-}
+    [[ -z "$rotation" ]] && rotation=0
+
+    # Handle rotation (some videos are stored sideways but flagged with rotation)
+    if [[ "$rotation" == "90" || "$rotation" == "-90" || "$rotation" == "270" ]]; then
+        local temp_w=$in_w
+        in_w=$in_h
+        in_h=$temp_w
+    fi
+
+    local is_portrait=0
+    if [[ "$in_h" -gt "$in_w" ]]; then
+        is_portrait=1
+    fi
+
+    # Calculate target dimensions base on orientation
+    local target_w target_h_final
+    if [[ $is_portrait -eq 1 ]]; then
+        target_h_final=$(( (target_h * 16 / 9 + 1) / 2 * 2 ))
+        target_w=$target_h
+        # Ensure target_h_final is the larger dimension
+        [[ $target_h_final -lt $target_w ]] && target_h_final=$((target_w * 16 / 9))
+    else
+        target_w=$(( (target_h * 16 / 9 + 1) / 2 * 2 ))
+        target_h_final=$target_h
+    fi
+
     local output="${input_file%.*}_${target_h}p_q${quality}.mp4"
     
     if [[ -f "$output" ]]; then
@@ -358,7 +390,9 @@ process_video() {
     
     local t_dur=$(pad_to_width "Duration: $duration_formatted" $col_width)
     local t_enc=$(pad_to_width "Encoder: ${encoder_display}" $col_width)
-    local t_audio=$(pad_to_width "Audio: AAC 44.1kHz" $col_width)
+    local t_orient="Landscape"
+    [[ $is_portrait -eq 1 ]] && t_orient="Portrait"
+    local t_audio=$(pad_to_width "Orientation: $t_orient" $col_width)
 
     printf "│ %s │ %s │ %s │\n" \
         "$t_file" "$t_cpu" "$t_res"
@@ -382,21 +416,17 @@ process_video() {
     # Windows/Linux fix for audio filters
     local audio_filter="aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo"
     
-    # Execute ffmpeg
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        script -q /dev/null ffmpeg -hide_banner -loglevel error -stats -nostdin -y -i "$input_file" \
-        -vf "fps=25,scale=${target_w}:${target_h}:force_original_aspect_ratio=decrease,pad=${target_w}:${target_h}:(ow-iw)/2:(oh-ih)/2,setsar=1" \
-        -sws_flags bilinear \
-        -c:v "$encoder" -q:v $quality $tag_opt \
-        -af "$audio_filter" \
-        -c:a aac -pix_fmt yuv420p -movflags +faststart "$output"
-    else
-        ffmpeg -hide_banner -loglevel error -stats -nostdin -y -i "$input_file" \
-        -vf "fps=25,scale=${target_w}:${target_h}:force_original_aspect_ratio=decrease,pad=${target_w}:${target_h}:(ow-iw)/2:(oh-ih)/2,setsar=1" \
-        -c:v "$encoder" -q:v $quality $tag_opt \
-        -af "$audio_filter" \
-        -c:a aac -pix_fmt yuv420p -movflags +faststart "$output"
-    fi
+    # Execute ffmpeg with a single-line progress filter
+    local filter_cmd="fps=25,scale=${target_w}:${target_h_final}:force_original_aspect_ratio=decrease,pad=${target_w}:${target_h_final}:(ow-iw)/2:(oh-ih)/2,setsar=1"
+    
+    ffmpeg -hide_banner -loglevel info -stats -nostdin -y -i "$input_file" \
+    -vf "$filter_cmd" -sws_flags bilinear \
+    -c:v "$encoder" -q:v $quality $tag_opt \
+    -af "$audio_filter" \
+    -c:a aac -pix_fmt yuv420p -movflags +faststart "$output" 2>&1 | while read -d $'\r' -r line; do
+        printf "\r⏳ Processing... %s" "$line"
+    done
+    printf "\r⏳ Processing... Done!                                        \n"
     
     if [[ ! -f "$output" ]]; then
         echo "❌ Compression failed!"
@@ -578,6 +608,16 @@ run_compress() {
         reset
     elif [[ "$1" == "codecs" ]]; then
         codecs_check
+    elif [[ "$1" == "batch" ]]; then
+        shift
+        # If the first arg after 'batch' is a directory, use it, otherwise use "."
+        if [[ -d "$1" ]]; then
+            local target_dir="$1"
+            shift
+            compress "$target_dir" "$@"
+        else
+            compress "." "$@"
+        fi
     else
         compress "$@"
     fi

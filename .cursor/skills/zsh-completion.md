@@ -102,40 +102,40 @@ else
 fi
 ```
 
-## Template: Robust Subcommand Structure
+### 7. Robust File Filtering (Space-Separated Globs)
+For maximum compatibility and to avoid issues with `EXTENDED_GLOB` settings, use space-separated patterns instead of parentheses `|` groups. This is the most stable way to ensure only specific extensions are shown.
 
 ```bash
-#compdef _myapp myapp
+# STABLE: Posix-friendly space-separated globs
+_files -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM"
 
-_myapp() {
-    local cur context state line
-    typeset -A opt_args
-
-    _arguments -C \
-        '1: :_cmds' \
-        '*:: :->args'
-
-    case $state in
-        args)
-            case $words[1] in
-                deploy)
-                    _arguments \
-                        '(-e --env)'{-e,--env}'[Target environment]:env:(prod staging)' \
-                        '*:file:_files'
-                    ;;
-            esac
-            ;;
-    esac
-}
-
-_cmds() {
-    local -a commands
-    commands=(
-        'deploy:Deploy to server'
-        'build:Build project'
-    )
-    _describe -t commands 'myapp commands' commands
-}
-
-_myapp "$@"
+# AVOID: Sometimes fails if Zsh options aren't perfectly aligned
+_files -g "*.(mp4|mov|mkv)"
 ```
+
+### 8. Prioritizing Resolutions/Flags Over Files
+To prevent a "stray PDF" from appearing when you want to suggest resolutions, use `_alternative`. If Zsh has a choice between a strict glob and a generic description, it might show both. By using `_alternative`, you can force priority.
+
+```bash
+# Pattern for amir compress: Priority to resolutions after first file
+if [[ -n "${words[3]}" ]]; then
+    _alternative \
+        'resolutions:Resolution Options:_amir_resolutions' \
+        'flags:Command Flags:_amir_flags'
+    # NOTE: We OMIT _files here to stop suggesting more files once input is provided
+fi
+```
+
+### 10. Context-Aware Subcommand Filtering
+When a subcommand implies a specific input type (e.g. `batch` implies directories), ensure the completion reflects this by strictly filtering out other types. Don't show directories if the user is supposed to select a single file, and vice versa.
+
+### 11. Strict File-Only Completion (Excluding Directories)
+Even with `-g` (glob), `_files` usually includes directories for navigation. To strictly exclude directories (e.g., when a command ONLY accepts files and subcommands), use `_path_files -f`.
+
+```bash
+# STRICT: Only show video files, no directories for navigation
+_path_files -f -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM"
+```
+
+---
+*Updated: 2026-02-11 - Added Strict File-Only Filtering & Context-Aware Patterns.*
