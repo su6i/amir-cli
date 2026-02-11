@@ -336,39 +336,81 @@ def detect_document(img, kernel_size):
     mask[:, 0:pad] = 0
     mask[:, -pad:] = 0
     
-    # 6. Find Contours
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # 6. Find ALL Contours (including nested ones)
+    contours, _ = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     if not contours: return None, mask
     
-    # 7. EXPLICIT FILTER: Only take contours that are 10% to 90% of image area
-    total_area = (h_small + 2*pad) * (w_small + 2*pad)
-    valid = []
-    for c in contours:
-        area = cv2.contourArea(c)
-        if total_area * 0.10 < area < total_area * 0.95:
-            valid.append(c)
-            
-    if not valid: 
-        valid = sorted(contours, key=cv2.contourArea, reverse=True)
-        if cv2.contourArea(valid[0]) > total_area * 0.98 and len(valid) > 1:
-            valid = valid[1:]
- 
-    # Sort descending
-    valid = sorted(valid, key=cv2.contourArea, reverse=True)
-    
-    screenCnt = None
-    for c in valid[:5]:
-        # USE HULL to ensure we don't cut corners of the document
-        hull = cv2.convexHull(c)
+    def score_contour(cnt, img_w, img_h):
+        area = cv2.contourArea(cnt)
+        total_area = img_w * img_h
+        area_pct = area / total_area
+        
+        # 1. Area Score (Avoid tiny noise or huge background)
+        if area_pct < 0.005 or area_pct > 0.99: return -1
+        
+        # 2. Geometry Score (Prefer Quads)
+        hull = cv2.convexHull(cnt)
         peri = cv2.arcLength(hull, True)
-        # PRECISION: Lower factor (0.005) follows corners more accurately
-        approx = cv2.approxPolyDP(hull, 0.005 * peri, True)
-        if len(approx) == 4:
-            screenCnt = approx.reshape(4, 2)
-            break
-            
-    if screenCnt is None and valid:
-        rect = cv2.minAreaRect(valid[0])
+        approx = cv2.approxPolyDP(hull, 0.01 * peri, True)
+        is_quad = 3.0 if len(approx) == 4 else 1.0
+        
+        # Bounding info
+        rect = cv2.minAreaRect(cnt)
+        (x, y), (w, h), angle = rect
+        if w == 0 or h == 0: return -1
+        
+        ratio = max(w, h) / min(w, h)
+        
+        # 3. Ratio Score (Prioritize ID cards and A4)
+        # ID-1 Card: 1.58 | A4: 1.41
+        ratio_score = 1.0
+        if 1.54 < ratio < 1.62: ratio_score = 10.0  # THE HOLY GRAIL: ID Card
+        elif 1.38 < ratio < 1.46: ratio_score = 6.0 # A4 Paper
+        elif 1.0 < ratio < 1.2: ratio_score = 3.0   # Squarish
+        
+        # 4. Centrality Score (Subject is usually near center)
+        cx, cy = img_w / 2, img_h / 2
+        dist_from_center = np.sqrt((x - cx)**2 + (y - cy)**2)
+        norm_dist = dist_from_center / (np.sqrt(cx**2 + cy**2))
+        center_score = np.exp(-4.0 * norm_dist)
+        
+        # Final Score: Ratio > Centrality > Quad-ness > Area
+        return (ratio_score * 0.6 + center_score * 0.3 + area_pct * 0.1) * is_quad
+
+    # --- MULTI-SCALE VOTING ---
+    # Run the detection at multiple kernel sizes to find the most stable candidate
+    all_candidates = []
+    
+    # We test small to medium kernels. Large ones merge too much.
+    for k in [5, 9, 15, 21, 31]:
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k, k))
+        m_curr = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        m_curr = cv2.morphologyEx(m_curr, cv2.MORPH_OPEN, kernel)
+        
+        # Find all quads at this scale
+        cnts, _ = cv2.findContours(m_curr, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        for c in cnts:
+            # Score it
+            s = score_contour(c, w_small + 2*pad, h_small + 2*pad)
+            if s > 0:
+                all_candidates.append((s, c))
+                
+    if not all_candidates: return None, mask
+    
+    # Pick the winner
+    all_candidates.sort(key=lambda x: x[0], reverse=True)
+    best_score, best_cnt = all_candidates[0]
+    
+    # Final quad approximation
+    hull = cv2.convexHull(best_cnt)
+    peri = cv2.arcLength(hull, True)
+    approx = cv2.approxPolyDP(hull, 0.005 * peri, True)
+    
+    if len(approx) == 4:
+        screenCnt = approx.reshape(4, 2)
+    else:
+        # Fallback to minAreaRect for non-quads
+        rect = cv2.minAreaRect(best_cnt)
         box = cv2.boxPoints(rect)
         screenCnt = np.array(box, dtype="int")
         
