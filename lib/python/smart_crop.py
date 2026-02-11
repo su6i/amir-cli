@@ -325,7 +325,9 @@ def detect_document(img, kernel_size):
         total_area = img_w * img_h
         area_pct = area / total_area
         
-        if area_pct < 0.04 or area_pct > 0.98: return -1
+        # 1. Area Penalty: Stronger guard against internal features (chips, logos)
+        # We increase min area to 8% to ensure we catch the CARD, not the CHIP.
+        if area_pct < 0.08 or area_pct > 0.98: return -1
         
         hull = cv2.convexHull(cnt)
         peri = cv2.arcLength(hull, True)
@@ -338,8 +340,6 @@ def detect_document(img, kernel_size):
         ratio = max(w, h) / min(w, h)
         
         # 3. Ratio-Area Correlation:
-        # ID Card (1.58) -> Expect Small (0.05 to 0.20 area)
-        # A4 Paper (1.41) -> Expect Large (0.35 to 0.90 area)
         def ratio_bell(r, target, sigma=0.12):
             return np.exp(-((r - target)**2) / (2 * sigma**2))
             
@@ -347,22 +347,16 @@ def detect_document(img, kernel_size):
         s_a4 = ratio_bell(ratio, 1.41)
         
         # Correlated Scoring:
-        # A small object (area < 0.25) matching ID-1 gets a HUGE boost
-        # A large object (area > 0.40) matching A4 gets a GOOD boost
-        # A large object matching ID-1 is suspicious (Logo? Background?)
         final_ratio_score = 0.5
-        if area_pct < 0.30:
-            final_ratio_score = s_id * 15.0 # IDs are tiny jewels
+        if area_pct < 0.35:
+            final_ratio_score = s_id * 15.0 # IDs
         else:
-            final_ratio_score = s_a4 * 8.0  # Papers are big masses
+            final_ratio_score = s_a4 * 8.0  # Papers
             
         # 4. Edge Density Score (Internal Contrast)
-        # Calculate average edge magnitude along the contour
-        # This helps distinguish a physical card from a flat UI element
         mask_cnt = np.zeros_like(gray)
         cv2.drawContours(mask_cnt, [cnt], -1, 255, 2)
         mean_edge = cv2.mean(edge_energy, mask=mask_cnt)[0]
-        # Normalize: High energy (>50) is good
         edge_score = min(2.0, mean_edge / 30.0) 
         
         # 5. Centrality
@@ -374,13 +368,11 @@ def detect_document(img, kernel_size):
 
     # --- MULTI-SCALE CANDIDATE COLLECTION ---
     all_raw_candidates = []
-    # Test multiple kernel sizes to find stable features
     for k in [7, 13, 21, 31, 45, 61]:
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k, k))
         m_curr = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
         m_curr = cv2.morphologyEx(m_curr, cv2.MORPH_OPEN, kernel)
         
-        # RETR_LIST finds nested contours (cards inside screens)
         cnts, _ = cv2.findContours(m_curr, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
         for c in cnts:
             s = score_contour(c, w_small + 2*pad, h_small + 2*pad)
@@ -389,8 +381,8 @@ def detect_document(img, kernel_size):
                 
     if not all_raw_candidates: return None, mask
     
-    # --- RECURSIVE CONTEST: NESTED DOCUMENT PRIORITY ---
-    # Give a massive bonus to a document sitting inside a larger box
+    # --- RECURSIVE CONTEST: HIERARCHICAL SUBJECT SELECTION ---
+    # We distinguish between "Subjects" (docs on background) and "Fragments" (features in docs).
     for i in range(len(all_raw_candidates)):
         s_inner, c_inner = all_raw_candidates[i]
         area_inner = cv2.contourArea(c_inner)
@@ -402,15 +394,25 @@ def detect_document(img, kernel_size):
             s_outer, c_outer = all_raw_candidates[j]
             area_outer = cv2.contourArea(c_outer)
             
-            # If inner is significantly smaller and fully inside outer
+            # Check containment
             if area_inner < area_outer * 0.7:
-                # Check containment: Is center of inner inside outer?
                 if cv2.pointPolygonTest(c_outer, rect_inner[0], False) >= 0:
-                    # If inner has a SUPERB ID Card or A4 ratio, it wins the contest
-                    # 1.58 (Card) or 1.41 (A4)
-                    if 1.38 < r_inner < 1.65:
-                        # Give it a "Subject Presence" bonus
-                        all_raw_candidates[i][0] *= 10.0
+                    rect_outer = cv2.minAreaRect(c_outer)
+                    r_outer = max(rect_outer[1]) / (min(rect_outer[1]) if min(rect_outer[1]) > 0 else 1)
+                    
+                    # Is the outer container already a plausible document?
+                    # A4 (1.41) or ID (1.58). We use a generous 1.35-1.65 window.
+                    is_outer_doc = (1.35 < r_outer < 1.70)
+                    is_inner_doc = (1.35 < r_inner < 1.70)
+                    
+                    if is_outer_doc:
+                        # TRAP: Inner is a fragment (chip/logo) of a document.
+                        # Penalize the fragment to stay on the main document area.
+                        all_raw_candidates[i][0] *= 0.1
+                    elif is_inner_doc:
+                        # SUCCESS: Inner is a document on a non-document background (Screen/Desk).
+                        # Boost the subject.
+                        all_raw_candidates[i][0] *= 20.0
     
     # Sort and pick winner
     all_raw_candidates.sort(key=lambda x: x[0], reverse=True)
