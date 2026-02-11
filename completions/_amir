@@ -71,26 +71,37 @@ _amir() {
             ;;
 
         compress)
+            local first_arg="${words[3]}"
             if (( CURRENT == 3 )); then
                 _alternative \
-                    'files:Video Files or Directories (Space separated):_files' \
-                    'commands:Management Commands:((stats\:Show\ AI\ learning\ statistics reset\:Reset\ AI\ learning\ data codecs\:Check\ HEVC\ codec\ support))'
+                    'commands:Management Command:((stats\:Show\ AI\ learning\ statistics reset\:Reset\ AI\ learning\ data codecs\:Check\ HEVC\ codec\ support batch\:Batch\ process\ all\ videos))' \
+                    'files:Video File:_path_files -f -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM"'
+            elif [[ "$first_arg" == "batch" ]]; then
+                case $((CURRENT)) in
+                    4) _files -/ ;; # BATCH only shows directories
+                    5) _amir_resolutions ;;
+                    6) _amir_qualities ;;
+                    *) _message "Ready!" ;;
+                esac
             elif (( CURRENT >= 4 )); then
                 local prev="${words[CURRENT-1]}"
                 prev="${(Q)prev}" # Unquote special chars
                 
-                if [[ -d "$prev" ]]; then
-                    _amir_resolutions
-                elif [[ "$prev" =~ ^[0-9]+$ ]]; then
+                # If we picked a management subcommand, don't suggest resolutions
+                if [[ "$first_arg" == "stats" || "$first_arg" == "reset" || "$first_arg" == "codecs" ]]; then
+                    _message "Ready to execute!"
+                    return
+                fi
+
+                if [[ "$prev" =~ ^[0-9]+$ || "$PREFIX" == "-"* ]]; then
                      if [[ "$prev" -gt 100 ]]; then
                         _amir_qualities
                      else
-                        _message "✅ Ready to execute! (Press Enter)"
+                        _amir_qualities
                      fi
                 else
-                    _alternative \
-                        'files:More Video Files:_files -g "*.(mp4|mov|mkv|avi|MP4|MOV|MKV|webm|WEBM)"' \
-                        'resolutions:Resolution Options:_amir_resolutions'
+                    # Priority: Resolutions
+                    _amir_resolutions
                 fi
             fi
             ;;
@@ -125,7 +136,10 @@ _amir() {
                  if [[ "$PREFIX" == -* ]]; then
                      local -a crop_flags
                      crop_flags=(
-                        '--smart:Smart Crop (Content-Aware)'
+                '--smart:Smart Crop (Content-Aware)'
+                        '--preview:Preview Mode (Visualize detection)'
+                        '--expand:Expansion/Dilation (Default: 4)'
+                        '--margin:Safety Margin px (Default: 20)'
                         '--gravity:Gravity'
                         '-g:Gravity'
                      )
@@ -138,7 +152,18 @@ _amir() {
 
                  case $((CURRENT)) in
                     4) _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" ;;
-                    5) _amir_img_sizes ;;
+                    5) 
+                        local -a smart_opts
+                        smart_opts=(
+                            '--smart:Smart Scan (Document detection)'
+                            '--preview:Preview Scan (Visualize detection)'
+                            '--tuning:Tuning Mode (Generates variations)'
+                            '--expand:Kernel Size for Morphology (Default: 21)'
+                            '--margin:Safety Margin px (Default: 20)'
+                        )
+                        _describe -t smart_opts 'Smart Mode' smart_opts
+                        _amir_img_sizes 
+                        ;;
                     6) _amir_img_gravity ;;
                 esac
             elif [[ "$subcmd" == "pad" ]]; then

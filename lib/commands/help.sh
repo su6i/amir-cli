@@ -6,7 +6,7 @@ run_help() {
     echo ""
     echo -e "${BOLD}Multimedia:${NC}"
     echo "  compress <file> [res] [q]    Compress video (Smart HEVC)"
-    echo "  batch [res]                  Batch compress videos in folder"
+    echo "  compress batch [res]         Batch compress videos in folder"
     echo "  mp3 <file> [bitrate]         Extract audio from video"
     echo "  img <file> [size]            Resize image"
     echo "  info <file>                  Show detailed file info"
