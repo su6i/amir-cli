@@ -20,7 +20,11 @@ env/
 
 # Temporary / Testing
 tmp/
+temp/
 *.log
 *.bak
 dummy_*
 test_*
+
+# Project Specific
+Roadmap/
