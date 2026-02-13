@@ -9,7 +9,7 @@ run_clean() {
             echo "------------------------------------------"
             echo "📊 Analyzing system clutter..."
     
-            # محاسبه حجم کلی با مدیریت خطا برای مسیرهای خالی
+            # Calculate total size with error handling for empty paths
             trash_size=$(du -sh ~/.Trash 2>/dev/null | awk '{print $1}')
             [ -z "$trash_size" ] && trash_size="0B"
             
@@ -21,7 +21,7 @@ run_clean() {
             echo "  - User Caches: $cache_size"
             echo ""
     
-            # نمایش ۳ مورد بزرگ سطل آشغال
+            # Show top 3 largest items in Trash
             echo "🗑 Top 3 Items in Trash:"
             if [ "$(ls -A ~/.Trash 2>/dev/null)" ]; then
                 find ~/.Trash -mindepth 1 -maxdepth 1 2>/dev/null | xargs du -sh 2>/dev/null | sort -rh | head -n 3 | awk '{print "  👉 " $2 " (" $1 ")"}'
@@ -30,7 +30,7 @@ run_clean() {
             fi
             echo ""
     
-            # نمایش ۳ مورد بزرگ کش‌ها
+            # Show top 3 largest items in Caches
             echo "📂 Top 3 Items in User Caches:"
             if [ "$(ls -A ~/Library/Caches 2>/dev/null)" ]; then
                 find ~/Library/Caches -mindepth 1 -maxdepth 1 2>/dev/null | xargs du -sh 2>/dev/null | sort -rh | head -n 3 | awk '{print "  👉 " $2 " (" $1 ")"}'
@@ -45,12 +45,12 @@ run_clean() {
             if [[ "$confirmation" == "y" || "$confirmation" == "Y" ]]; then
                 echo "🧹 Cleaning in progress..."
                 
-                # عملیات حذف
+                # Deletion operations
                 [ "$(ls -A ~/.Trash 2>/dev/null)" ] && rm -rf ~/.Trash/* 2>/dev/null
                 find ~/Library/Caches -mindepth 1 -delete 2>/dev/null
                 find ~/Library/Logs -type f -mtime +7 -delete 2>/dev/null
                 
-                # رفرش سیستم
+                # System refresh
                 osascript -e 'tell application "Finder" to empty trash' 2>/dev/null
                 
                 echo "✅ macOS System Cleaned Successfully!"
@@ -59,8 +59,7 @@ run_clean() {
             fi
     
         elif [[ "$OS_TYPE" == *"NT"* || "$OS_TYPE" == *"MINGW"* ]]; then
-            echo "🪟 OS Detected: Windows"
-            # ... (بخش ویندوز ثابت می‌ماند)
+            # ... (Windows section remains stable)
         fi
     }
     clean

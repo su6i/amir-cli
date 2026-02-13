@@ -110,13 +110,13 @@ def fix_persian_text(text: str) -> str:
     if not text:
         return text
     
-    # Fix ZWNJ (Zero Width Non-Joiner) - نیم‌فاصله
-    # Add ZWNJ between repeated letters that should be separate
+    # Fix ZWNJ (Zero Width Non-Joiner) - Half-space
+    # Add ZWNJ between repeated letters that should be separate (Standard Persian Typography)
     patterns = [
-        (r'(\w)(ها)(\s|$)', r'\1‌\2\3'),  # کتابها → کتاب‌ها
-        (r'(\w)(های)(\s|$)', r'\1‌\2\3'), # کتابهای → کتاب‌های
-        (r'می(\s)', r'می‌\1'),             # می کنم → می‌کنم
-        (r'نمی(\s)', r'نمی‌\1'),           # نمی کنم → نمی‌کنم
+        (r'(\w)(ها)(\s|$)', r'\1‌\2\3'),  # کتابها -> کتاب‌ها (Books)
+        (r'(\w)(های)(\s|$)', r'\1‌\2\3'), # کتابهای -> کتاب‌های (Books - plural)
+        (r'می(\s)', r'می‌\1'),             # می کنم -> می‌کنم (I am doing)
+        (r'نمی(\s)', r'نمی‌\1'),           # نمی کنم -> نمی‌کنم (I am not doing)
     ]
     
     for pattern, replacement in patterns:
@@ -139,43 +139,43 @@ def fix_persian_text(text: str) -> str:
 
 def get_translation_prompt(target_lang: str, source_lang_name: str, target_lang_name: str) -> str:
     if target_lang == 'fa':
-        return f"""تو یک مترجم حرفه‌ای و بسیار دقیق فارسی هستی که در ترجمه زیرنویس ویدیوهای یوتیوب، تیک‌تاک، اینستاگرام و سخنرانی‌های روزمره تخصص داری.
+        return f"""You are a professional and highly accurate Persian translator specialized in YouTube subtitles, TikTok, Instagram, and daily speeches.
+        
+Your task is to translate EXACTLY what the speaker said into Persian — no more, no less, not more formal, not more literary.
 
-وظیفه تو اینه که دقیقاً همون چیزی که گوینده گفته رو به فارسی ترجمه کنی — نه بیشتر، نه کمتر، نه رسمی‌تر، نه ادبی‌تر.
+GOLDEN RULES (Strict Compliance Required):
 
-قوانین طلایی (حتماً رعایت کن، وگرنه شکست خوردی):
+1. Matching the Speaker's Tone:
+   - If casual/colloquial → use colloquial Persian (e.g., using "dadash", "vay", "jedi?", "na baba").
+   - If joking → preserve the humor.
+   - If angry, excited, shocked, or funny → convey the same emotion.
+   - If they use fillers or stutters → replicate that feeling (e.g., "e... khob..." or "man... yani...").
 
-۱. لحن دقیقاً مثل گوینده باشه:
-   - اگه عامیانه و خودمونی حرف زده → تو هم خودمونی و عامیانه بنویس (مثل: "داداش"، "وای"، "جدی؟"، "نه بابا"، "آخه چی؟")
-   - اگه شوخی کرده → شوخی رو زنده نگه دار
-   - اگه عصبانی، هیجان‌زده، شوکه، خنده‌داره → همون حس رو منتقل کن
-   - اگه با لهجه یا تپق حرف زده → تا حد ممکن همون حس رو بده (مثلاً "اِ... خب..." یا "من... یعنی...")
+2. Standard Persian Typography (CRITICAL):
+   - ALWAYS use "Zero Width Non-Joiner" (ZWNJ) for prefixes like "mi" and "nemi".
+   - WRONG: nemikonam, nemiram, migam
+   - CORRECT: نمی‌کنم، نمی‌رم، می‌گم
+   - WRONG: ketabha, inha
+   - CORRECT: کتاب‌ها، این‌ها
 
-۲. نگارش استاندارد فارسی (خیلی مهم):
-   - حتماً از "نیم‌فاصله" (ZWNJ) برای پیشوند "می" و "نمی" استفاده کن.
-   - غلط: نمیکنم، نمیرم، میگم
-   - صحیح: نمی‌کنم، نمی‌رم، می‌گم
-   - غلط: کتابها، اینها
-   - صحیح: کتاب‌ها، این‌ها
+3. DO NOT FORMALIZE:
+   - "mibashad" → "hast" or "e"
+   - "shoma" → "to" (if intimate/friendly)
 
-۳. اصلاً رسمی نکن! (مگر اینکه گوینده رسمی باشه):
-   - "می‌باشد" → "هست" یا "ئه"
-   - "شما" → "تو" (اگه صمیمیه)
+4. Handle Slang and Idioms Correctly:
+   - "bro" → "dadash" or "baradar"
+   - "no way" → "na baba", "maghe mishe?"
 
-۴. عبارات روزمره و اسلنگ رو درست ترجمه کن:
-   - "bro" → "داداش" یا "برادر" (بسته به لحن)
-   - "no way" → "نه بابا"، "مگه میشه؟"
+5. ONLY output the translation. No explanations. Only: number + translation.
 
-۵. فقط ترجمه کن. هیچ توضیحی نده. فقط شماره + ترجمه.
-
-مثال:
+Example:
 1. I'm not doing this.
 → ۱. من این کار رو نمی‌کنم.
 
 2. Wait what? No way bro that can't be real
 → ۲. چی؟ نه بابا مگه میشه این واقعیه داداش؟
 
-حالا دقیقاً با همین سبک و دقت تمام جملات زیر رو ترجمه کن:"""
+Now translate these lines with the same style and precision:"""
 
     else:
         return f"""You are an expert subtitle translator for YouTube, TikTok, and casual videos.
@@ -205,7 +205,7 @@ def translate_with_deepseek(texts: List[str], target_lang: str, api_key: str, so
     
     batch_text = "\n".join([f"{i+1}. {t}" for i, t in enumerate(texts)])
     
-    # استفاده از پرامپت جدید و قوی
+    # Use the optimized translation prompt
     system_prompt = get_translation_prompt(target_lang, source_lang_name, lang_name)
     
     user_message = f"Translate these to {lang_name} with EXACT same tone and style:\n\n{batch_text}"
@@ -225,7 +225,7 @@ def translate_with_deepseek(texts: List[str], target_lang: str, api_key: str, so
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message}
                 ],
-                temperature=0.3,      # کمی بالاتر برای طبیعی‌تر شدن (0.3 بهتر از 0.2)
+                temperature=0.3,      # Slightly higher for more natural flow (0.3 preferred over 0.2)
                 max_tokens=4000
             )
             
@@ -241,12 +241,12 @@ def translate_with_deepseek(texts: List[str], target_lang: str, api_key: str, so
                     trans = re.sub(r'^\d+[\.\)]\s*', '', line)
                 else:
                     trans = line
-                # فقط برای فارسی این کار رو بکن
+                # Apply Persian typographic fixes only for Farsi target
                 if target_lang == 'fa':
                     trans = fix_persian_text(trans)
                 translations.append(trans)
             
-            # اگه تعداد کم بود، تلاش مجدد کن
+            # If batch counts don't match, attempt retry
             if len(translations) < len(texts):
                 print(f"    Warning: Received {len(translations)}/{len(texts)} translations. Retrying...")
                 # If this was the last attempt, use what we have and fill with original

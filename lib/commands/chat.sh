@@ -8,7 +8,7 @@ CODE_LOG="$BASE_DIR/code_history.md"
 
 run_chat() {
     chat() {
-        # بررسی سوییچ تاریخچه
+        # Check history switch
         if [[ "$1" == "--history" ]]; then
             if command -v glow >/dev/null 2>&1; then
                 glow "$CHAT_LOG"
