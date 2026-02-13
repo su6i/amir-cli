@@ -13,7 +13,7 @@ run_transfer() {
         echo "📁 File: $filename ($filesize)"
         echo ""
         
-        # Array of services to try (معتبرتر و پایدارتر)
+        # Array of services to try (Reliable and stable)
         local -a services=(
             "catbox"
             "anonfiles"
@@ -26,7 +26,7 @@ run_transfer() {
             
             case "$service" in
                 "catbox")
-                    # catbox.moe - بسیار معتبر و پایدار
+                    # catbox.moe - Highly reliable and stable
                     local response=$(curl -4 -s -F "reqtype=fileupload" -F "fileToUpload=@$1" "https://catbox.moe/user/api.php" 2>&1)
                     
                     if [[ "$response" =~ ^https://files.catbox.moe ]]; then
@@ -39,7 +39,7 @@ run_transfer() {
                     ;;
                     
                 "anonfiles")
-                    # anonfiles.com - معتبر و دارای تاریخچه طولانی
+                    # anonfiles.com - Reliable with long history
                     local response=$(curl -4 -s -F "file=@$1" "https://api.anonfiles.com/upload" 2>&1)
                     
                     if echo "$response" | grep -q '"url"'; then
@@ -55,7 +55,7 @@ run_transfer() {
                     ;;
                     
                 "pixeldrain")
-                    # pixeldrain.com - قابل اعتماد و سریع
+                    # pixeldrain.com - Reliable and fast
                     local response=$(curl -4 -s -F "file=@$1" "https://pixeldrain.com/api/file" 2>&1)
                     
                     if echo "$response" | grep -q '"success"'; then
@@ -72,7 +72,7 @@ run_transfer() {
                     ;;
                     
                 "uguu")
-                    # uguu.se - ساده و معتبر
+                    # uguu.se - Simple and reliable
                     local response=$(curl -4 -s -F "files=@$1" "https://uguu.se/api.php?action=upload" 2>&1)
                     
                     if echo "$response" | grep -q '"url"'; then

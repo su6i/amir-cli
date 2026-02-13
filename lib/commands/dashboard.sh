@@ -5,12 +5,12 @@ run_dashboard() {
         
         echo -e "\033[1;34m"$(printf '%.0s─' {1..60})"\033[0m"
         
-        # ۱. وضعیت حافظه دیسک
+        # 1. Disk Storage Status
         echo -e "💾 \033[1;37mFree Disk Space:\033[0m \033[1;32m$(df -h / | awk 'NR==2 {print $4}')\033[0m"
         
         echo -e "\033[1;34m"$(printf '%.0s─' {1..60})"\033[0m"
 
-        # ۲. لیست کارهای اخیر (TODOs)
+        # 2. Recent Tasks (TODOs)
         echo -e "\n\033[1;33m📝 Recent TODOs:\033[0m"
         
         # Source Config
@@ -33,7 +33,7 @@ run_dashboard() {
         
         echo -e "\033[1;34m"$(printf '%.0s─' {1..60})"\033[0m"
         
-        # ۳. تقویم مک (رویدادهای امروز و فردا)
+        # 3. macOS Calendar (Today and Tomorrow events)
         if command -v icalBuddy &> /dev/null; then
             # Fetch Events
             local today_raw=$(icalBuddy -nc eventsToday)

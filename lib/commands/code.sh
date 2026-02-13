@@ -64,11 +64,11 @@ for m in models:
         print("\033[1;32mOK!\033[0m")
         print(f'\n\033[1;36m🛠️ Result ({m}):\033[0m\n{result}')
         
-        # کپی در کلیپ‌بورد
+        # Copy to clipboard
         process = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE)
         process.communicate(input=result.encode('utf-8'))
 
-        # ثبت در تاریخچه (Markdown)
+        # Log to history (Markdown format)
         with open(log_path, "a") as f:
             f.write(f"\n# 🛠️ CODE - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"**Model:** `{m}`\n\n**Instruction:** {ins}\n\n**Result:**\n{result}\n\n---\n")

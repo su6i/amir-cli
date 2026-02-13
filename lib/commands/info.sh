@@ -22,7 +22,7 @@ run_info() {
             local size_bytes=$(stat -f "%z" "$target")
             local file_type=$(stat -f "%HT" "$target")
             
-            # تلاش اول: متادیتای سیستم مک
+            # Attempt 1: macOS System Metadata
             device_info=$(mdls -name kMDItemModel -name kMDItemSoftware -name kMDItemCreator "$full_path" 2>/dev/null | awk -F' = ' '{print $2}' | tr -d '()"\n' | sed 's/null//g')
         fi
     
@@ -51,7 +51,7 @@ pix_fmt=vector"
             fi
         fi
     
-        # ۳. ترکیب اطلاعات دستگاه و تگ‌های مدیا
+        # 3. Combine Device Info and Media Tags
         local final_dev="${device_info} ${extra_tags}"
     
         export PY_SIZE="$size_bytes" PY_MOD="$mod_time" PY_BIRTH="$birth_time"

@@ -2,23 +2,23 @@
 
 run_clip() {
     clip() {
-        # 1. اگر ورودی از طریق Pipe باشد (مثل: echo "hello" | clip)
+        # 1. If input is piped (e.g., echo "hello" | clip)
         if [[ ! -t 0 ]]; then
             local input_text=$(cat)
             
-            # اگر نام فایلی به عنوان آرگومان داده شده باشد، متن را در آن ذخیره کن
+            # If a filename is provided as an argument, save text into it
             if [[ $# -gt 0 ]]; then
                 local target="$1"
                 echo -n "$input_text" > "$target"
                 local full_path=$(realpath "$target")
                 
-                # کپی کردن فایل در مک
+                # Copy file in macOS
                 if [[ "$OSTYPE" == "darwin"* ]]; then
                     osascript -e "set the clipboard to (POSIX file \"$full_path\") as «class furl»" 2>/dev/null
                 fi
                 echo "💾 Saved to file and copied: $full_path"
             else
-                # فقط کپی کردن متن در کلیپ‌بورد
+                # Copy text only to clipboard
                 if [[ "$OSTYPE" == "darwin"* ]]; then
                     echo -n "$input_text" | pbcopy
                 else
@@ -29,28 +29,28 @@ run_clip() {
             return 0
         fi
     
-        # 2. اگر آرگومانی داده نشده باشد
+        # 2. If no arguments are provided
         if [[ $# -eq 0 ]]; then
             echo "❌ Error: No input provided."
             echo "Usage: clip <file>  OR  clip <text>  OR  echo 'hi' | clip"
             return 1
         fi
     
-        # 3. بررسی اینکه آیا آرگومان یک فایل موجود است یا متن ساده
+        # 3. Check if argument is an existing file or plain text
         if [[ -f "$1" ]]; then
-            # --- بخش کپی فایل ---
+            # --- File Copy Section ---
             local full_path=$(realpath "$1")
             if [[ "$OSTYPE" == "darwin"* ]]; then
-                # کپی به صورت فایل (برای Paste در تلگرام/فایندر)
+                # Copy as file (for Paste in Telegram/Finder)
                 osascript -e "set the clipboard to (POSIX file \"$full_path\") as «class furl»" 2>/dev/null
                 echo "📁 File copied (as object): $full_path"
             else
-                # در لینوکس مسیر فایل کپی می‌شود
+                # In Linux, copy file path
                 echo -n "$full_path" | xclip -selection clipboard 2>/dev/null
                 echo "📍 File path copied: $full_path"
             fi
         else
-            # --- بخش کپی متن ساده ---
+            # --- Plain Text Copy Section ---
             local text_to_copy="$*"
             if [[ "$OSTYPE" == "darwin"* ]]; then
                 echo -n "$text_to_copy" | pbcopy

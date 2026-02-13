@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# بررسی نصب بودن ImageMagick
+# Check if ImageMagick is installed
 if ! command -v magick &> /dev/null; then
     echo "Error: ImageMagick is not installed. Please run: brew install imagemagick"
     exit 1
 fi
 
-# متغیرهای پیش‌فرض
+# Default variables
 INPUT_FILE=""
 GLOBAL_COLOR=""
 TOP_PX=0
@@ -18,27 +18,29 @@ LEFT_COL=""
 RIGHT_PX=0
 RIGHT_COL=""
 
-# تابع راهنما
-# تابع راهنما
+# Help function
 usage() {
     echo "Usage: $0 [input_file] [options]"
+    echo ""
     echo "Options:"
-    echo "  -i, --input   File path (Alternative)"
-    echo "  -c, --color   Global color (Optional, overrides auto-average)"
-    echo "  -t, --top     Pixels [Color]"
-    echo "  -b, --bottom  Pixels [Color]"
-    echo "  -l, --left    Pixels [Color]"
-    echo "  -r, --right   Pixels [Color]"
+    echo "  --top <px> [color]    Extend top side"
+    echo "  --bottom <px> [color] Extend bottom side"
+    echo "  --left <px> [color]   Extend left side"
+    echo "  --right <px> [color]  Extend right side"
+    echo "  --color <color>       Default color for all sides (if not specified)"
+    echo "  --help                Show this help"
+    echo ""
+    echo "Note: If no color is provided, the average image color is used automatically."
     exit 1
 }
 
-# اگر اولین آرگومان فایل باشد (بدون دش)، آن را بردار
+# If first argument is a file (no dash), pick it up
 if [[ "$1" != -* && -n "$1" ]]; then
     INPUT_FILE="$1"
     shift
 fi
 
-# پارس کردن سایر آرگومان‌ها
+# Parse remaining arguments
 while [[ $# -gt 0 ]]; do
     key="$1"
     case $key in
@@ -103,10 +105,10 @@ EXTENSION="${FILENAME##*.}"
 NAME="${FILENAME%.*}"
 OUTPUT_FILE="${NAME}_extended.${EXTENSION}"
 
-# --- تغییر اصلی اینجاست ---
-# اگر رنگی داده نشده، میانگین رنگ کل عکس محاسبه می‌شود
+# --- Main Logic Here ---
+# If no color provided, calculate average image color
 if [[ -z "$GLOBAL_COLOR" ]]; then
-    # عکس را به ۱ پیکسل اسکیل می‌کنیم تا میانگین گرفته شود
+    # Scale image to 1x1 pixel to get average color
     echo "Calculating average color..."
     AUTO_BG=$(magick "$INPUT_FILE" -scale 1x1! -format "%[pixel:p{0,0}]" info:)
     GLOBAL_COLOR="$AUTO_BG"
