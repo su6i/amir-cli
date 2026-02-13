@@ -137,5 +137,20 @@ Even with `-g` (glob), `_files` usually includes directories for navigation. To 
 _path_files -f -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM"
 ```
 
+### 12. Forcing Headers/Grouping (Local Zstyle Injection)
+If headers are bunched at the top or grouping isn't working in the user's environment, inject `zstyle` settings locally inside the completion function context.
+
+```bash
+_amir_audio() {
+    # Force headers to appear directly above their respective items
+    zstyle ":completion:${curcontext}:*" group-name ''
+    zstyle ":completion:${curcontext}:*" format '-- %d --'
+
+    _alternative \
+        'cmds:Commands:((...))' \
+        'dirs:Directories:_files -/'
+}
+```
+
 ---
-*Updated: 2026-02-11 - Added Strict File-Only Filtering & Context-Aware Patterns.*
+*Updated: 2026-02-13 - Added Local Zstyle Injection & Robust Grouping.*

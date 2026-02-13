@@ -11,7 +11,7 @@ _amir() {
         commands=(
             'init-project:Scaffold Agent Constitution in directory'
             'compress:Compress video(s) or directory (e.g. file1 file2 OR ./folder)'
-            'mp3:Extract or change audio quality'
+            'audio:Audio tools (extract, concat, to-video)'
             'img:Resize images (logo and custom sizes)'
             'pdf:Convert images to single A4 PDF'
             'info:Show file technical properties'
@@ -106,15 +106,54 @@ _amir() {
             fi
             ;;
 
-        mp3)
-            case $((CURRENT)) in
-                3)
-                    _files -g "*.(mp4|mov|mkv|avi|mp3|wav|flac|m4a|MP3|WAV|FLAC|M4A)"
-                    ;;
-                4)
-                    _amir_bitrates
-                    ;;
-            esac
+        audio)
+            local subcmd="${words[3]}"
+            # Force grouping and formatting for this context
+            # This ensures headers appear directly above items instead of bunched at the top
+            zstyle ":completion:${curcontext}:*" group-name ''
+            zstyle ":completion:${curcontext}:*" format '-- %d --'
+
+            if (( CURRENT == 3 )); then
+                _alternative \
+                    'acmds:Audio Command:((extract\:Extract\ audio\ from\ video\ file concat\:Join\ multiple\ audio\ files to-video\:Create\ video\ from\ audio\ and\ image))' \
+                    'afolders:Audio Folder:_files -/'
+            else
+                case "$subcmd" in
+                    extract)
+                        case $((CURRENT)) in
+                            4) _files -g "*.(mp4|mov|mkv|avi|webm|flv|MP4|MOV|MKV)" ;;
+                            5) _amir_bitrates ;;
+                        esac
+                        ;;
+                    concat)
+                        case "$prev" in
+                            -o|--output) _files ;;
+                            *) _files -g "*.(mp3|wav|m4a|flac|aac|MP3|WAV)" ;;
+                        esac
+                        ;;
+                    to-video)
+                        case "$prev" in
+                            -i|--image) _files -g "*.(jpg|jpeg|png|webp|JPG|PNG)" ;;
+                            -o|--output) _files ;;
+                            *) 
+                                if [[ "$PREFIX" == -* ]]; then
+                                    local -a tv_opts
+                                    tv_opts=(
+                                        '-i:Background image'
+                                        '--image:Background image'
+                                        '-o:Output video file'
+                                        '--output:Output video file'
+                                        '--waveform:Add dynamic waveform visualization'
+                                    )
+                                    _describe -t tv_opts 'options' tv_opts
+                                else
+                                    _files -g "*.(mp3|wav|m4a|flac|aac|MP3|WAV)"
+                                fi
+                                ;;
+                        esac
+                        ;;
+                esac
+            fi
             ;;
 
         img)
@@ -589,6 +628,7 @@ _amir_colors() {
     colors=('white' 'black' 'transparent' 'red' 'blue' '#ffffff' '#000000')
     _describe -t colors 'Background Color' colors
 }
+
 
 _amir_bg_colors() {
     local -a bg_colors

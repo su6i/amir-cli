@@ -1018,14 +1018,20 @@ def process_video_subtitles(
         else:
             source_srt = transcribe_video(video_path, model_size, source_lang, correct_transcription, api_key)
     
-    # Only add source to result if it's in target_langs
-    if source_lang in target_langs:
-        result_files[source_lang] = source_srt
+    # CRITICAL SYNC FIX: Enforce splitting on Source text FIRST
+    # This ensures all target languages inherit the EXACT SAME timestamps
+    print(f"  Standardizing source synchronization...")
+    source_entries_original = extract_subtitles_from_srt(source_srt)
+    write_srt_file(source_srt, source_entries_original) # This performs the split
     
-    # Step 2: Extract source text
+    # Reload the split entries
     source_entries = extract_subtitles_from_srt(source_srt)
     source_texts = [e['text'] for e in source_entries]
     total_lines = len(source_texts)
+    
+    # Only add source to result if it's in target_langs
+    if source_lang in target_langs:
+        result_files[source_lang] = source_srt
     
     # Step 3: Translate to each target language
     for target_lang in target_langs:
@@ -1114,12 +1120,18 @@ def process_video_subtitles(
         print(f"Created: {target_srt}")
         result_files[target_lang] = target_srt
     
-    # Step 3.5: Enforce splitting/formatting on ALL result files (new or existing)
-    print("\nEnforcing subtitle formatting (splitting long lines)...")
+    # Step 3.5: Renumber/Format result files without re-splitting
+    # (Since we already split the source, and translations are based on that)
+    print("\nFinalizing subtitle formatting...")
     for lang_code, srt_path in result_files.items():
-        # Read, existing logic in write_srt_file handles the splitting
+        # Read entries to ensure proper numbering and file format
         entries = extract_subtitles_from_srt(srt_path)
-        write_srt_file(srt_path, entries)
+        # We don't call write_srt_file here if we want to BE SURE no further splitting happens
+        # But write_srt_file with split_text_at_comma happens inside it.
+        # To be safe and keep SYNC, we trust the translations assigned to split entries.
+        with open(srt_path, 'w', encoding='utf-8') as f:
+            for i, entry in enumerate(entries, 1):
+                f.write(f"{i}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
 
     # Step 4: Create ASS files
     print("\nCreating ASS subtitle files...")

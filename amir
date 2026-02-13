@@ -59,7 +59,7 @@ case "$COMMAND" in
     
     mp3)
         shift
-        if [[ -f "$LIB_DIR/commands/mp3.sh" ]]; then source "$LIB_DIR/commands/mp3.sh"; run_mp3 "$@"; exit $?; fi
+        if [[ -f "$LIB_DIR/commands/audio.sh" ]]; then source "$LIB_DIR/commands/audio.sh"; run_audio "extract" "$@"; exit $?; fi
         ;;
     init-project)
         shift
@@ -137,6 +137,11 @@ case "$COMMAND" in
     subtitle)
         shift
         if [[ -f "$LIB_DIR/commands/subtitle.sh" ]]; then source "$LIB_DIR/commands/subtitle.sh"; run_subtitle "$@"; exit $?; fi
+        ;;
+
+    audio)
+        shift
+        if [[ -f "$LIB_DIR/commands/audio.sh" ]]; then source "$LIB_DIR/commands/audio.sh"; run_audio "$@"; exit $?; fi
         ;;
 
     ffmpeg)
