@@ -136,27 +136,12 @@ class SubtitleProcessor:
         except Exception:
             return 0.0
 
-    def transcribe_video(self, video_path: str, language: str = 'en', correct: bool = False, limit: Optional[float] = None) -> str:
-        """Transcribe video with optional duration limit using a temporary trimmed file"""
+    def transcribe_video(self, video_path: str, language: str = 'en', correct: bool = False) -> str:
+        """Transcribe video with word-level timestamps and punctuation support"""
         print(f"  Transcribing video ({language.upper()})...")
         
-        target_video = video_path
-        temp_trimmed = None
-        
-        if limit:
-            temp_trimmed = os.path.join(tempfile.gettempdir(), f"trimmed_{int(time.time())}.mp4")
-            print(f"  ✂️ Trimming first {limit}s for fast preview...")
-            trim_cmd = [
-                'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
-                '-ss', '0', '-t', str(limit),
-                '-i', video_path,
-                '-c', 'copy', temp_trimmed
-            ]
-            subprocess.run(trim_cmd)
-            target_video = temp_trimmed
-
         segments, info = self.model.transcribe(
-            target_video,
+            video_path,
             language=language,
             word_timestamps=True,
             initial_prompt="I am transcribing a video for social media with clear punctuation and case sensitivity."
@@ -169,7 +154,6 @@ class SubtitleProcessor:
         for segment in segments:
             if segment.words:
                 all_words.extend(segment.words)
-                # Update progress bar based on segment end time
                 diff = int(segment.end) - last_end
                 if diff > 0:
                     pbar.update(diff)
@@ -182,32 +166,26 @@ class SubtitleProcessor:
         if correct and self.api_key:
             print(f"  Correcting transcription with DeepSeek context...")
             texts = [e['text'] for e in resegmented_entries]
-            # Send as one block for better context, then split back
             corrected_texts = self.correct_with_deepseek_block(texts, language)
             for i, text in enumerate(corrected_texts):
                 if i < len(resegmented_entries):
                     resegmented_entries[i]['text'] = text
 
-        # Save raw transcribed SRT
         srt_path = os.path.splitext(video_path)[0] + f"_{language}.srt"
         with open(srt_path, 'w', encoding='utf-8') as f:
             for i, entry in enumerate(resegmented_entries, 1):
                 f.write(f"{i}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
         
-        if temp_trimmed and os.path.exists(temp_trimmed):
-            try: os.remove(temp_trimmed)
-            except: pass
-            
         return srt_path
 
     def resegment_to_sentences(self, words: List) -> List[Dict]:
-        """Group words into single-line segments (max 42 chars) with dangling word prevention"""
+        """Group words into single-line segments (max 42-55 chars) preventing dangling words"""
         entries = []
         current_words = []
         current_len = 0
         
-        sentence_enders = ('.', '?', '!', '...')
-        phrase_enders = (',', '،', ';', ':')
+        sentence_enders = ('.', '?', '!', '...', ':', ';')
+        phrase_enders = (',', '،')
         
         i = 0
         total = len(words)
@@ -222,31 +200,35 @@ class SubtitleProcessor:
             current_len += len(text) + 1
             
             should_break = False
-            is_sentence_end = text.endswith(sentence_enders)
-            is_phrase_end = text.endswith(phrase_enders)
+            last_word_ends_sentence = text.endswith(sentence_enders)
             
+            # Start considering break at 30 chars
             if current_len > 30:
-                if is_sentence_end:
-                    # Look ahead: if next 2 words end a sentence, join them to avoid 1-word lines
-                    if i + 2 < total:
-                        next_1 = words[i+1].word.strip()
-                        next_2 = words[i+2].word.strip()
-                        if (next_1.endswith(sentence_enders) or next_2.endswith(sentence_enders)) and current_len + len(next_1) + len(next_2) < 55:
-                            should_break = False
+                # 1. Natural sentence end is best
+                if last_word_ends_sentence:
+                    # Look ahead: if next word is very short or also ends sentence, keep it!
+                    if i + 1 < total:
+                        next_w = words[i+1].word.strip()
+                        if (len(next_w) < 10 or next_w.endswith(sentence_enders)) and current_len + len(next_w) < 55:
+                            should_break = False # Merge for better flow
                         else:
                             should_break = True
                     else:
                         should_break = True
-                elif is_phrase_end and current_len > 35:
+                
+                # 2. Phrase end is second best
+                elif text.endswith(phrase_enders) and current_len > 38:
                     should_break = True
-                elif current_len > 42:
-                    # Emergency break. Try to pull in 1 more word if it ends the sentence
-                    if i + 1 < total:
-                        next_word = words[i+1].word.strip()
-                        if next_word.endswith(sentence_enders) and current_len + len(next_word) < 55:
-                            current_words.append(words[i+1])
-                            i += 1
-                    should_break = True
+                
+                # 3. Hard limit with "Dangling Word" protection
+                elif current_len > 45:
+                    # If we break now, check what's left. If only 1-2 words are left in the whole sequence, just take them!
+                    words_left = total - (i + 1)
+                    if words_left <= 2 and words_left > 0:
+                        # Don't break! Pull them in
+                        pass 
+                    else:
+                        should_break = True
             
             if i == total - 1:
                 should_break = True
@@ -254,6 +236,9 @@ class SubtitleProcessor:
             if should_break and current_words:
                 t = " ".join([w.word.strip() for w in current_words])
                 t = re.sub(r'\s+', ' ', t).strip()
+                
+                # Final check: if 't' is just one word, try to merge backwards if possible
+                # (Logic handled by look-ahead above mostly)
                 
                 entries.append({
                     'start': self.format_time(current_words[0].start),
@@ -449,28 +434,34 @@ Only output: number. Translation"""
         if lang_code == 'fa':
             content = self.apply_farsi_reshaping(content)
             
-        # Handle Bilingual / Secondary Language
         if secondary_srt and os.path.exists(secondary_srt):
             secondary_entries = self.extract_subtitles_from_srt(secondary_srt)
             
-            # Helper to normalize timestamps (00:00:01,500 -> 0:00:01.50)
-            def normalize_ts(ts):
-                ts = ts.replace(',', '.')
-                if ts.startswith('00:'): ts = ts[1:] # 00: -> 0:
-                if len(ts.split('.')[-1]) > 2: ts = ts[:-1] # .500 -> .50
-                return ts
+            # Ultra-Robust Time Normalization
+            def norm(t):
+                # Handle 00:00:01,500 -> 0:00:01.50
+                t = t.replace(',', '.').strip()
+                parts = t.split(':')
+                if len(parts) == 3:
+                    h, m, s = parts
+                    # Remove leading 0 from hours if present (ASS style)
+                    h = str(int(h))
+                    # Truncate ms to 2 digits
+                    if '.' in s:
+                        base, ms = s.split('.')
+                        s = f"{base}.{ms[:2]}"
+                    return f"{h}:{m}:{s}"
+                return t
 
-            # Create a dictionary for quick lookup by normalized time
-            sec_texts = {f"{normalize_ts(e['start'])}-->{normalize_ts(e['end'])}": e['text'] for e in secondary_entries}
+            sec_texts = {f"{norm(e['start'])}-->{norm(e['end'])}": e['text'] for e in secondary_entries}
             
             def add_secondary(m):
-                # ASS timestamps from regex groups are already 0:00:00.00
-                time_key = f"{m.group(1)}-->{m.group(2)}"
-                text = m.group(3)
+                # ASS groups (1,2) are 0:00:00.00
+                t1, t2, text = norm(m.group(1)), norm(m.group(2)), m.group(3)
+                time_key = f"{t1}-->{t2}"
                 sec_text = sec_texts.get(time_key, "")
                 
                 if sec_text:
-                    # Apply Farsi reshaping to secondary if it contains Farsi characters
                     if any('\u0600' <= c <= '\u06FF' for c in sec_text):
                         try:
                             import arabic_reshaper; from bidi.algorithm import get_display
@@ -479,7 +470,6 @@ Only output: number. Translation"""
                     return f"Dialogue: {m.group(0).split('Dialogue: ')[1].split(',', 9)[0]},{m.group(1)},{m.group(2)},Default,,0,0,0,,{text}\\N{sec_text}"
                 return m.group(0)
 
-            # Robust regex for ASS lines
             content = re.sub(r'Dialogue: [^,]+,(\d{1,2}:\d{2}:\d{2}\.\d{2}),(\d{1,2}:\d{2}:\d{2}\.\d{2}),[^,]+,[^,]+,[^,]+,[^,]+,[^,]+,[^,]+,(.*)', add_secondary, content)
 
         with open(ass_path, 'w', encoding='utf-8') as f: f.write(content)
@@ -572,16 +562,29 @@ Only output: number. Translation"""
 
     def run_workflow(self, video_path: str, source_lang: str, target_langs: List[str], render: bool = False, force: bool = False, correct: bool = False, limit: Optional[float] = None):
         print(f"🚀 Processing video: {video_path}")
+        original_video = video_path
+        temp_video = None
+        
         if limit:
-            print(f"  ⏳ Limit enabled: Only processing first {limit} seconds")
+            print(f"  ⏳ Global Limit active: Trimming first {limit}s...")
+            temp_video = os.path.join(tempfile.gettempdir(), f"amir_test_{int(time.time())}.mp4")
+            trim_cmd = [
+                'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+                '-i', original_video,
+                '-t', str(limit),
+                '-c', 'copy', temp_video
+            ]
+            subprocess.run(trim_cmd)
+            video_path = temp_video
+
         base_path = os.path.splitext(video_path)[0]
         
         # 1. Source logic
         source_srt = self.find_existing_subtitle(base_path, source_lang)
         if not source_srt or force:
-            source_srt = self.transcribe_video(video_path, language=source_lang, correct=correct, limit=limit)
+            source_srt = self.transcribe_video(video_path, language=source_lang, correct=correct)
         
-        # CRITICAL SYNC FIX: Early split (always run to ensure 42-char limit)
+        # CRITICAL SYNC FIX: Early split (always run to ensure limits)
         print("  Standardizing synchronization (Sentence-Aware)...")
         entries = self.extract_subtitles_from_srt(source_srt)
         self.write_srt_file_with_split(source_srt, entries)
@@ -596,12 +599,10 @@ Only output: number. Translation"""
             if target_lang == source_lang: continue
             target_srt = f"{base_path}_{target_lang}.srt"
             
-            # Smart Reuse: Only translate if missing OR force enabled
             if not os.path.exists(target_srt) or force:
                 print(f"  Translating to {target_lang.upper()}...")
                 translations = self.translate_with_deepseek(source_texts, target_lang)
                 translated_entries = [{**e, 'text': t} for e, t in zip(source_entries, translations)]
-                # Write with split too (though already aligned)
                 self.write_srt_file_with_split(target_srt, translated_entries)
             else:
                 print(f"  Using existing translation: {Path(target_srt).name}")
@@ -611,7 +612,6 @@ Only output: number. Translation"""
         # 3. Rendering logic
         if render:
             success = False
-            # Handle bilingual rendering if 2 languages provided
             if len(target_langs) >= 2:
                 l1, l2 = target_langs[0], target_langs[1]
                 print(f"  Creating bilingual rendering: {l1.upper()} + {l2.upper()}...")
@@ -630,7 +630,11 @@ Only output: number. Translation"""
             if success:
                 print(f"✅ Rendered: {Path(output).name}")
             else:
-                print(f"❌ Rendering failed. Please check the error above.")
-                return None
+                print(f"❌ Rendering failed.")
+
+        # Cleanup temp video
+        if temp_video and os.path.exists(temp_video):
+            try: os.remove(temp_video)
+            except: pass
         
         return result_files
