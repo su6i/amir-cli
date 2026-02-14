@@ -37,7 +37,9 @@ This module is a self-contained Python project managed by `uv` within the `amir-
 ## 📦 Project Structure
 
 - **Manager**: `uv` (replaces pip/venv manual management)
-- **Entry Point**: `main.py` (formerly `video_multilang_translate.py`)
+- **Engine**: `processor.py` (Core logic and `SubtitleProcessor` class)
+- **CLI**: `cli.py` (Argument parsing and terminal orchestration)
+- **Entry**: `__main__.py` (Standard Python package entry point)
 - **Config**: `.config` (INI format)
 - **Assets**: `assets/` (Fonts, Logos)
 - **Output**: Generates `srt` and `ass` files alongside the video.
@@ -61,7 +63,7 @@ If you want to work on this module independently:
 
 The `amir` bash wrapper (`lib/commands/subtitle.sh`) executes this module using:
 ```bash
-uv run --project "lib/python/subtitle" python "lib/python/subtitle/main.py" "$@"
+uv run --project "lib/python/subtitle" python -m subtitle "$@"
 ```
 
 ### 🛠️ Configuration
@@ -75,7 +77,7 @@ DEEPSEEK_API = sk-your-key
 
 ### ⚡ Basic Usage
 
-You can run these commands via `amir subtitle` (production) or `uv run main.py` (dev).
+You can run these commands via `amir subtitle` (production) or `uv run python -m subtitle` (dev).
 
 ```bash
 # Transcribe English video and translate to Persian
