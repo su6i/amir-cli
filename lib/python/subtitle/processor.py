@@ -163,7 +163,7 @@ class SubtitleProcessor:
         )
         
         all_words = []
-        pbar = tqdm(total=int(duration), unit="s", desc="  Processing audio")
+        pbar = tqdm(total=int(info.duration), unit="s", desc="  Processing audio")
         
         last_end = 0
         for segment in segments:
