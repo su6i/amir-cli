@@ -137,16 +137,29 @@ class SubtitleProcessor:
             return 0.0
 
     def transcribe_video(self, video_path: str, language: str = 'en', correct: bool = False, limit: Optional[float] = None) -> str:
-        """Transcribe video with word-level timestamps and punctuation support, with optional duration limit"""
-        duration = self.get_video_duration(video_path)
+        """Transcribe video with optional duration limit using a temporary trimmed file"""
         print(f"  Transcribing video ({language.upper()})...")
         
+        target_video = video_path
+        temp_trimmed = None
+        
+        if limit:
+            temp_trimmed = os.path.join(tempfile.gettempdir(), f"trimmed_{int(time.time())}.mp4")
+            print(f"  ✂️ Trimming first {limit}s for fast preview...")
+            trim_cmd = [
+                'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+                '-ss', '0', '-t', str(limit),
+                '-i', video_path,
+                '-c', 'copy', temp_trimmed
+            ]
+            subprocess.run(trim_cmd)
+            target_video = temp_trimmed
+
         segments, info = self.model.transcribe(
-            video_path, 
-            language=language, 
+            target_video,
+            language=language,
             word_timestamps=True,
-            initial_prompt="I am transcribing a video for social media with clear punctuation and case sensitivity.",
-            duration=limit
+            initial_prompt="I am transcribing a video for social media with clear punctuation and case sensitivity."
         )
         
         all_words = []
@@ -181,6 +194,10 @@ class SubtitleProcessor:
             for i, entry in enumerate(resegmented_entries, 1):
                 f.write(f"{i}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
         
+        if temp_trimmed and os.path.exists(temp_trimmed):
+            try: os.remove(temp_trimmed)
+            except: pass
+            
         return srt_path
 
     def resegment_to_sentences(self, words: List) -> List[Dict]:
