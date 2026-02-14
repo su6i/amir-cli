@@ -10,4 +10,10 @@ dependencies = [
     "openai>=1.0.0",
     "configparser>=5.0.0",
     "static-ffmpeg>=3.0",
+    "arabic-reshaper>=3.0.0",
+    "python-bidi>=0.4.2",
+    "tqdm>=4.65.0",
 ]
+
+[project.scripts]
+subtitle-cli = "subtitle.cli:main"

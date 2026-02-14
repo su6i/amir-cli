@@ -16,9 +16,8 @@ run_subtitle() {
         return 1
     fi
 
-    # Run the script with uv
-    # We use --project to specify the environment, but execute main.py directly
-    # This keeps the CWD as the user's directory so relative paths work properly
+    # Run the package via its main.py entry point
+    # We use --project to specify the environment and execute the entry point directly
     uv run --project "$SUBTITLE_DIR" python "$SUBTITLE_DIR/main.py" "$@"
     EXIT_CODE=$?
     
