@@ -563,11 +563,12 @@ Only output: number. Translation"""
     def run_workflow(self, video_path: str, source_lang: str, target_langs: List[str], render: bool = False, force: bool = False, correct: bool = False, limit: Optional[float] = None):
         print(f"🚀 Processing video: {video_path}")
         original_video = video_path
+        original_base = os.path.splitext(original_video)[0]
         temp_video = None
         
         if limit:
             print(f"  ⏳ Global Limit active: Trimming first {limit}s...")
-            temp_video = os.path.join(tempfile.gettempdir(), f"amir_test_{int(time.time())}.mp4")
+            temp_video = os.path.join(tempfile.gettempdir(), f"amir_limit_{int(time.time())}.mp4")
             trim_cmd = [
                 'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
                 '-i', original_video,
@@ -577,11 +578,13 @@ Only output: number. Translation"""
             subprocess.run(trim_cmd)
             video_path = temp_video
 
-        base_path = os.path.splitext(video_path)[0]
+        # Use original_base for SRT/ASS file naming to keep them near the original video
+        base_path = original_base
         
         # 1. Source logic
         source_srt = self.find_existing_subtitle(base_path, source_lang)
         if not source_srt or force:
+            # We transcribe the (possibly trimmed) video_path
             source_srt = self.transcribe_video(video_path, language=source_lang, correct=correct)
         
         # CRITICAL SYNC FIX: Early split (always run to ensure limits)
@@ -612,19 +615,20 @@ Only output: number. Translation"""
         # 3. Rendering logic
         if render:
             success = False
+            suffix = "_limit" if limit else ""
             if len(target_langs) >= 2:
                 l1, l2 = target_langs[0], target_langs[1]
                 print(f"  Creating bilingual rendering: {l1.upper()} + {l2.upper()}...")
-                combined_ass = f"{base_path}_{l1}_{l2}_subtitled.ass"
+                combined_ass = f"{base_path}_{l1}_{l2}{suffix}.ass"
                 self.create_ass_with_font(result_files[l1], combined_ass, l1, secondary_srt=result_files[l2])
-                output = f"{base_path}_{l1}_{l2}_subtitled.mp4"
+                output = f"{base_path}_{l1}_{l2}_subtitled{suffix}.mp4"
                 success = self.render_video(video_path, combined_ass, output)
             else:
                 target_lang = target_langs[0]
                 srt = result_files[target_lang]
-                ass = srt.replace('.srt', '.ass')
+                ass = f"{base_path}_{target_lang}{suffix}.ass"
                 self.create_ass_with_font(srt, ass, target_lang)
-                output = f"{base_path}_{target_lang}_subtitled.mp4"
+                output = f"{base_path}_{target_lang}_subtitled{suffix}.mp4"
                 success = self.render_video(video_path, ass, output)
             
             if success:
