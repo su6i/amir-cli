@@ -179,13 +179,13 @@ class SubtitleProcessor:
         return srt_path
 
     def resegment_to_sentences(self, words: List) -> List[Dict]:
-        """Group words into single-line segments (max 42-55 chars) preventing dangling words"""
+        """Group words into semantic sentences (max 60-70 chars) avoiding middle-breaks"""
         entries = []
         current_words = []
         current_len = 0
         
-        sentence_enders = ('.', '?', '!', '...', ':', ';')
-        phrase_enders = (',', '،')
+        sentence_enders = ('.', '?', '!', '...')
+        phrase_enders = (',', '،', ':', ';')
         
         i = 0
         total = len(words)
@@ -200,35 +200,30 @@ class SubtitleProcessor:
             current_len += len(text) + 1
             
             should_break = False
-            last_word_ends_sentence = text.endswith(sentence_enders)
+            is_end_of_sentence = text.endswith(sentence_enders)
+            is_end_of_phrase = text.endswith(phrase_enders)
             
-            # Start considering break at 30 chars
-            if current_len > 30:
-                # 1. Natural sentence end is best
-                if last_word_ends_sentence:
-                    # Look ahead: if next word is very short or also ends sentence, keep it!
-                    if i + 1 < total:
-                        next_w = words[i+1].word.strip()
-                        if (len(next_w) < 10 or next_w.endswith(sentence_enders)) and current_len + len(next_w) < 55:
-                            should_break = False # Merge for better flow
-                        else:
-                            should_break = True
+            # 1. If we hit a sentence ender, we USUALLY want to break.
+            if is_end_of_sentence:
+                # But wait! If the sentence is tiny (e.g. "Wait.") and the next one is also short, 
+                # maybe merge them to keep the screen busy?
+                if current_len < 15 and i + 1 < total:
+                    next_w = words[i+1].word.strip()
+                    if len(next_w) < 15: # Merge
+                        should_break = False
                     else:
                         should_break = True
-                
-                # 2. Phrase end is second best
-                elif text.endswith(phrase_enders) and current_len > 38:
+                else:
                     should_break = True
-                
-                # 3. Hard limit with "Dangling Word" protection
-                elif current_len > 45:
-                    # If we break now, check what's left. If only 1-2 words are left in the whole sequence, just take them!
-                    words_left = total - (i + 1)
-                    if words_left <= 2 and words_left > 0:
-                        # Don't break! Pull them in
-                        pass 
-                    else:
-                        should_break = True
+            
+            # 2. If no sentence ender, but we are getting LONG
+            elif current_len > 45:
+                # Try to break at a phrase end (comma)
+                if is_end_of_phrase:
+                    should_break = True
+                # Emergency: We are too long (> 65 chars), must break anywhere
+                elif current_len > 65:
+                    should_break = True
             
             if i == total - 1:
                 should_break = True
@@ -236,9 +231,6 @@ class SubtitleProcessor:
             if should_break and current_words:
                 t = " ".join([w.word.strip() for w in current_words])
                 t = re.sub(r'\s+', ' ', t).strip()
-                
-                # Final check: if 't' is just one word, try to merge backwards if possible
-                # (Logic handled by look-ahead above mostly)
                 
                 entries.append({
                     'start': self.format_time(current_words[0].start),
@@ -249,8 +241,6 @@ class SubtitleProcessor:
                 current_len = 0
             
             i += 1
-            
-        return entries
 
     def correct_with_deepseek_block(self, lines: List[str], lang: str) -> List[str]:
         """Correct a whole block of transcript while maintaining line count"""
@@ -436,30 +426,15 @@ Only output: number. Translation"""
             
         if secondary_srt and os.path.exists(secondary_srt):
             secondary_entries = self.extract_subtitles_from_srt(secondary_srt)
+            # Create a index-based map for 100% reliable alignment
+            sec_texts = {e['index']: e['text'] for e in secondary_entries}
             
-            # Ultra-Robust Time Normalization
-            def norm(t):
-                # Handle 00:00:01,500 -> 0:00:01.50
-                t = t.replace(',', '.').strip()
-                parts = t.split(':')
-                if len(parts) == 3:
-                    h, m, s = parts
-                    # Remove leading 0 from hours if present (ASS style)
-                    h = str(int(h))
-                    # Truncate ms to 2 digits
-                    if '.' in s:
-                        base, ms = s.split('.')
-                        s = f"{base}.{ms[:2]}"
-                    return f"{h}:{m}:{s}"
-                return t
-
-            sec_texts = {f"{norm(e['start'])}-->{norm(e['end'])}": e['text'] for e in secondary_entries}
-            
+            current_idx = [1] # Mutable for use in nested function
             def add_secondary(m):
-                # ASS groups (1,2) are 0:00:00.00
-                t1, t2, text = norm(m.group(1)), norm(m.group(2)), m.group(3)
-                time_key = f"{t1}-->{t2}"
-                sec_text = sec_texts.get(time_key, "")
+                idx = current_idx[0]
+                text = m.group(3)
+                sec_text = sec_texts.get(idx, "")
+                current_idx[0] += 1
                 
                 if sec_text:
                     if any('\u0600' <= c <= '\u06FF' for c in sec_text):
@@ -596,17 +571,22 @@ Only output: number. Translation"""
         source_entries = self.extract_subtitles_from_srt(source_srt)
         source_texts = [e['text'] for e in source_entries]
         
-        # 2. Translation logic
+        # 2. Translation logic (1-to-1 Mapping Strategy)
         result_files = {source_lang: source_srt}
         for target_lang in target_langs:
             if target_lang == source_lang: continue
             target_srt = f"{base_path}_{target_lang}.srt"
             
             if not os.path.exists(target_srt) or force:
-                print(f"  Translating to {target_lang.upper()}...")
+                print(f"  Translating to {target_lang.upper()} (1-to-1 Alignment)...")
                 translations = self.translate_with_deepseek(source_texts, target_lang)
-                translated_entries = [{**e, 'text': t} for e, t in zip(source_entries, translations)]
-                self.write_srt_file_with_split(target_srt, translated_entries)
+                
+                # IMPORTANT: We use source_entries and just replace the text.
+                # We DO NOT call write_srt_file_with_split here because it might re-split!
+                # We want 1-to-1 time mapping for the ASS merge.
+                with open(target_srt, 'w', encoding='utf-8') as f:
+                    for i, (orig_entry, trans_text) in enumerate(zip(source_entries, translations), 1):
+                        f.write(f"{i}\n{orig_entry['start']} --> {orig_entry['end']}\n{trans_text}\n\n")
             else:
                 print(f"  Using existing translation: {Path(target_srt).name}")
                 
