@@ -184,7 +184,7 @@ python video_multilang_translate.py podcast.mp4 -s en -t fa -m large
 | Code | Language | Native Font |
 |------|----------|-------------|
 | `en` | English | Arial |
-| `fa` | Persian (Farsi) | B Nazanin |
+| `fa` | Persian (Farsi) | B Nazanin (MANDATORY LAW) |
 | `ar` | Arabic | Arial |
 | `es` | Spanish | Arial |
 | `fr` | French | Arial |
