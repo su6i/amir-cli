@@ -309,14 +309,39 @@ The script will fall back to Arial if specific fonts are missing. To get optimal
 ### Subtitle too small or too large
 The script automatically adjusts subtitle size based on video resolution. If you need manual adjustment:
 1. Open the script file
-2. Find `LANGUAGE_CONFIG` at the top (around line 16)
-3. Change `'font_size'` values (default: 36)
+2. Find `SubtitleStyle` class
+3. Change size values
 4. Delete old ASS files and re-run with `-f` flag
 
 ### Progress bar not showing
 - Ensure you're using `-r` flag to enable rendering
 - Progress shows as: `Encoding: 0%` → `Encoding: 100% ✓`
 - If stuck, check FFmpeg is properly installed
+
+## 🛑 Troubleshooting & Best Practices (2026 Edition)
+
+### 1. Persian/Arabic Text Rendering (The "Nuclear Option")
+If you see **disjointed or reversed** Persian text (e.g., "م‌ا‌ل‌س" instead of "سلام"), it means there is a conflict between Python's shaping and FFmpeg's internal shaping.
+
+**The Fix:**
+- **Do NOT** use `arabic-reshaper` or `python-bidi` if your FFmpeg has `libharfbuzz` enabled (which most modern versions do).
+- **Inject Font Path:** FFmpeg in sandboxed environments (like Python subprocesses) often cannot find system fonts. You **MUST** explicitly pass the font directory.
+  ```python
+  # processor.py logic
+  vf_arg = f"ass={sub_path}:fontsdir={'~/Library/Fonts'}"
+  ```
+- **Font Choice:** With `fontsdir` injection, you can use any user font like `B Nazanin` without installation issues.
+
+### 2. Double Subtitles (Ghosting)
+If you see **two sets of subtitles** (one usually white/yellow, one stylized):
+- **Cause:** You are playing a video with *burned-in* subtitles (hardcoded) AND the player (VLC/QuickTime) is *also* loading the external `.srt` file.
+- **Fix:** Turn off subtitles in your media player (`View > Subtitles > Off`). The video itself already has them permanently.
+
+### 3. Color Theory for Subtitles
+- **Professional Standard:**
+  - **Target Language (FA):** White (`&H00FFFFFF`) + Black Outline. Maximum readability.
+  - **Source Language (EN):** Gray (`&H808080`) + Smaller Size (18 vs 24). Less distraction.
+- **Why not Yellow?** Yellow is high-contrast looking "cheap" or "retro". It creates visual fatigue. The White/Gray combo mimics Netflix/YouTube premium styles.
 
 ## 🤝 Contributing
 
@@ -332,9 +357,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 2. Test with sample video
 3. Submit PR with language code documentation
 
-## 🤝 Contributing
-Contributions are welcome! Please check the issues page or submit a Pull Request.
-
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](../LICENSE) file for details.
@@ -345,27 +367,14 @@ This project is licensed under the MIT License - see the [LICENSE](../LICENSE) f
 - [DeepSeek](https://www.deepseek.com/) - AI translation API
 - [FFmpeg](https://ffmpeg.org/) - Video processing
 
-## 📊 Performance Tips
+## 📈 Performance Tips
 
-- **Best Speed**: Use `base` model for quick results (recommended for most use cases)
-- **Best Quality**: Use `large` model for important content or complex audio
+- **Best Speed**: Use `base` model for quick results
+- **Best Quality**: Use `large` model for detailed transcription
 - **Smart Caching**: Script automatically skips existing files - use `-f` to override
 - **Batch Translations**: Handles 20 lines per API call for efficiency
-- **Multiple Languages**: Specify all targets in one command to avoid re-transcription
+- **Multiple Languages**: Specify all targets in one command
 - **Video Quality**: Rendered videos maintain original quality (CRF 23)
-- **Progress Tracking**: Real-time percentage during encoding with `-r` flag
-
-## 🔮 Roadmap
-
-- [x] Real-time encoding progress bar
-- [x] Automatic Persian typography correction (ZWNJ)
-- [x] Dynamic font size based on video resolution
-- [x] Smart file cleanup (remove temporary files)
-- [ ] Support for audio files (MP3, WAV, etc.)
-- [ ] GUI interface
-- [ ] Subtitle timing adjustment tools
-- [ ] Support for multiple translation services
-- [ ] Batch processing multiple videos
 
 ## 💡 Tips & Best Practices
 
@@ -374,12 +383,3 @@ This project is licensed under the MIT License - see the [LICENSE](../LICENSE) f
 - **Multiple Languages**: Always specify all targets in one command (e.g., `-t en fa ar`)
 - **Video Quality**: CRF 23 maintains excellent quality with reasonable file size
 - **Persian Content**: Script automatically adds proper ZWNJ - no manual editing needed
-- **Force Refresh**: Use `-f` if you updated font sizes or want fresh transcription
-- **Check Progress**: With `-r` flag, you'll see real-time encoding percentage
-- **File Management**: Temporary files are auto-deleted; only keep final SRT/ASS/MP4
-
----
-
-**Star ⭐ this repo if you find it useful!**
-
-For issues and feature requests, please open an issue on GitHub.
