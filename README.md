@@ -54,7 +54,8 @@ Amir CLI uses **Python 3** for helper tasks (like data formatting and subtitle p
   - `bc` (for calculations)
   - `qrencode`, `uv` and other system tools (the installer attempts to install them automatically where possible)
     
-- **uv-first execution:** Where possible, `amir` and its subcommands use `uv` to manage and run Python dependencies (`uv run --project ...`). The installer will attempt to use `uv` to provision and run project packages; this provides an isolated, reproducible environment for Python tools used by `amir`.
+- **uv-first execution:** Where possible, `amir` and its subcommands use `uv` to manage and run Python dependencies (`uv run`).
+- **ExFAT & Storage Robustness:** `amir` automatically handles storage on ExFAT drives (like SanDisk) by bypassing file-locking limitations and redirecting temporary data to external volumes when internal space is low.
  
 If the installer cannot provision a private or git-hosted package referenced in `requirements.txt`, it will notify you with clear remediation steps.
 ### 3. Configuration & Installation
@@ -140,7 +141,7 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir img extend <file> [opts]` | Extend image borders (custom/auto color). |
 | `amir img deskew <file> [output]` | Auto-straighten scanned documents. |
 | `amir img <file> <size> [g]` | Legacy mode (detects resize vs crop). |
-| `amir pdf <files> [opts]` | **Multi-Engine A4 PDF Generator**: Merge images, text, and markdown. Supports Puppeteer (Default), WeasyPrint, PIL (Robust Fallback), and Pandoc. Features: High-fidelity RTL (B Nazanin), automatic pagination, and professional layout. |
+| `amir pdf [files] [opts]` | **Multi-Engine A4 PDF Generator**: Render Markdown/Text/Images to PDF. Supports piping (e.g., `amir clip | amir pdf`), Puppeteer (Default), WeasyPrint, PIL (Robust Fallback). Features: High-fidelity Persian RTL (B Nazanin), auto-pagination, and ExFAT compatibility. |
 | `amir watermark <file> [text]` | Add watermark to image (auto-saved or `-o output`). |
 | `amir subtitle <file> [options]` | **AI-Powered Multilingual Subtitles**: Transcribe, translate (32 languages), and render with automatic validation. Features: resume incomplete translations, technical term preservation, resolution-adaptive bitrates (480p: 1.5M → 4K: 8M). See [SUBTITLE.md](docs/SUBTITLE.md). |
 | `amir info <file>` | Show detailed technical metadata for any file. |
@@ -160,7 +161,7 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir transfer <file>` | Upload file to temporary cloud storage & copy link. |
 | `amir qr <content>` | Create QR Code (URL, WiFi, Email, Phone, Text). |
 | `amir short <url>` | Shorten a long URL. |
-| `amir clip <text/file>` | Smart clipboard: copies text, file content & supports pipes. |
+| `amir clip [input]` | **Piped Clipboard**: Copies text/files to clipboard, or outputs clipboard content to stdout when piped (e.g., `amir clip | amir pdf`). |
 | `amir pass [len]` | Generate a strong, random password. |
 | `amir lock <file>` | Encrypt a file (GPG). |
 | `amir unlock <file>` | Decrypt a file. |
