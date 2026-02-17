@@ -832,13 +832,15 @@ if __name__ == "__main__":
         return clean
 
     def resegment_to_sentences(self, words: List, speaker_segments) -> List[Dict]:
-        """Smart sentence segmentation"""
+        """Smart sentence segmentation - semantic-first"""
         entries = []
         current_words = []
         current_len = 0
         
         sentence_enders = ('.', '?', '!', '...')
-        limit = self.style_config.max_chars
+        soft_break_chars = (',', ';', ':')
+        limit = getattr(self.style_config, 'max_chars', 42)
+        hard_limit = limit * 2  # Absolute ceiling to prevent overly long lines
         
         i = 0
         total = len(words)
@@ -856,14 +858,44 @@ if __name__ == "__main__":
             
             should_break = False
             is_sentence_end = text.endswith(sentence_enders)
+            is_soft_break = text.endswith(soft_break_chars)
+            is_last = (i == total - 1)
             
-            if is_sentence_end:
-                should_break = True
-            elif current_len > 80: # Allow more room for semantic splitting in sanitize_entries
+            if is_last:
                 should_break = True
             
-            if i == total - 1:
+            elif is_sentence_end:
+                # Priority 1: Sentence end -> Always break
                 should_break = True
+            
+            elif current_len > hard_limit:
+                # Absolute ceiling: Must break, but try to break at comma if possible
+                should_break = True
+            
+            elif is_soft_break and current_len > limit:
+                # Comma + exceeded limit -> Look ahead
+                # If the remaining part of the sentence is short and ends with a period, wait
+                remaining_text = ""
+                j = i + 1
+                temp_len = 0
+                hits_sentence_end = False
+                
+                while j < total and temp_len < 30:  # Look ahead max 30 chars
+                    next_word = words[j].word.strip()
+                    temp_len += len(next_word) + 1
+                    remaining_text += next_word + " "
+                    if next_word.endswith(sentence_enders):
+                        hits_sentence_end = True
+                        break
+                    if next_word.endswith(soft_break_chars):
+                        break  # Another comma found, break here
+                    j += 1
+                
+                if hits_sentence_end and temp_len <= 25:
+                    # Remaining part is short and hits sentence end -> Wait for full sentence
+                    should_break = False
+                else:
+                    should_break = True
             
             if should_break and current_words:
                 t = " ".join([w.word.strip() for w in current_words])

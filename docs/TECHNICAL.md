@@ -154,6 +154,13 @@ amir qr "+989123456789" contact.png
 
 ## 🔍 Specific Command Logics
 
+### `clip` (Smart Clipboard)
+- **Functionality**: Replaces single-purpose `pbcopy`/`pbpaste`. Handles text strings, file contents, and binary transfers.
+- **Piping Architecture**:
+    - **Input Pipe**: If `stdin` is not a TTY, it reads the stream. If a filename is provided, it saves to that file; otherwise, it copies to the system clipboard.
+    - **Output Pipe**: If `stdout` is not a TTY and no arguments are provided, it outputs the current clipboard content. This enables workflows like `amir clip | amir pdf`.
+- **System Commands**: Wraps `pbcopy`/`pbpaste` (macOS), `xclip`/`xsel` (Linux).
+
 ### `img` (Image Processing)
 - **Architecture:** Split into sub-functions `do_resize`, `do_crop`, and `do_pad`.
 - **Tool Abstraction:** It attempts to use `magick` (ImageMagick v7) first. If not found, it falls back to `convert` (IM v6). On macOS, it has a limited fallback to `sips` (Apple's native image tool) for basic operations.
@@ -209,11 +216,12 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
     - **Pandoc:** Vector-based conversion for document formats.
     - **PIL (Fallback):** Ultra-robust image-based renderer. Used automatically if advanced engines fail to ensure no content loss. Supports infinite vertical pagination.
 - **Key Technical Features:**
+    - **Piping Support:** Accepts `stdin` if no file arguments are provided. Integrated with `mktemp` to handle content safely and provides descriptive "clipboard" logging/naming.
+    - **ExFAT Robustness:** Automatically detects ExFAT filesystems (e.g., SanDisk drives) and bypasses `uv run` in favor of direct `.venv/bin/python3` execution to avoid "Operation not supported" errors caused by ExFAT's lack of file locking.
     - **Base64 Font Embedding:** To bypass browser security restrictions (`file://`), the **B Nazanin** Persian font is injected directly as a Base64 Data URI into the Puppeteer HTML stream.
     - **Smart Pagination:** Uses CSS `page-break-inside: avoid` to prevent element splitting. The assembly loop in `pdf.sh` uses explicit page selection (`[0-999]`) to ensure ImageMagick captures every page from multi-page PDFs.
-    - **Finder Optimization:** On macOS, the script executes `touch` on the final output to force Finder to refresh "Date Added" and "Date Modified" metadata, ensuring the new file appears at the top of lists.
+    - **Finder Optimization:** On macOS, the script executes `touch` on the final output to force Finder to refresh "Date Added" and "Date Modified" metadata.
     - **Disk Space Overflow:** If the internal disk is full (100% capacity), the script automatically redirects `TMPDIR`, `UV_CACHE_DIR`, and Chrome profiles to `/Volumes/SanDisk/amir_data`.
-    - **Dynamic Naming:** Default output follows the pattern `{input}_{engine}.pdf` for easy identification.
 
 ### `img` (Image Manipulation) - AI & Laboratory
 - **Upscaling Architecture:** Uses the `realesrgan-ncnn-vulkan` binary. 

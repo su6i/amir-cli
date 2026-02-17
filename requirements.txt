@@ -5,4 +5,9 @@ tqdm
 huggingface-hub
 protobuf
 python-dotenv
+markdown2
+weasyprint
+Pillow
+arabic-reshaper
+python-bidi
 # Core requirements for API-based translation and basic CLI functionality.

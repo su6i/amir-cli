@@ -11,6 +11,8 @@ run_pdf() {
     
     local inputs=() output="" engine="puppeteer"
     local raw_output=""
+    local CLEANUP_FILES=()
+
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -o|--output) raw_output="$2"; shift; shift ;;
@@ -21,18 +23,42 @@ run_pdf() {
             *) [[ -f "$1" ]] && inputs+=("$1"); shift ;;
         esac
     done
+    
+    # If no files provided, check for piped input
+    if [[ ${#inputs[@]} -eq 0 ]]; then
+        if [[ ! -t 0 ]]; then
+            local stdin_tmp=$(mktemp "/tmp/amir_pdf_stdin_XXXXXX.txt")
+            cat > "$stdin_tmp"
+            if [[ -s "$stdin_tmp" ]]; then
+                inputs+=("$stdin_tmp")
+                CLEANUP_FILES+=("$stdin_tmp")
+            else
+                rm -f "$stdin_tmp"
+            fi
+        fi
+    fi
+
     [[ ${#inputs[@]} -eq 0 ]] && return 1
 
     local amir_data="/tmp/amir_data"
-    [[ -d "/Volumes/SanDisk" ]] && amir_data="/Volumes/SanDisk/amir_data"
+    local use_external=false
+    if [[ -d "/Volumes/SanDisk" ]]; then
+        amir_data="/Volumes/SanDisk/amir_data"
+        use_external=true
+    fi
     mkdir -p "$amir_data/tmp" "$amir_data/uv_cache" "$amir_data/chrome_profile"
     
-    export TMPDIR="$amir_data/tmp"
-    export UV_CACHE_DIR="$amir_data/uv_cache"
+    # TMPDIR workaround: exFAT doesn't support flock (error 45)
     export MAGICK_TEMPORARY_PATH="$amir_data/tmp"
-    local chrome_profile="$amir_data/chrome_profile"
+    local fs_type=$(diskutil info "$amir_data" 2>/dev/null | grep "File System Personality" | awk '{print $NF}')
     
-    local tmp_dir=$(mktemp -d "$TMPDIR/pdf_XXXXXX")
+    if [[ "$fs_type" != "ExFAT" ]]; then
+        export TMPDIR="$amir_data/tmp"
+        export UV_CACHE_DIR="$amir_data/uv_cache"
+    fi
+    
+    local chrome_profile="$amir_data/chrome_profile"
+    local tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/pdf_XXXXXX")
     
     local processed=()
     for i in "${!inputs[@]}"; do
@@ -41,17 +67,27 @@ run_pdf() {
         local ext=$(echo "${file##*.}" | tr '[:upper:]' '[:lower:]')
         
         if [[ "$ext" == "md" || "$ext" == "txt" ]]; then
-            echo "📝 Rendering $(basename "$file") [$engine]..."
+            local display_name=$(basename "$file")
+            [[ "$display_name" == amir_pdf_stdin_* ]] && display_name="clipboard"
+            echo "📝 Rendering $display_name [$engine]..."
             local tmp_out="$tmp_dir/render_$(printf "%03d" $i).pdf"
             local tmp_img="$tmp_dir/render_$(printf "%03d" $i).png"
             local font_fa="/Library/Fonts/B-NAZANIN.TTF"
             [[ ! -f "$font_fa" ]] && font_fa="/Users/su6i/Library/Fonts/B-NAZANIN.TTF"
             
+            # Use local venv python directly to bypass uv locking issues on exFAT
+            local python_cmd="python3"
+            if [[ -f "$LIB_DIR/../.venv/bin/python3" ]]; then
+                python_cmd="$LIB_DIR/../.venv/bin/python3"
+            elif command -v uv &>/dev/null; then
+                python_cmd="uv run python3"
+            fi
+
             local success=false
             if [[ "$engine" == "puppeteer" ]]; then
                 node "${LIB_DIR}/nodejs/render_puppeteer.js" "$abs_file" "$tmp_out" "$font_fa" "$chrome_profile" &>/dev/null && success=true
             elif [[ "$engine" == "weasyprint" ]]; then
-                uv run python3 "${LIB_DIR}/python/render_weasy.py" "$abs_file" "$tmp_out" "$font_fa" &>/dev/null && success=true
+                $python_cmd "${LIB_DIR}/python/render_weasy.py" "$abs_file" "$tmp_out" "$font_fa" &>/dev/null && success=true
             elif [[ "$engine" == "pandoc" ]]; then
                 pandoc "$abs_file" -o "$tmp_out" --pdf-engine=pdfkit &>/dev/null && success=true
             fi
@@ -63,7 +99,7 @@ run_pdf() {
                 local en_font="/System/Library/Fonts/Supplemental/Times New Roman.ttf"
                 [[ ! -f "$en_font" ]] && en_font="/System/Library/Fonts/Helvetica.ttc"
                 
-                uv run python3 "${LIB_DIR}/python/render_md.py" "$abs_file" "$tmp_img" "$font_fa" "$en_font" &>/dev/null
+                $python_cmd "${LIB_DIR}/python/render_md.py" "$abs_file" "$tmp_img" "$font_fa" "$en_font" &>/dev/null
                 
                 if [[ -f "$tmp_img" ]]; then processed+=("$tmp_img"); fi
                 
@@ -81,6 +117,9 @@ run_pdf() {
     # Output naming: include engine name
     if [[ -z "$raw_output" ]]; then
         local first_in=$(basename "${inputs[0]%.*}")
+        if [[ "$first_in" == amir_pdf_stdin_* ]]; then
+            first_in="clipboard"
+        fi
         output="${first_in}_${engine}.pdf"
     else
         output="$raw_output"
@@ -111,6 +150,7 @@ run_pdf() {
     fi
 
     rm -rf "$tmp_dir"
+    for f in "${CLEANUP_FILES[@]}"; do rm -f "$f"; done
 }
 
 run_pdf "$@"
