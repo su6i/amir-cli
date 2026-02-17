@@ -26,7 +26,9 @@ _my_tool() {
   _arguments -s -S \
     '(-v --verbose)'{-v,--verbose}'[Enable verbose output]' \
     '(-h --help)'{-h,--help}'[Show help message]' \
-    '--mode[Select mode]:mode:(fast slow auto)' \
+    '--engine[Set rendering engine]:engine:(puppeteer weasyprint pil pandoc)' \
+    '--weasyprint[Use WeasyPrint engine]' \
+    '--pil[Use PIL hardcopy fallback]' \
     '*:filename:_files' # Recursive File completion
 }
 ```
@@ -75,4 +77,5 @@ Use space-separated globs for maximum stability:
 *   **Sluggishness:** Use `zstyle` caching or pre-generate static lookup tables.
 
 ---
-*Updated: 2026-02-15 - Merged Architectural Encyclopedia with Practical Robust Patterns.*
+---
+*Updated: 2026-02-17 - Added Multi-Engine flag specs and Robust Subcommand Routing protocols.*
