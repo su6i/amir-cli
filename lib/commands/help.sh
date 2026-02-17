@@ -29,6 +29,7 @@ run_help() {
     echo -e "${BOLD}AI & Productivity:${NC}"
     echo "  chat <query>                 Ask Gemini/Gemma AI"
     echo "  code <request>               Generate/Refactor code with AI"
+    echo "  llm-lists <provider> [-e]    Fetch LLM model lists (gemini/openai/deepseek/groq/anthropic)"
     echo "  todo [add/done]              Manage local todo list"
     echo "  dashboard                    Show system status dashboard"
     

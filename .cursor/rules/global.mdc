@@ -22,6 +22,8 @@ You are strictly bound by the defined Workflows. You simply CANNOT execute a tas
     - Non-sensitive -> `config.yaml`
     - Secrets -> `.env` (with `.env.example`)
     - **No hardcoding.** Ever.
+- **Automatic Dependency Resolution (Self-Healing):** Every CLI tool/entry-point MUST automatically check for required system and language dependencies upon execution. If missing, it must call the project's `install.sh` in an automated, non-interactive mode.
+- **Centralized Configuration (Single Source of Truth):** For multi-language projects (Bash + Python), encoding parameters, media standards, and shared constants MUST be stored in `lib/config/*.json`. Both languages read from the SAME file via language-specific API layers (`media_config.py` for Python, `get_media_config()` in Bash). This prevents code duplication and maintains DRY principles. See `.cursor/skills/centralized-config-pattern.md` for implementation details.
 
 ## 3. Storage & Cleanliness
 - **Root:** Keep the root directory clean (`src/`, `docs/`, `install.sh`).

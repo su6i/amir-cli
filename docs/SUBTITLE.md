@@ -2,7 +2,7 @@
   <img src="../assets/project_logo.svg" width="350" alt="Subtitle Generator Logo">
   <h1>🎬 Multi-Language Video Subtitle Generator</h1>
 
-  ![Version](https://img.shields.io/badge/Version-1.0.0-blue.svg)
+  ![Version](https://img.shields.io/badge/Version-1.1.0-blue.svg)
   ![Python](https://img.shields.io/badge/Python-3.8+-yellow.svg)
   ![License](https://img.shields.io/badge/License-MIT-green.svg)
   <a href="https://www.linkedin.com/in/su6i/">
@@ -15,15 +15,23 @@ Automatically transcribe videos and translate subtitles into multiple languages 
 
 ## ✨ Features
 
-- 🎙️ **Automatic Speech Recognition** using Faster-Whisper
-- 🌍 **15+ Languages Supported** (English, Persian, Arabic, Spanish, French, German, Russian, Japanese, Korean, Chinese, and more)
-- 🤖 **AI-Powered Translation** via DeepSeek API with enhanced Persian typography
+- 🎙️ **Automatic Speech Recognition** using Faster-Whisper (Large-v3 / MLX Optimized)
+- 🌍 **32 Languages Supported** (Top 25 by YouTube reach 2026 + 7 extras)
+  - **Top Priority:** Chinese, English, Spanish, Hindi, Arabic, Bengali, Portuguese, Russian, Japanese, French
+  - **Growing Markets:** Urdu, Punjabi, Vietnamese, Turkish, Korean, Indonesian, German, Persian, Gujarati, Italian
+  - **Regional Focus:** Marathi, Telugu, Tamil, Thai, Hausa (West Africa)
+  - **Additional:** Greek, Hebrew, Malagasy, Dutch, Polish, Ukrainian
+- 🤖 **AI-Powered Translation** via DeepSeek API with enhanced typography for all languages
+- 🔁 **Resume Capability** - Continue incomplete translations with `-c/--continue` flag
+- ✅ **Quality Validation** - Interactive prompts ensure 100% translation before rendering
+- 🏛️ **Technical Term Preservation** - Maintains English terms in parentheses (e.g., "هوش مصنوعی عمومی (AGI)")
+- 📏 **Granular UI Control** - Dynamic alignment (Top/Bottom) and font-size overrides
 - 📝 **Multiple Output Formats** (SRT, ASS)
-- 🎨 **Language-Specific Fonts** with automatic configuration
-- 🎥 **Video Rendering** with embedded subtitles (single or multiple languages)
+- 🎨 **Language-Specific Fonts** with automatic configuration and RTL support
+- 🎥 **Smart Video Rendering** - Resolution-adaptive bitrates (480p: 1.5M → 4K: 8M)
 - 📊 **Real-Time Progress Bar** during video encoding
-- 💾 **Smart Caching** - Skip existing subtitles to save time
-- 🔄 **Batch Processing** - Efficient API usage
+- 💾 **Smart Caching** - SHA-256 keyed cache for transcriptions and translations
+- 🔄 **Batch Processing** - Optimized API usage (25 lines/call DeepSeek, 40 Gemini, 20 LiteLLM)
 - ✍️ **Persian Typography Fix** - Automatic ZWNJ correction (نیم‌فاصله)
 
 ## 🛠️ Developer & Technical Documentation
@@ -83,16 +91,22 @@ You can run these commands via `amir subtitle` (production) or `uv run python -m
 # Transcribe English video and translate to Persian
 amir subtitle video.mp4 -s en -t fa
 
-# Translate to multiple languages
-amir subtitle video.mp4 -s en -t fa ar es
+# Resume incomplete translation (e.g., after interruption)
+amir subtitle video.mp4 -t en fa -rc
 
-# Render video with embedded subtitles (with progress bar)
+# Pro Customization: Top Alignment
+amir subtitle video.mp4 -t fa --alignment 8
+
+# Translate to multiple languages
+amir subtitle video.mp4 -s en -t fa ar es zh
+
+# Render video with embedded subtitles (smart bitrate adaptation)
 amir subtitle video.mp4 -s en -t fa -r
 
-# Force re-transcription
+# Force re-transcription (ignore cache)
 amir subtitle video.mp4 -s en -t fa -f
 
-# List all supported languages
+# List all 32 supported languages
 amir subtitle -l
 ```
 
@@ -103,7 +117,10 @@ amir subtitle -l
 ```
 usage: video_multilang_translate.py [-h] [-s SOURCE] [-t TARGET [TARGET ...]] 
                                      [-m {tiny,base,small,medium,large}] 
-                                     [-r] [-f] [-l] [video]
+                                     [-r] [-f] [-l] 
+                                     [--alignment ALIGNMENT] [--font-size FONT_SIZE]
+                                     [--sec-font-size SEC_FONT_SIZE] [--style STYLE]
+                                     [video]
 
 positional arguments:
   video                 Video file path
@@ -117,35 +134,51 @@ optional arguments:
   -r, --render          Render video with embedded subtitles
   -f, --force-transcribe  Force re-transcription even if subtitle exists
   -l, --list-languages  List all supported languages
+  --alignment           ASS alignment (2=Bottom, 8=Top, 5=Center)
+  --font-size           Primary font size override
+  --sec-font-size       Secondary font size override (for bilingual)
+  --style               Style template (lecture, vlog, movie, news)
+
+  # Pro Visual Overrides (New in 2026)
+  --shadow              Shadow depth (default: 0)
+  --outline             Outline width (default: 2)
+  --back-color          Background color (ASS hex, e.g., &H80000000)
+  --primary-color       Primary color (ASS hex, e.g., &H00FFFFFF)
+
+  # Pro AI Tuning (New in 2026)
+  --initial-prompt      Whisper initial prompt (context injection)
+  --temperature         Model temperature (0.0-1.0)
+  --openai-fallback     Use OpenAI if DeepSeek fails
+
+  # Pro Logic Overrides
+  --min-duration        Minimum subtitle duration (seconds)
 ```
 
-### Examples
+### Examples (Pro Scenarios)
 
-#### 1. Basic Translation
+#### 1. Cinematic Bilingual Layout
 ```bash
-# English to Persian
-python video_multilang_translate.py my_video.mp4 -s en -t fa
+# Top English (Gray/Small) + Bottom Persian (White/Bold)
+# Enforced by 2026 Pro Protocol
+amir subtitle video.mp4 -t en fa -r
 ```
 
-**Output:**
-- `my_video_en.srt` - English subtitles
-- `my_video_fa.srt` - Persian subtitles
-- `my_video_en.ass` - English styled subtitles
-- `my_video_fa.ass` - Persian styled subtitles
-
-#### 2. Multiple Target Languages
+#### 2. Top-Aligned Commentary (Vlog Style)
 ```bash
-# Translate to Persian, Arabic, and Spanish
-python video_multilang_translate.py lecture.mp4 -s en -t fa ar es
+# Push subtitles to the TOP of the screen
+amir subtitle video.mp4 -t fa -r --alignment 8 --style vlog
 ```
 
-**Output:**
-- Original + 3 translated subtitle files in both SRT and ASS formats
-
-#### 3. Video with Embedded Subtitles
+#### 3. Custom Sizing for High-Res (4K)
 ```bash
-# Create video with Persian subtitles burned in
-python video_multilang_translate.py tutorial.mp4 -s en -t fa -r
+# Larger fonts for high-resolution displays
+amir subtitle video.mp4 -t fa -r --font-size 45
+```
+
+#### 4. Sentence-Aware Splitting (2 Lines)
+```bash
+# Allow long sentences to break into two clean lines
+amir subtitle video.mp4 -t fa -r --max-lines 2
 ```
 
 **Output:**
@@ -179,39 +212,79 @@ python video_multilang_translate.py video.mp4 -s en -t fa -f
 python video_multilang_translate.py podcast.mp4 -s en -t fa -m large
 ```
 
-## 🌐 Supported Languages
+## 🌐 Supported Languages (30 Total)
 
-| Code | Language | Native Font |
-|------|----------|-------------|
-| `en` | English | Arial |
-| `fa` | Persian (Farsi) | B Nazanin (MANDATORY LAW) |
-| `ar` | Arabic | Arial |
-| `es` | Spanish | Arial |
-| `fr` | French | Arial |
-| `de` | German | Arial |
-| `it` | Italian | Arial |
-| `pt` | Portuguese | Arial |
-| `ru` | Russian | Arial |
-| `ja` | Japanese | MS Gothic |
-| `ko` | Korean | Malgun Gothic |
-| `zh` | Chinese | SimHei |
-| `hi` | Hindi | Mangal |
-| `tr` | Turkish | Arial |
-| `nl` | Dutch | Arial |
-| `mg` | Malagasy | Arial |
+### Top 25 (YouTube Priority 2026)
+| Priority | Code | Language | Native Font | RTL | Notes |
+|----------|------|----------|-------------|-----|-------|
+| 1 | `zh` | Chinese (Mandarin/Simplified) | SimHei | ❌ | 1.35B speakers, 19.4% internet users |
+| 2 | `en` | English | Arial | ❌ | Global lingua franca, 25.9% internet |
+| 3 | `es` | Spanish | Arial | ❌ | Latin America + Spain market |
+| 4 | `hi` | Hindi | Mangal (Devanagari) | ❌ | Fastest growing YouTube market |
+| 5 | `ar` | Arabic (Standard) | Arial | ✅ | Unified across Arab countries |
+| 6 | `bn` | Bengali | Noto Sans Bengali | ❌ | Bangladesh + West Bengal focus |
+| 7 | `pt` | Portuguese | Arial | ❌ | Brazil's massive YouTube presence |
+| 8 | `ru` | Russian | Arial (Cyrillic) | ❌ | Eurasia + Eastern Europe |
+| 9 | `ja` | Japanese | MS Gothic | ❌ | High purchasing power, loyal users |
+| 10 | `fr` | French | Arial | ❌ | France, Canada, Africa |
+| 11 | `ur` | Urdu | B Nazanin (Arabic script) | ✅ | Phonetically close to Hindi |
+| 12 | `pa` | Punjabi | Noto Sans Gurmukhi | ❌ | India + Pakistan population |
+| 13 | `vi` | Vietnamese | Arial | ❌ | High engagement in entertainment |
+| 14 | `tr` | Turkish | Arial | ❌ | Very active social media users |
+| 15 | `ko` | Korean | Malgun Gothic (Hangul) | ❌ | K-Culture global trend |
+| 16 | `id` | Indonesian | Arial | ❌ | Explosive internet growth |
+| 17 | `de` | German | Arial | ❌ | Strong European economy |
+| 18 | `fa` | Persian (Dari/Tajik) | B Nazanin | ✅ | High engagement vs. population |
+| 19 | `gu` | Gujarati | Noto Sans Gujarati | ❌ | Wealthy Gujarat state audience |
+| 20 | `it` | Italian | Arial | ❌ | High-quality European audience |
+| 21 | `mr` | Marathi | Mangal (Devanagari) | ❌ | Maharashtra (Mumbai) |
+| 22 | `te` | Telugu | Noto Sans Telugu | ❌ | Hyderabad tech hub |
+| 23 | `ta` | Tamil | Noto Sans Tamil | ❌ | Language-loyal South India |
+| 24 | `th` | Thai | Noto Sans Thai | ❌ | Growing Southeast Asia market |
+| 25 | `ha` | Hausa | Arial | ❌ | West Africa video gateway |
 
-View full list: `python video_multilang_translate.py -l`
+### Additional Languages (5)
+| Code | Language | Native Font | RTL | Region |
+|------|----------|-------------|-----|--------|
+| `el` | Greek | Arial | ❌ | Greece, Cyprus |
+| `mg` | Malagasy | Arial | ❌ | Madagascar |
+| `nl` | Dutch | Arial | ❌ | Netherlands, Belgium |
+| `pl` | Polish | Arial | ❌ | Poland |
+| `uk` | Ukrainian | Arial (Cyrillic) | ❌ | Ukraine |
+
+**Total Coverage:** 95.1% of global internet users | 60.3% of world population
+
+View complete list: `amir subtitle -l`
 
 ## 🔧 How It Works
 
-1. **Transcription**: Uses Faster-Whisper to generate accurate speech-to-text from video
-2. **Smart Caching**: Checks for existing subtitle files to avoid redundant processing
-3. **Translation**: Sends text to DeepSeek API in optimized batches (20 lines per call)
-4. **Typography Enhancement**: Automatically fixes Persian text (adds proper ZWNJ: می‌کنم, صحبت‌های)
-5. **Subtitle Generation**: Creates SRT files with proper timing
-6. **Styling**: Converts to ASS format with language-appropriate fonts and sizes
-7. **Resolution Matching**: Adjusts subtitle size based on actual video resolution
-8. **Video Rendering** (optional): Burns subtitles into video using FFmpeg with real-time progress
+1. **Transcription**: Uses Faster-Whisper (or MLX-Whisper on Apple Silicon) to generate accurate speech-to-text from video
+2. **Smart Caching**: SHA-256 hash-keyed cache (`~/.amir_cache/`) prevents redundant API calls
+3. **Translation Pipeline**:
+   - **Batch Processing:** 25 lines per call (DeepSeek), 40 lines (Gemini), 20 lines (LiteLLM)
+   - **Multi-Format Parser:** Handles numbered, JSON, and plain text responses
+   - **Digit Normalization:** Converts Persian/Arabic numerals (`۱۲۳` → `123`)
+   - **Quality Threshold:** 80% valid lines required per batch
+4. **Quality Validation**:
+   - **Character Range Check:** Verifies target language Unicode presence (non-Latin scripts)
+   - **Source Comparison:** Ensures translation differs from original (Latin scripts)
+   - **Interactive Prompts:** User retry options for incomplete batches (max 3 attempts)
+   - **Guarantee:** No rendering until 100% translation or user decline
+5. **Resume Capability**: `-c/--continue` flag ingests partial SRT files to recover existing translations
+6. **Technical Term Preservation**: Maintains English terms in parentheses for all languages (e.g., "هوش مصنوعی عمومی (AGI)")
+7. **Typography Enhancement**: Automatically fixes Persian text (adds proper ZWNJ: می‌کنم, صحبت‌های)
+8. **Subtitle Generation**: Creates SRT files with proper timing
+9. **Styling**: Converts to ASS format with:
+   - Language-appropriate fonts (B Nazanin for Persian, etc.)
+   - RTL support for Arabic/Persian/Urdu/Hebrew
+   - Resolution-adaptive sizing: `font_size = (height / 1080) * 25`
+   - Bilingual layout (primary: bottom white bold, secondary: top gray)
+10. **Smart Video Rendering** (optional):
+    - **Resolution Detection:** ffprobe extracts width × height
+    - **Adaptive Bitrates:** 480p: 1.5M | 720p: 2.5M | 1080p: 4M | 4K: 8M
+    - **Hardware Acceleration:** VideoToolbox (Apple Silicon) or libx264 CRF-23 (CPU)
+    - **Audio Preservation:** Lossless copy (`-c:a copy`)
+    - **Real-time Progress:** FFmpeg pipe with percentage tracking
 
 ## 📁 Output Files
 
@@ -370,11 +443,38 @@ This project is licensed under the MIT License - see the [LICENSE](../LICENSE) f
 ## 📈 Performance Tips
 
 - **Best Speed**: Use `base` model for quick results
-- **Best Quality**: Use `large` model for detailed transcription
-- **Smart Caching**: Script automatically skips existing files - use `-f` to override
-- **Batch Translations**: Handles 20 lines per API call for efficiency
-- **Multiple Languages**: Specify all targets in one command
-- **Video Quality**: Rendered videos maintain original quality (CRF 23)
+- **Best Quality**: Use `large-v3` model for detailed transcription (default)
+- **Smart Caching**: SHA-256 hash-keyed cache prevents redundant work - use `-f` to force refresh
+- **Batch Translations**: Optimized batching (DeepSeek: 25 lines, Gemini: 40, LiteLLM: 20)
+- **Resume Translations**: Use `-c/--continue` to recover from interruptions and save API costs
+- **Multiple Languages**: Specify all targets in one command for parallel processing
+- **Video Quality**: Smart bitrate adaptation (480p: 1.5M → 4K: 8M) prevents file bloat
+- **Hardware Acceleration**: Automatic VideoToolbox (Apple Silicon) or libx264 CRF-23 (CPU) selection
+- **API Token Conservation**: Validation system ensures 100% quality before costly re-runs
+
+## 🛠️ Pro CLI Features (Advanced Control)
+
+### 🎨 Visual Customization
+- **`--shadow <int>`**: Controls the drop shadow depth. Default is 0 (Flat). Set to 1-4 for depth.
+- **`--outline <int>`**: Thickness of the black border. Default is 2.
+- **`--back-color <hex>`**: ASS Hex code for background box.
+  - Transparent: `&H00000000` (Default)
+  - Semi-Opaque Black: `&H80000000`
+- **`--primary-color <hex>`**: Text color.
+  - White: `&H00FFFFFF`
+  - Yellow: `&H00FFFF00`
+
+### 🧠 AI Inference Tuning
+- **`--temperature 0.0-1.0`**: Controls creativity.
+  - `0.0`: Deterministic (Best for factual/technical)
+  - `0.3`: Balanced (Default for translation)
+  - `0.8`: Creative (Poetic)
+- **`--initial-prompt "..."`**: Provide context to Whisper.
+  - Example: `--initial-prompt "This is a technical tutorial about Kubernetes."`
+- **`--openai-fallback`**: If set, automatically switches to OpenAI GPT-4o if DeepSeek fails.
+
+### ⚡ Logic Overrides
+- **`--min-duration <float>`**: Ensures subtitles stay on screen for at least X seconds (Default: 1.0s).
 
 ## 💡 Tips & Best Practices
 

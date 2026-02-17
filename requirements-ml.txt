@@ -1,0 +1,8 @@
+transformers
+torch
+sentencepiece
+faster-whisper
+onnxruntime
+accelerate
+# ML requirements for BERT scoring, Whisper transcription, and local processing.
+# These packages are heavy and may require significant disk space and installation time.

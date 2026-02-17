@@ -30,6 +30,7 @@ _amir() {
             'code:Generate code and save to file'
             'watermark:Add logo or text watermark to images/videos'
             'subtitle:Generate multi-language subtitles using AI'
+            'llm-lists:Fetch model lists from LLM providers'
         )
         _describe -t commands 'amir commands' commands
         return
@@ -44,6 +45,10 @@ _amir() {
                     # PDF command: Uses standard argument parsing
                     _arguments -s \
                         '--smart[Smart Crop (content-aware trimming)]' \
+                        '--engine[Specify rendering engine]:engine:(puppeteer weasyprint pil pandoc)' \
+                        '--weasyprint[Use WeasyPrint engine]' \
+                        '--pil[Use PIL grayscale fallback engine]' \
+                        '--pandoc[Use Pandoc engine]' \
                         {-o,--output}'[Specify output file]:filename:_files' \
                         {-r,--rotate}'[Rotate images (degrees)]:angle' \
                         {-q,--quality}'[JPEG Quality (default: 60)]:quality (0-100)' \
@@ -54,7 +59,7 @@ _amir() {
                         '--square[Alias for --no-round]' \
                         '--no-deskew[Disable auto-straightening]' \
                         '--no-straighten[Alias for --no-deskew]' \
-                        '*:images:_files -g "*.(jpg|jpeg|png|webp|pdf|JPG|PNG|WEBP|PDF)"'
+                        '*:images:_files -g "*.(jpg|jpeg|png|webp|pdf|md|txt|JPG|PNG|WEBP|PDF|MD|TXT)"'
                     ;;
             esac
             ;;
@@ -517,37 +522,55 @@ _amir() {
                 3)
                     _files -g "*.(mp4|mov|mkv|avi|MP4|MOV|MKV|webm|WEBM)"
                     ;;
-                4|5)
-                    _arguments -s \
-                        '1: : ' \
-                        '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl mg)'
-                    ;;
-                6|7)
-                    _arguments -s \
-                        '1: : ' \
-                        '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl mg)' \
-                        '(-t --target)'{-t,--target}'[Target language code(s)]:target language:(en fa ar es fr de it pt ru ja ko zh hi tr nl mg)'
-                    ;;
-                8)
-                    _arguments -s \
-                        '1: : ' \
-                        '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl mg)' \
-                        '(-t --target)'{-t,--target}'[Target language code(s)]:target language:(en fa ar es fr de it pt ru ja ko zh hi tr nl mg)' \
-                        '(-r --render)'{-r,--render}'[Render video with embedded subtitles]'
-                    ;;
                 *)
                     _arguments -s \
-                        '1: : ' \
-                        '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en fa ar es fr de it pt ru ja ko zh hi tr nl mg)' \
-                        '(-t --target)'{-t,--target}'[Target language code(s)]:target language:(en fa ar es fr de it pt ru ja ko zh hi tr nl mg)' \
-                        '(-m --model)'{-m,--model}'[Whisper model size]:model:(tiny base small medium large)' \
+                        '1:video file:_files -g "*.(mp4|mov|mkv|avi|MP4|MOV|MKV|webm|WEBM)"' \
+                        '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en zh es hi ar bn pt ru ja fr ur pa vi tr ko id de fa gu it mr te ta th ha el he mg nl pl uk)' \
+                        '(-t --target)'{-t,--target}'[Target language code(s)]:target language:(en zh es hi ar bn pt ru ja fr ur pa vi tr ko id de fa gu it mr te ta th ha el he mg nl pl uk)' \
+                        '(-m --model)'{-m,--model}'[Whisper model size]:model:(tiny base small medium large large-v2 large-v3)' \
                         '(-r --render)'{-r,--render}'[Render video with embedded subtitles]' \
+                        '(-c --continue)'{-c,--continue}'[Resume incomplete translation]' \
                         '--subtitle[Path to an existing subtitle file (SRT/ASS)]:subtitle file:_files -g "*.(srt|ass|SRT|ASS)"' \
                         '--no-translate[Skip translation step]' \
                         '--no-correction[Disable automatic transcription correction]' \
                         '--deepseek-transcribe[Use DeepSeek API for transcription]' \
                         '(-f --force-transcribe)'{-f,--force-transcribe}'[Force re-transcription]' \
                         '(-l --list-languages)'{-l,--list-languages}'[List all supported languages]'
+                    ;;
+            esac
+            ;;
+        
+        llm-lists)
+            case $((CURRENT)) in
+                3)
+                    local -a providers
+                    providers=(
+                        'gemini:Google Gemini models'
+                        'openai:OpenAI GPT models'
+                        'deepseek:DeepSeek models'
+                        'groq:Groq models'
+                        'anthropic:Claude models'
+                    )
+                    _describe -t providers 'LLM provider' providers
+                    ;;
+                4)
+                    local -a export_opts
+                    export_opts=(
+                        '-e:Export format'
+                        '--export:Export format'
+                    )
+                    _describe -t export_opts 'options' export_opts
+                    ;;
+                5)
+                    if [[ "${words[4]}" == "-e" || "${words[4]}" == "--export" ]]; then
+                        local -a formats
+                        formats=(
+                            'pdf:Export as PDF'
+                            'md:Export as Markdown'
+                            'jpg:Export as image'
+                        )
+                        _describe -t formats 'export format' formats
+                    fi
                     ;;
             esac
             ;;

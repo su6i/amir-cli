@@ -3,7 +3,7 @@ name = "subtitle"
 version = "1.0.0"
 description = "Multi-Language Video Subtitle Generator"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 dependencies = [
     "faster-whisper>=1.0.0",
     "av>=12.0.0,!=11.0.0",
@@ -16,6 +16,9 @@ dependencies = [
     "mlx-whisper>=0.4.3",
     "mlx>=0.18.1",
     "pyannote.audio>=3.1.1",
+    "google-genai>=1.0.0",
+    "python-dotenv>=1.0.0",
+    "litellm>=1.0.0",
 ]
 
 [project.scripts]

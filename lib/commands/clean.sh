@@ -59,7 +59,8 @@ run_clean() {
             fi
     
         elif [[ "$OS_TYPE" == *"NT"* || "$OS_TYPE" == *"MINGW"* ]]; then
-            # ... (Windows section remains stable)
+            echo "🪟 Windows System Detected - Functionality limited in Git Bash."
+            echo "Please use PowerShell for deep system cleaning."
         fi
     }
     clean

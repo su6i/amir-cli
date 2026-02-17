@@ -1,0 +1,289 @@
+human rights
+open source
+machine learning
+artificial intelligence
+deep learning
+neural network
+training data
+test data
+validation set
+training set
+natural language
+computer vision
+data science
+big data
+software engineering
+open source software
+source code
+privacy policy
+user interface
+user experience
+for sure
+in order
+as well
+on the other hand
+as a result
+in addition
+moreover
+by the way
+right now
+at least
+as soon as
+in the end
+in the middle
+next to
+due to
+because of
+according to
+set up
+shut down
+turn on
+turn off
+log in
+log out
+sign in
+sign out
+load balancer
+service mesh
+human rights
+civil rights
+open source
+free software
+license agreement
+terms of service
+privacy policy
+cookie policy
+machine learning
+artificial intelligence
+artificial general intelligence
+neural networks
+convolutional neural
+recurrent neural
+transformer model
+state of the art
+cutting edge
+best practice
+for example
+for instance
+such as
+including but not limited to
+in particular
+in summary
+to summarize
+to conclude
+as follows
+on the other hand
+at the same time
+in contrast
+in comparison
+compared to
+linked list
+binary search
+hash table
+database engine
+query optimizer
+indexing strategy
+load testing
+performance testing
+unit test
+integration test
+end to end
+end-to-end
+continuous integration
+continuous delivery
+continuous deployment
+CI/CD pipeline
+build pipeline
+release notes
+change log
+pull request
+code review
+merge request
+feature flag
+technical debt
+refactoring effort
+legacy code
+backward compatible
+forward compatible
+error handling
+exception handling
+edge case
+corner case
+test coverage
+coverage report
+memory leak
+garbage collection
+resource allocation
+resource usage
+bandwidth limit
+throughput rate
+latency time
+response time
+round trip
+real time
+near real time
+batch processing
+stream processing
+message queue
+event driven
+event stream
+publish subscribe
+pub sub
+service oriented
+micro services
+microservice architecture
+service discovery
+load balancer
+rate limiter
+circuit breaker
+retry policy
+backoff strategy
+exponential backoff
+job scheduler
+cron job
+background job
+worker process
+worker thread
+thread pool
+connection pool
+database connection
+connection string
+configuration file
+environment variable
+secret manager
+key vault
+access token
+refresh token
+authentication flow
+authorization header
+role based
+role based access
+single sign on
+SSO login
+two factor
+two factor authentication
+multifactor authentication
+MFA enabled
+session cookie
+session storage
+local storage
+cache miss
+cache hit
+cache eviction
+LRU cache
+least recently used
+time to live
+TTL value
+expiration time
+security policy
+network security
+firewall rules
+access control
+access control list
+ACL rules
+rate limiting
+throttle limit
+burst limit
+quality of service
+service level
+service level agreement
+SLA metrics
+uptime guarantee
+disaster recovery
+backup strategy
+replication factor
+redundancy level
+high availability
+fault tolerance
+fail over
+failover plan
+graceful shutdown
+rolling update
+blue green
+canary release
+staged rollout
+observability stack
+monitoring alert
+alerting rule
+log aggregation
+distributed tracing
+trace ID
+correlation ID
+health check
+readiness probe
+liveness probe
+prometheus metrics
+grafana dashboard
+elastic search
+kibana logs
+logstash pipeline
+filebeat agent
+metric export
+application performance
+application monitoring
+user feedback
+customer support
+support ticket
+service desk
+incident response
+post mortem
+root cause
+incident management
+on call
+runbook procedure
+standard operating
+standard operating procedure
+SOP document
+technical specification
+functional requirement
+non functional
+non functional requirement
+acceptance criteria
+definition of done
+minimum viable
+minimum viable product
+MVP product
+product roadmap
+release plan
+stakeholder meeting
+design review
+architecture decision
+design pattern
+best practice
+code convention
+coding standard
+style guide
+formatting rule
+lint rule
+warning message
+error message
+stack trace
+debug log
+trace log
+info log
+critical error
+system outage
+service outage
+maintenance window
+scheduled maintenance
+outage notification
+backup window
+restore point
+restore time
+disaster scenario
+business continuity
+continuity plan
+legal contract
+service contract
+confidential information
+non disclosure
+non disclosure agreement
+NDA agreement
+intellectual property
+trade secret
+patent pending
+copyright notice
+open source license
+GPL license
+MIT license
+Apache license
