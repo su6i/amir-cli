@@ -31,6 +31,15 @@ run_clip() {
     
         # 2. If no arguments are provided
         if [[ $# -eq 0 ]]; then
+            # If output is piped (e.g., amir clip | amir pdf)
+            if [[ ! -t 1 ]]; then
+                if [[ "$OSTYPE" == "darwin"* ]]; then
+                    pbpaste
+                else
+                    xclip -selection clipboard -o 2>/dev/null || xsel --clipboard --output 2>/dev/null
+                fi
+                return 0
+            fi
             echo "❌ Error: No input provided."
             echo "Usage: clip <file>  OR  clip <text>  OR  echo 'hi' | clip"
             return 1
