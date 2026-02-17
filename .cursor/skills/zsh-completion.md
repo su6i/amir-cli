@@ -1,156 +1,78 @@
 ---
-description: Best practices for writing robust Zsh completion scripts, avoiding common "bad substitution" errors and ensuring flag visibility.
+name: zsh-completion
+description: Zsh Completion Technical Encyclopedia: 'compdef' Architecture, '_arguments' Parameter Specs, Zstyle Caching, and Error Handling.
 ---
 
-# Skill: Robust Zsh Completion
+# Skill: Robust Zsh Completion (Technical Encyclopedia)
 
-This skill documents proven patterns for writing Zsh completion scripts (`_arguments`, `_describe`, `_files`) that avoid common errors like `bad substitution` and ensure a smooth user experience.
+Comprehensive technical protocols for the design and implementation of advanced command-line completion systems for the Zsh shell in the 2025 ecosystem. This document defines the standards for `compdef` orchestration, `_arguments` parameter specifications, and high-performance `zstyle` caching.
 
-## 🛑 Common Pitfalls
+[Back to README](../../README.md)
 
-1.  **Bad Substitution Error:** Often caused by malformed arrays passed to `_arguments` or `_values`, or incorrect variable expansion logic within the completion function.
-2.  **Hidden Flags:** Flags (e.g., `-f`) not showing up until the user types the hyphen, or failing to autocomplete entirely.
-3.  **Colon Confusion:** Descriptions containing `:` (e.g., "Quality: High") break completion parsing if not escaped or handled correctly.
+---
 
-## ✅ Best Practices
+## 1. The Zsh Completion System (Compsys)
+Standardizing the architecture of `_`-prefixed completion functions.
 
-### 1. Use `_describe` for Simple Lists (Safest Option)
-When you just want to offer a list of "Thing: Description", use `_describe`. It is far less fragile than `_values` or `_arguments` for simple positionals.
+### 1.1 `compdef` Orchestration Logic
+*   **The Entry Point:** Utilizing `#compdef command_name` as the top-line directive to register the function with the shell's completion engine (v2).
+*   **Function Naming:** Mandatory use of the `_`-prefix (e.g., `_my_tool`).
+*   **Initialization:** Utilizing `compinit` in `.zshrc` to activate the programmable completion system.
 
-```bash
-# Define array with 'Value:Description' format
-local -a qualities
-qualities=(
-    '40:Smallest file (max compression)'
-    '60:Balanced (Default)'
-)
-# -t acts as a group title
-_describe -t qualities 'quality factor' qualities
+### 1.2 `_arguments` Parameter Specification
+The "Core Engine" for most Zsh completions. Use grouping `{...}` to sync short and long flags.
+```zsh
+_my_tool() {
+  _arguments -s -S \
+    '(-v --verbose)'{-v,--verbose}'[Enable verbose output]' \
+    '(-h --help)'{-h,--help}'[Show help message]' \
+    '--mode[Select mode]:mode:(fast slow auto)' \
+    '*:filename:_files' # Recursive File completion
+}
 ```
 
-### 2. Flags: Group Short & Long Versions
-To ensure both `-h` and `--help` work and are recognized as the same option (so you don't complete `-h` if `--help` is already there), use the grouping syntax `{...}` in `_arguments`.
+---
 
-```bash
-_arguments -s \
-    '(-f --force)'{-f,--force}'[Force overwrite]' \
-    '(-v --verbose)'{-v,--verbose}'[Show detailed logs]' \
-    '*:filename:_files'
-```
-*   `(-f --force)`: This list tells Zsh that `-f` and `--force` are mutually exclusive (same option).
-*   `{-f,--force}`: This expands to generate completion for both forms.
+## 2. Advanced Context Management
+Providing intelligent completion based on the current state of the command line.
 
-### 3. Handle Special Characters (Colons)
-If your Description text contains a colon `:`, it **must** be escaped with a backslash if it's inside a string used by `_alternative` or complex `_arguments`. For `_describe`, standard "Value:Desc" format usually handles colons in Desc *after* the first separator well, but be careful.
-
-```bash
-# Valid for _alternative (note the escaped space and colon)
-_alternative \
-    'commands:Management:((stats\:Show\ AI\ data reset\:Reset\ data))'
-```
-
-### 4. Context Awareness with `CURRENT`
-Don't define every flag globally if they only apply to specific subcommands or positions. Use `case $((CURRENT))` to scope completions.
-
-```bash
-_amir() {
-    local cur context state line
-    # Global context variables
-    cur="${words[CURRENT]}"
-
-    case "${words[2]}" in
-        img)
-            case $((CURRENT)) in
-                3) _describe ... ;; # Sub-command
-                4) _files ... ;;    # File argument
-            esac
-            ;;
+### 2.1 State-Based Decision Logic
+*   **Logic:** Utilizing `$words`, `$CURRENT`, and `$context` variables to determine where the user is in the command structure (e.g., "In a sub-command").
+*   **Implementation Pattern:**
+    ```bash
+    case $((CURRENT)) in
+        2) _describe -t commands 'subcommand' '(img:Image audio:Audio)' ;;
+        3) _files -g "*.mp4" ;;
     esac
-}
-```
+    ```
 
+### 2.2 Helper Functions & Alternatives
+For complex logic, usehelper functions inside `_alternative` to avoid "bad substitution" errors.
 
-### 5. Arrays for Dynamic content
-Always declare arrays explicitly with `local -a` to avoid Zsh strict mode issues.
+---
 
-```bash
-local -a options
-options=('a:Option A' 'b:Option B')
-_describe -t options 'my options' options
-```
+## 3. Performance & Visual Standards
+Optimizing speed and ergonomics for modern terminals.
 
-### 6. Breaking Recursive File Loops & Complex Subcommands
-For complex logic (like switching context from files to flags), use **Helper Functions**. This avoids quoting hell and "bad substitution" errors in `_alternative`.
-
-```bash
-# Define helper at bottom of file
-_my_options() {
-    local -a opts=('a:Option A' 'b:Option B')
-    _describe -t opts 'options' opts
-}
-
-# In Main Loop
-if [[ -d "$prev" ]]; then
-    # Switch context completely
-    _alternative \
-        'flags:Options:_my_options' 
-else
-    # mixed mode
-    _alternative \
-         'files:Files:_files' \
-         'flags:Options:_my_options'
-fi
-```
-
-### 7. Robust File Filtering (Space-Separated Globs)
-For maximum compatibility and to avoid issues with `EXTENDED_GLOB` settings, use space-separated patterns instead of parentheses `|` groups. This is the most stable way to ensure only specific extensions are shown.
-
-```bash
-# STABLE: Posix-friendly space-separated globs
-_files -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM"
-
-# AVOID: Sometimes fails if Zsh options aren't perfectly aligned
-_files -g "*.(mp4|mov|mkv)"
-```
-
-### 8. Prioritizing Resolutions/Flags Over Files
-To prevent a "stray PDF" from appearing when you want to suggest resolutions, use `_alternative`. If Zsh has a choice between a strict glob and a generic description, it might show both. By using `_alternative`, you can force priority.
-
-```bash
-# Pattern for amir compress: Priority to resolutions after first file
-if [[ -n "${words[3]}" ]]; then
-    _alternative \
-        'resolutions:Resolution Options:_amir_resolutions' \
-        'flags:Command Flags:_amir_flags'
-    # NOTE: We OMIT _files here to stop suggesting more files once input is provided
-fi
-```
-
-### 10. Context-Aware Subcommand Filtering
-When a subcommand implies a specific input type (e.g. `batch` implies directories), ensure the completion reflects this by strictly filtering out other types. Don't show directories if the user is supposed to select a single file, and vice versa.
-
-### 11. Strict File-Only Completion (Excluding Directories)
-Even with `-g` (glob), `_files` usually includes directories for navigation. To strictly exclude directories (e.g., when a command ONLY accepts files and subcommands), use `_path_files -f`.
-
-```bash
-# STRICT: Only show video files, no directories for navigation
-_path_files -f -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM"
-```
-
-### 12. Forcing Headers/Grouping (Local Zstyle Injection)
-If headers are bunched at the top or grouping isn't working in the user's environment, inject `zstyle` settings locally inside the completion function context.
-
-```bash
-_amir_audio() {
-    # Force headers to appear directly above their respective items
+### 3.1 High-Performance `zstyle` Caching
+*   **Logic:** Utilizing `zstyle ':completion:*' use-cache on` to store result sets in `~/.zcompcache`.
+*   **Local Injection:** Force headers to appear directly above items:
+    ```bash
     zstyle ":completion:${curcontext}:*" group-name ''
     zstyle ":completion:${curcontext}:*" format '-- %d --'
+    ```
 
-    _alternative \
-        'cmds:Commands:((...))' \
-        'dirs:Directories:_files -/'
-}
-```
+### 3.2 Robust File Filtering
+Use space-separated globs for maximum stability:
+`_files -g "*.mp4 *.mov *.mkv *.avi"`
+(Avoid `(mp4|mov)` which can fail depending on shell options).
 
 ---
-*Updated: 2026-02-13 - Added Local Zstyle Injection & Robust Grouping.*
+
+## 4. Troubleshooting & Verification
+*   **Bad Substitution:** Often caused by malformed arrays or incorrect expansion. Declare arrays with `local -a`.
+*   **Colon Confusion:** Escape colons `\:` in descriptions when using `_alternative`.
+*   **Sluggishness:** Use `zstyle` caching or pre-generate static lookup tables.
+
+---
+*Updated: 2026-02-15 - Merged Architectural Encyclopedia with Practical Robust Patterns.*

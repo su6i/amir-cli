@@ -92,3 +92,79 @@ get_ffmpeg_path() {
     # Fallback to system ffmpeg if nothing else found
     which ffmpeg
 }
+# ==============================================================================
+# Media Configuration API (Centralized Standards)
+# ==============================================================================
+# Industry Best Practice: Single Source of Truth for encoding parameters
+# Used by: compress.sh, subtitle/processor.py, and all media tools
+
+get_media_config() {
+    local key_path="$1"
+    local config_file="${AMIR_ROOT:-$SCRIPT_DIR}/lib/config/media.json"
+    
+    if [[ ! -f "$config_file" ]]; then
+        echo "ERROR: Media config not found" >&2
+        return 1
+    fi
+    
+    # Use Python's JSON parser (guaranteed to be available since we require it)
+    python3 -c "
+import json
+import sys
+
+try:
+    with open('$config_file') as f:
+        config = json.load(f)
+    
+    # Navigate nested keys (e.g., 'encoding.bitrate.multiplier')
+    keys = '$key_path'.split('.')
+    value = config
+    for key in keys:
+        if isinstance(value, dict) and key in value:
+            value = value[key]
+        else:
+            sys.exit(1)
+    
+    print(value)
+except:
+    sys.exit(1)
+" 2>/dev/null
+}
+
+# Convenience functions for common media parameters
+get_bitrate_multiplier() {
+    get_media_config "encoding.bitrate.multiplier"
+}
+
+get_fallback_bitrate() {
+    get_media_config "encoding.bitrate.fallback"
+}
+
+get_default_crf() {
+    get_media_config "encoding.quality.default_crf"
+}
+
+get_hw_encoder() {
+    local platform="$1"
+    get_media_config "encoding.hardware_acceleration.$platform"
+}
+# Detect best available hardware encoder automatically
+# Returns: "encoder|codec|platform" format (e.g., "hevc_videotoolbox|h265|apple_silicon")
+detect_best_hw_encoder() {
+    local config_file="${AMIR_ROOT:-$SCRIPT_DIR}/lib/config/media.json"
+    
+    if [[ ! -f "$config_file" ]]; then
+        echo "libx264|h264|cpu"
+        return
+    fi
+    
+    # Use Python to run the detection logic
+    python3 -c "
+import sys
+sys.path.insert(0, '${AMIR_ROOT:-$SCRIPT_DIR}/lib/python')
+from media_config import detect_best_hw_encoder
+
+result = detect_best_hw_encoder()
+print(f\"{result['encoder']}|{result['codec']}|{result['platform']}\")
+" 2>/dev/null || echo "libx264|h264|cpu"
+}

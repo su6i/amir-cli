@@ -1,0 +1,8 @@
+openai
+google-genai
+litellm
+tqdm
+huggingface-hub
+protobuf
+python-dotenv
+# Core requirements for API-based translation and basic CLI functionality.

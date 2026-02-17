@@ -16,9 +16,9 @@ run_subtitle() {
         return 1
     fi
 
-    # Run the package via its main.py entry point
-    # We use --project to specify the environment and execute the entry point directly
-    uv run --project "$SUBTITLE_DIR" python "$SUBTITLE_DIR/main.py" "$@"
+    # Run the package via module execution (python -m subtitle)
+    # We add lib/python to PYTHONPATH so 'subtitle' is recognized as a package
+    PYTHONPATH="$LIB_DIR/python:$PYTHONPATH" uv run --project "$SUBTITLE_DIR" python -m subtitle "$@"
     EXIT_CODE=$?
     
     return $EXIT_CODE

@@ -1,303 +1,116 @@
 #!/bin/bash
 
-# A4 Dimensions at 300 DPI: 2480 x 3508 pixels
-
+# Multi-engine PDF Rendering - Final Robust Version
 run_pdf() {
-    # 1. Dependency Check
     local cmd="magick"
-    if ! command -v magick &> /dev/null; then
-        if command -v convert &> /dev/null; then
-            cmd="convert"
-        else
-            echo "❌ Error: ImageMagick (magick) is not installed."
-            return 1
-        fi
-    fi
+    ! command -v magick &>/dev/null && cmd="convert"
+    if ! command -v "$cmd" &>/dev/null; then echo "❌ ImageMagick not found."; return 1; fi
 
-    # Source Config
     local SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     local LIB_DIR="$(dirname "$SCRIPT_DIR")"
-    if [[ -f "$LIB_DIR/config.sh" ]]; then
-        source "$LIB_DIR/config.sh"
-        init_config
-    else
-        # Fallback if config.sh is missing
-        get_config() { echo "$3"; }
-    fi
-
-    # 2. Argument Parsing
-    local inputs=()
-    local output=""
-    # Load defaults from Config
-    local compression_quality=$(get_config "pdf" "quality" "75")
-    local compression_resize=$(get_config "pdf" "resize" "75")
     
-    # Ensure values are integers (simple validation)
-    [[ "$radius" =~ ^[0-9]+$ ]] || radius=0
-    [[ "$rotate_angle" =~ ^-?[0-9]+$ ]] || rotate_angle=0
-    [[ "$compression_quality" =~ ^[0-9]+$ ]] || compression_quality=75
-    [[ "$compression_resize" =~ ^[0-9]+$ ]] || compression_resize=75
-    
-    local compression_resize=$(get_config "pdf" "resize" "75")
-    local do_deskew=true
-    local smart_crop=false
-    
+    local inputs=() output="" engine="puppeteer"
+    local raw_output=""
     while [[ $# -gt 0 ]]; do
-        key="$1"
-        case $key in
-            -o|--output)
-                output="$2"
-                shift; shift
-                ;;
-            --no-round|--square)
-                radius=0
-                shift
-                ;;
-            --radius)
-                radius="$2"
-                shift; shift
-                ;;
-            --smart)
-                smart_crop=true
-                shift
-                ;;
-            -r|--rotate)
-                if [[ "$2" =~ ^-?[0-9]+$ ]]; then
-                    rotate_angle="$2"
-                    shift; shift
-                else
-                    # Fallback for old flag usage (toggle 90)
-                    rotate_angle=90
-                    shift
-                fi
-                ;;
-            -q|--quality)
-                compression_quality="$2"
-                shift; shift
-                ;;
-            --resize)
-                compression_resize="$2"
-                shift; shift
-                ;;
-            --pages|--merge)
-                multi_page=true
-                shift
-                ;;
-            --deskew|--straighten)
-                do_deskew=true
-                shift
-                ;;
-            --no-deskew|--no-straighten)
-                do_deskew=false
-                shift
-                ;;
-            *)
-                if [[ -f "$1" ]]; then
-                    inputs+=("$1")
-                else
-                    echo "⚠️  Warning: File not found '$1', skipping."
-                fi
-                shift
-                ;;
+        case "$1" in
+            -o|--output) raw_output="$2"; shift; shift ;;
+            --engine) engine="$2"; shift; shift ;;
+            --weasyprint) engine="weasyprint"; shift ;;
+            --pil) engine="pil"; shift ;;
+            --pandoc) engine="pandoc"; shift ;;
+            *) [[ -f "$1" ]] && inputs+=("$1"); shift ;;
         esac
     done
+    [[ ${#inputs[@]} -eq 0 ]] && return 1
 
-    if [[ ${#inputs[@]} -eq 0 ]]; then
-        echo "Usage: amir pdf <files...> [-o output.pdf] [options]"
-        echo "   Combines images/PDFs into a single A4 page (Portrait)."
-        echo "   --smart          : Smart Crop (Auto-detect receipt/document)."
-        echo "   --radius <px>    : Set corner radius (default 10)."
-        echo "   -r <angle>       : Rotate images by angle (e.g. 90)."
-        echo "   -q <quality>     : JPEG Quality for compressed version (default 75)."
-        echo "   --resize <%>     : Resize percentage for compressed version (default 75)."
-        echo "   --pages          : Create multi-page PDF (1 image per page) instead of collage."
-        echo "   --no-deskew      : Disable auto-straightening (Default: Deskew enabled)."
-        return 1
-    fi
+    local amir_data="/tmp/amir_data"
+    [[ -d "/Volumes/SanDisk" ]] && amir_data="/Volumes/SanDisk/amir_data"
+    mkdir -p "$amir_data/tmp" "$amir_data/uv_cache" "$amir_data/chrome_profile"
     
-    # Auto-name output if default and input exists
-    if [[ -z "$output" && -n "${inputs[0]}" ]]; then
-        local base=$(basename "${inputs[0]}")
-        local suffix=""
-        [[ "$rotate_angle" -ne 0 ]] && suffix="${suffix}_r${rotate_angle}"
-        [[ "$smart_crop" == "true" ]] && suffix="${suffix}_smart"
-        
-        output="${base%.*}${suffix}.pdf"
-    fi
-
-    # Overwrite Protection
-    local output_compressed="${output%.*}_compressed_q${compression_quality}.pdf"
-
-    # Smart File Naming (Auto-increment if exists)
-    local base_output="${output%.*}"
-    local ext_output="${output##*.}"
-    local counter=1
+    export TMPDIR="$amir_data/tmp"
+    export UV_CACHE_DIR="$amir_data/uv_cache"
+    export MAGICK_TEMPORARY_PATH="$amir_data/tmp"
+    local chrome_profile="$amir_data/chrome_profile"
     
-    while [[ -f "$output" || -f "$output_compressed" ]]; do
-        output="${base_output}_${counter}.${ext_output}"
-        # Recalculate compressed name based on new output name
-        output_compressed="${output%.*}_compressed_q${compression_quality}.pdf"
-        ((counter++))
-    done
+    local tmp_dir=$(mktemp -d "$TMPDIR/pdf_XXXXXX")
     
-    if [[ $counter -gt 1 ]]; then
-        echo "⚠️  File exists. Saving as: $output"
-    fi
-
-    echo "📄 Composing ${#inputs[@]} file(s) into A4 PDF..."
-    echo " Output: $output"
-
-    # Aesthetic Constants (A4 at 300 DPI: 2480 x 3508)
-    local margin=124      # 5% of 2480
-    local spacing=100     # Gap between images
-    local radius=50       # Corner rounding
-    local usable_w=$((2480 - 2 * margin))
-    local usable_h=$((3508 - 2 * margin))
-
-    # Create temporary workspace
-    local tmp_dir=$(mktemp -d "/tmp/amir_pdf_XXXXXX")
-    
-    # --- Pre-Process: Smart Crop ---
-    if [[ "$smart_crop" == "true" ]]; then
-        echo "🧠 Smart Crop Enabled: Detecting subjects..."
-        local python_script="${LIB_DIR}/python/smart_crop.py"
-        
-        for i in "${!inputs[@]}"; do
-             local raw_input="${inputs[$i]}"
-             local base_name=$(basename "$raw_input")
-             local cropped_output="$tmp_dir/smart_${i}_${base_name%.*}.png"
-             
-             # Absolute paths
-             local abs_input=$(cd "$(dirname "$raw_input")" && pwd)/$(basename "$raw_input")
-             
-             uv run --with opencv-python --with numpy "$python_script" "$abs_input" "$cropped_output" "20" > /dev/null
-             
-             if [[ -f "$cropped_output" ]]; then
-                 inputs[$i]="$cropped_output"
-                 echo "  ✅ Cropped: $base_name"
-             else
-                 echo "  ⚠️ Failed to smart crop $base_name, using original."
-             fi
-        done
-    fi
-    local ready_pages=()
-    
-    # Calculate slot height for collage mode
-    local slot_h=$(( (usable_h - ( (${#inputs[@]} - 1) * spacing )) / ${#inputs[@]} ))
-    [[ "$multi_page" == "true" ]] && slot_h=$usable_h
-
-    # Step 1: Process all inputs into oriented, rounded PNG clips
-    local clips=()
-    echo "⚙️  Processing ${#inputs[@]} images..."
+    local processed=()
     for i in "${!inputs[@]}"; do
-        local img="${inputs[$i]}"
-        local p_clip="$tmp_dir/clip_$(printf "%03d" $i).png"
+        local file="${inputs[$i]}"
+        local abs_file=$(cd "$(dirname "$file")" && pwd)/$(basename "$file")
+        local ext=$(echo "${file##*.}" | tr '[:upper:]' '[:lower:]')
         
-        # Verified Robust Strategy: CopyOpacity
-        # 1. Resize
-        # 2. Add Alpha
-        # 3. Create Mask (Black=Transparent, White=Opaque)
-        # 4. CopyOpacity to Alpha
-        $cmd -density 300 "$img" -auto-orient +repage \
-            $( [[ "$do_deskew" == "true" ]] && echo "-deskew 40% +repage" ) \
-            $( [[ "$rotate_angle" -ne 0 ]] && echo "-rotate $rotate_angle +repage" ) \
-            -resize "${usable_w}x${slot_h}>" \
-            -alpha set \
-            \( +clone -fill black -colorize 100 -fill white \
-               -draw "roundrectangle 0,0 %[fx:w-1],%[fx:h-1] $radius,$radius" \) \
-            -alpha off -compose CopyOpacity -composite \
-            "$p_clip"
-        
-        [[ -f "$p_clip" ]] && clips+=("$p_clip")
+        if [[ "$ext" == "md" || "$ext" == "txt" ]]; then
+            echo "📝 Rendering $(basename "$file") [$engine]..."
+            local tmp_out="$tmp_dir/render_$(printf "%03d" $i).pdf"
+            local tmp_img="$tmp_dir/render_$(printf "%03d" $i).png"
+            local font_fa="/Library/Fonts/B-NAZANIN.TTF"
+            [[ ! -f "$font_fa" ]] && font_fa="/Users/su6i/Library/Fonts/B-NAZANIN.TTF"
+            
+            local success=false
+            if [[ "$engine" == "puppeteer" ]]; then
+                node "${LIB_DIR}/nodejs/render_puppeteer.js" "$abs_file" "$tmp_out" "$font_fa" "$chrome_profile" &>/dev/null && success=true
+            elif [[ "$engine" == "weasyprint" ]]; then
+                uv run python3 "${LIB_DIR}/python/render_weasy.py" "$abs_file" "$tmp_out" "$font_fa" &>/dev/null && success=true
+            elif [[ "$engine" == "pandoc" ]]; then
+                pandoc "$abs_file" -o "$tmp_out" --pdf-engine=pdfkit &>/dev/null && success=true
+            fi
+
+            if [[ "$success" == "true" && -f "$tmp_out" ]]; then
+                processed+=("${tmp_out}[0-999]")
+            else
+                [[ "$engine" != "pil" ]] && echo "⚠️  $engine failed. Using PIL fallback..."
+                local en_font="/System/Library/Fonts/Supplemental/Times New Roman.ttf"
+                [[ ! -f "$en_font" ]] && en_font="/System/Library/Fonts/Helvetica.ttc"
+                
+                uv run python3 "${LIB_DIR}/python/render_md.py" "$abs_file" "$tmp_img" "$font_fa" "$en_font" &>/dev/null
+                
+                if [[ -f "$tmp_img" ]]; then processed+=("$tmp_img"); fi
+                
+                # Robust collection of PIL pages
+                local bname=$(basename "${tmp_img%.*}")
+                find "$tmp_dir" -name "${bname}_page_*.png" | sort | while read -r p; do
+                    processed+=("$p")
+                done
+            fi
+        else
+            processed+=("$file")
+        fi
     done
 
-    # Step 2: Assemble clips into A4 pages
-    if [[ "$multi_page" == "true" ]]; then
-        echo "📄 Mode: Multi-page"
-        for i in "${!clips[@]}"; do
-            local clip="${clips[$i]}"
-            local tmp_page="$tmp_dir/page_$(printf "%03d" $i).jpg"
-            
-            # Place clip on A4 White Canvas and Flatten
-            $cmd -density 300 -size 2480x3508 xc:white \
-                "$clip" -gravity center -compose over -composite \
-                -background white -alpha remove -alpha off \
-                -density 300 -units PixelsPerInch "$tmp_page"
-                
-            [[ -f "$tmp_page" ]] && ready_pages+=("$tmp_page")
-        done
+    # Output naming: include engine name
+    if [[ -z "$raw_output" ]]; then
+        local first_in=$(basename "${inputs[0]%.*}")
+        output="${first_in}_${engine}.pdf"
     else
-        echo "📄 Mode: Collage"
-        local final_page="$tmp_dir/final_a4.jpg"
-        
-        # Vertical stack of clips
-        local stack_cmd=("-density" "300")
-        for i in "${!clips[@]}"; do
-            stack_cmd+=("${clips[$i]}")
-            [[ $i -lt $(( ${#clips[@]} - 1 )) ]] && stack_cmd+=("-background" "none" "-gravity" "South" "-splice" "0x$spacing")
-        done
-        stack_cmd+=("-background" "none" "-append")
-        
-        # Composite stack onto A4 white background and flatten
-        $cmd -density 300 -size 2480x3508 xc:white \
-            \( "${stack_cmd[@]}" \) -gravity center -compose over -composite \
-            -background white -alpha remove -alpha off \
-            -density 300 -units PixelsPerInch "$final_page"
-            
-        [[ -f "$final_page" ]] && ready_pages+=("$final_page")
+        output="$raw_output"
     fi
     
-    if [[ ${#ready_pages[@]} -eq 0 ]]; then
-        echo "❌ Critical Error: Processing failed."
-        rm -rf "$tmp_dir"
-        return 1
-    fi
- 
-    echo "📚 Assembling A4 PDF..."
-    $cmd -density 300 -units PixelsPerInch "${ready_pages[@]}" -compress jpeg -quality 100 "$output"
-    
-    # Cleanup temp dir
-    rm -rf "$tmp_dir"
-
-    if [[ $? -eq 0 ]]; then
-        echo "✅ HQ PDF Created: $output"
-        
-        # ---------------------------------------------------------
-        # Post-Process: Generate Compressed Version
-        # ---------------------------------------------------------
-        # output_compressed defined above at start
-        
-        echo "🗜️  Generating Compressed Version (Resize: ${compression_resize}%, Quality: ${compression_quality})..."
-        
-        # Optimization Strategy:
-        # Resize percent + JPEG Comp
-        
-        local compress_cmd=(
-            "-density" "300"
-            "$output"
-            "-strip" # Remove metadata to save space
-            "-resize" "${compression_resize}%"
-            "-define" "jpeg:sampling-factor=1x1" 
-            "-compress" "jpeg"
-            "-quality" "$compression_quality"
-            "$output_compressed"
-        )
-        
-        $cmd "${compress_cmd[@]}"
-            
-        if [[ $? -eq 0 ]]; then
-            local size_hq=$(ls -lh "$output" | awk '{print $5}')
-            local size_lq=$(ls -lh "$output_compressed" | awk '{print $5}')
-            echo "✅ Compressed PDF Created: $output_compressed"
-            echo "📊 Stats: [HQ: $size_hq] ➡️  [LQ: $size_lq]"
+    local final_ready=()
+    for f in "${processed[@]}"; do
+        if [[ "$f" == *.pdf* ]]; then
+            final_ready+=("$f")
         else
-            echo "⚠️  Compression failed (HQ file preserved)."
+            local clip="$tmp_dir/c_$(basename "$f")"
+            $cmd -density 300 "$f" -resize "2232x3260>" -gravity center -extent 2480x3508 -background white -flatten "$clip"
+            final_ready+=("$clip")
         fi
-        
+    done
+
+    if [[ ${#final_ready[@]} -gt 0 ]]; then
+        rm -f "$output" 2>/dev/null
+        if $cmd -density 300 "${final_ready[@]}" -compress jpeg -quality 100 "$output"; then
+            touch "$output"
+            local abs_output=$(python3 -c "import os; print(os.path.abspath('$output'))")
+            echo "✅ PDF Created: $abs_output"
+        else
+            echo "❌ Final assembly failed."
+        fi
     else
-        echo "❌ PDF Creation Failed."
-        return 1
+        echo "❌ No rendered pages found."
     fi
+
+    rm -rf "$tmp_dir"
 }
 
 run_pdf "$@"

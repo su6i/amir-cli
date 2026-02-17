@@ -19,7 +19,8 @@ Built with modularity and ease of use in mind, `amir` works seamlessly across **
 
 - **🎬 Smart Video Compression:** Auto-detects hardware (Apple Silicon, NVENC, QSV) and optimizes settings for the best quality/size ratio. Features "AI Learning" to adapt to your preferences over time.
 - **🖼️ Advanced Image Processing:** AI-powered upscaling (Real-ESRGAN), document enhancement lab (140 variations), smart stacking (front/back), and professional corner rounding.
-- **🤖 AI Powered:** Chat with Gemini/Gemma directly from your terminal and generate code snippets.
+- **🌍 Advanced Subtitle System:** AI-powered multilingual subtitles supporting **32 languages** (Top 25 by YouTube reach + extras). Features automatic translation with quality validation, resume capability, technical term preservation, and smart video rendering with resolution-adaptive bitrates.
+- **🤖 AI Powered:** Chat with Gemini/Gemma, generate code, and fetch model lists from 5 LLM providers (Gemini, OpenAI, DeepSeek, Groq, Anthropic).
 - **🛠️ System Utilities:** One-command system cleanup, password generation, file locking/unlocking, and QR code generation.
 - **☁️ File Transfer:** Instantly upload files to temporary hosting services and get a shareable link.
 - **⚡ Super Fast:** Written in optimized Bash/Zsh with minimal overhead.
@@ -44,11 +45,18 @@ The installer will:
 3. Set up command auto-completion for Zsh.
 
 ### Dependencies & Python Note 🐍
-Amir CLI uses **Python 3** for some helper tasks (like data formatting).
-- **No Virtual Environment Needed:** We strictly use Python's **Standard Library** (modules like `os`, `json`, `sys`). You do **NOT** need to install any pip packages or create a venv.
+Amir CLI uses **Python 3** for helper tasks (like data formatting and subtitle processing).
+
+- **Zero-setup philosophy:** The installer (`install.sh`) will now automatically create a Python virtual environment at `./.venv` and install required Python packages from `requirements.txt` when you run `./install.sh` or when `amir` is first executed and dependencies are missing. Users should not need to manually `pip install` packages or manage a virtualenv.
 - **System Requirements:**
-    - `ffmpeg` (for media tools)
-    - `bc` (for calculations)
+  - `python3` (3.8+)
+  - `ffmpeg` (for media tools)
+  - `bc` (for calculations)
+  - `qrencode`, `uv` and other system tools (the installer attempts to install them automatically where possible)
+    
+- **uv-first execution:** Where possible, `amir` and its subcommands use `uv` to manage and run Python dependencies (`uv run --project ...`). The installer will attempt to use `uv` to provision and run project packages; this provides an isolated, reproducible environment for Python tools used by `amir`.
+ 
+If the installer cannot provision a private or git-hosted package referenced in `requirements.txt`, it will notify you with clear remediation steps.
 ### 3. Configuration & Installation
 Simply run the installer to set up dependencies and API keys in one go:
 
@@ -62,6 +70,10 @@ During installation, you will be asked to provide the following API key for AI f
 | Key | Purpose (Why do I need this?) | Get it here |
 | :--- | :--- | :--- |
 | **`GEMINI_API_KEY`** | Enables the `amir chat` command, smart summaries, and intelligent help responses. | [Google AI Studio](https://aistudio.google.com/app/apikey) |
+| **`DEEPSEEK_API_KEY`** | Powers the subtitle translation system for 32 languages. Optional: fallback to Gemini if not set. | [DeepSeek Platform](https://platform.deepseek.com/) |
+| **`OPENAI_API_KEY`** | For `llm-lists openai` command (optional). | [OpenAI Platform](https://platform.openai.com/api-keys) |
+| **`GROQ_API_KEY`** | For `llm-lists groq` command (optional). | [Groq Console](https://console.groq.com/) |
+| **`ANTHROPIC_API_KEY`** | For `llm-lists anthropic` command (optional). | [Anthropic Console](https://console.anthropic.com/) |
 
 
 ## ⚙️ Configuration
@@ -128,9 +140,9 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir img extend <file> [opts]` | Extend image borders (custom/auto color). |
 | `amir img deskew <file> [output]` | Auto-straighten scanned documents. |
 | `amir img <file> <size> [g]` | Legacy mode (detects resize vs crop). |
-| `amir pdf <files> [opts]` | Merge images into A4 PDF. Dual output (HQ+XS). Opts: `-q`, `-r`, `--radius`. |
+| `amir pdf <files> [opts]` | **Multi-Engine A4 PDF Generator**: Merge images, text, and markdown. Supports Puppeteer (Default), WeasyPrint, PIL (Robust Fallback), and Pandoc. Features: High-fidelity RTL (B Nazanin), automatic pagination, and professional layout. |
 | `amir watermark <file> [text]` | Add watermark to image (auto-saved or `-o output`). |
-| `amir subtitle <file> [opts]` | Generate multi-language subtitles. See [SUBTITLE.md](docs/SUBTITLE.md) for details. |
+| `amir subtitle <file> [options]` | **AI-Powered Multilingual Subtitles**: Transcribe, translate (32 languages), and render with automatic validation. Features: resume incomplete translations, technical term preservation, resolution-adaptive bitrates (480p: 1.5M → 4K: 8M). See [SUBTITLE.md](docs/SUBTITLE.md). |
 | `amir info <file>` | Show detailed technical metadata for any file. |
 
 ### 🧠 AI & Productivity
@@ -138,6 +150,7 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | :--- | :--- |
 | `amir chat "hello"` | Ask the AI assistant a question. |
 | `amir code "fix this"` | Request code generation or refactoring. |
+| `amir llm-lists <provider> [-e fmt]` | **NEW:** Fetch model lists from LLM providers (gemini, openai, deepseek, groq, anthropic). Export to PDF/MD/JPG. |
 | `amir todo add "task"` | Manage a lightweight local to-do list. |
 | `amir dashboard` | Show a system status dashboard (CPU, RAM, Space). |
 
