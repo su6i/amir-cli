@@ -42,14 +42,16 @@ To ensure perfect character joining and directionality:
 
 ## 4. Automation Algorithms
 
-### 4.1 Balanced Segmentation (Python)
+### 4.1 Semantic Segment Integrity (Python)
+Instead of fixed length, use punctuation-based backtracking to ensure natural reading flow.
+
 ```python
-def split_balanced(text, max_chars=42):
-    if len(text) <= max_chars: return [text]
-    words = text.split()
-    mid = len(words) // 2
-    if mid < 3: return [text]
-    return [" ".join(words[:mid]), " ".join(words[mid:])]
+def resegment_to_sentences(segments, max_length=42):
+    # BACKTRACKING LOGIC:
+    # 1. Break at HARD points (. ! ?) with priority.
+    # 2. Break at SOFT points (, ; :) with lookahead (max 12 chars).
+    # 3. Use whitespace as a last resort.
+    # This prevents splitting noun-adjective pairs and maintains Bidi context.
 ```
 
 ### 4.2 Non-Breaking Space Logic (Orphan Mitigation)

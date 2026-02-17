@@ -41,11 +41,22 @@ Ensuring content survival when advanced rendering engines fail.
 ## 3. Storage & Performance Optimization
 ### 3.1 External Disk Redirection
 *   **Logic:** When the root filesystem capacity is > 95%, redirect all temporary operations to external high-speed storage.
-*   **Implementation:** Export `TMPDIR`, `UV_CACHE_DIR`, and `MAGICK_TEMPORARY_PATH` to the external mount point.
+*   **Implementation:** Export `MAGICK_TEMPORARY_PATH` to the external mount point.
+*   **ExFAT & POSIX Incompatibility:**
+    *   **The Issue:** ExFAT does not support `flock` (file locking), causing tools like `uv` or `sqlite` to throw "Operation not supported (os error 45)".
+    *   **The Resolution:** Detect ExFAT (`diskutil info`) and bypass `uv run` by using the absolute path to the `.venv/bin/python3` binary directly. Avoid redirecting `UV_CACHE_DIR` or `TMPDIR` to ExFAT if file locking is required.
+
+### 3.2 Piped Stdin Protocol
+*   **Architecture:** To support `amir clip | amir pdf`, use a temporary file to drain `stdin`.
+*   **Lifecycle:**
+    1.  Check for piping: `[[ ! -t 0 ]]`.
+    2.  `mktemp` for content persistence.
+    3.  Add temp file to a `CLEANUP_FILES` array.
+    4.  Trap or manually `rm` all files in the array at script exit.
 
 ### 3.2 macOS Finder Metadata Refresh
 *   **Problem:** Finder's "Date Added" does not refresh on simple file overwrites.
 *   **Solution:** Mandatory use of `touch [output_file]` after generation to force a metadata refresh and move the file to the top of the "Recently Added" view.
 
 ---
-*Updated: 2026-02-17 - Added Multi-Engine protocols and RTL Base64 font embedding.*
+*Updated: 2026-02-17 - Added ExFAT robustness, Piped Stdin protocols, and RTL Base64 embedding.*
