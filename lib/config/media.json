@@ -1,0 +1,40 @@
+{
+  "encoding": {
+    "bitrate": {
+      "multiplier": 1.1,
+      "fallback": "2.5M",
+      "min": "500K",
+      "max": "50M"
+    },
+    "quality": {
+      "default_crf": 23,
+      "default_preset": "medium"
+    },
+    "hardware_acceleration": {
+      "priority": [
+        {"encoder": "hevc_videotoolbox", "platform": "apple_silicon", "codec": "h265"},
+        {"encoder": "hevc_nvenc", "platform": "nvidia", "codec": "h265"},
+        {"encoder": "hevc_qsv", "platform": "intel", "codec": "h265"},
+        {"encoder": "hevc_amf", "platform": "amd", "codec": "h265"},
+        {"encoder": "h264_videotoolbox", "platform": "apple_silicon", "codec": "h264"},
+        {"encoder": "h264_nvenc", "platform": "nvidia", "codec": "h264"},
+        {"encoder": "h264_qsv", "platform": "intel", "codec": "h264"},
+        {"encoder": "h264_amf", "platform": "amd", "codec": "h264"}
+      ],
+      "fallback": {
+        "encoder": "libx264",
+        "codec": "h264"
+      }
+    }
+  },
+  "audio": {
+    "codec": "aac",
+    "sample_rate": 44100,
+    "channels": "stereo"
+  },
+  "metadata": {
+    "version": "1.1.0",
+    "last_updated": "2026-02-16",
+    "description": "Centralized media encoding standards for Amir CLI with automatic hardware detection"
+  }
+}

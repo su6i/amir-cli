@@ -25,6 +25,11 @@ magick -density 300 input.png \
        -background white -alpha remove \
        -gravity center -extent 2480x3508 \
        output.pdf
+
+# 1.2.2 Multi-Page Assembly
+# Always specify [0-999] or [0--1] to ensure all pages are collected from PDF inputs
+$cmd -density 300 page1.pdf[0-999] page2.png ... -compress jpeg -quality 100 final.pdf
+touch final.pdf # Refresh Finder metadata on macOS
 ```
 
 ---

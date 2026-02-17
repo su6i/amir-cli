@@ -201,9 +201,19 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
 - **Table Alignment:** Uses Python's `unicodedata` library to strictly calculate visual string width (East Asian Width).
 - **AI Stats:** Log file tracks compression ratios to optimal settings.
 
-### `pdf` (PDF Generation)
-- **Simplified Pipeline:** Uses a robust "Resize & Center" strategy (`-resize` + `extent`) to ensure reliability. 
-- **Overwrite Protection:** Interactive check prevents accidental data loss. Checks *both* HQ and Compressed filenames before proceeding.
+### `pdf` (Multi-Engine High-Fidelity Rendering)
+- **Architecture:** Hybrid system utilizing specialized rendering engines with a robust fallback pipeline.
+- **Engines:**
+    - **Puppeteer (Default):** Chromium-based rendering for highest fidelity. Supports CSS3, complex layouts, and modern typography.
+    - **WeasyPrint:** Python-based CSS/HTML renderer (optimized for print).
+    - **Pandoc:** Vector-based conversion for document formats.
+    - **PIL (Fallback):** Ultra-robust image-based renderer. Used automatically if advanced engines fail to ensure no content loss. Supports infinite vertical pagination.
+- **Key Technical Features:**
+    - **Base64 Font Embedding:** To bypass browser security restrictions (`file://`), the **B Nazanin** Persian font is injected directly as a Base64 Data URI into the Puppeteer HTML stream.
+    - **Smart Pagination:** Uses CSS `page-break-inside: avoid` to prevent element splitting. The assembly loop in `pdf.sh` uses explicit page selection (`[0-999]`) to ensure ImageMagick captures every page from multi-page PDFs.
+    - **Finder Optimization:** On macOS, the script executes `touch` on the final output to force Finder to refresh "Date Added" and "Date Modified" metadata, ensuring the new file appears at the top of lists.
+    - **Disk Space Overflow:** If the internal disk is full (100% capacity), the script automatically redirects `TMPDIR`, `UV_CACHE_DIR`, and Chrome profiles to `/Volumes/SanDisk/amir_data`.
+    - **Dynamic Naming:** Default output follows the pattern `{input}_{engine}.pdf` for easy identification.
 
 ### `img` (Image Manipulation) - AI & Laboratory
 - **Upscaling Architecture:** Uses the `realesrgan-ncnn-vulkan` binary. 
@@ -215,6 +225,138 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
   - **Multi Mode (`-m all`):** Iterates through all 7 AI models → **140 images** (7 models × 20 filters).
   - **Hierarchical Storage:** Organizes results into `lab_{base}/{model}/{filter}.jpg` for easy comparison.
 - **Stacking:** Combines images with auto-orient and deskew. Uses paper-size presets (A4/B5 at 150DPI) for standardized document preparation.
+
+### `subtitle` (AI-Powered Multilingual Subtitle System)
+**Architecture:** Hybrid Python/FFmpeg pipeline with intelligent caching, validation, and rendering.
+
+#### Component Stack
+1. **Transcription Engine:**
+   - **Primary:** `faster-whisper` (CPU-optimized Whisper)
+   - **Apple Silicon:** `mlx-whisper` (Metal acceleration via MLX framework)
+   - **Model:** Default `large-v3` (highest accuracy)
+   - **Optimization:** Smart caching with SHA-256 hash keying (`~/.amir_cache/transcriptions/`)
+
+2. **Translation System:**
+   - **Primary Provider:** DeepSeek API (GPT-4 class quality, cost-effective)
+   - **Fallback Chain:** LiteLLM → Gemini
+   - **Batch Processing:** 25 lines per API call (DeepSeek), 40 lines (Gemini), 20 lines (LiteLLM)
+   - **Cache:** SHA-256 keyed translations (`~/.amir_cache/translations/`)
+
+3. **Language Support (32 Languages):**
+   - **Centralized Registry:** `LANGUAGE_REGISTRY` dataclass-based configuration
+   - **Components:** Language code, display name, Unicode char range, RTL flag
+   - **Top 25 (YouTube Priority 2026):**
+     ```
+     zh (Chinese), en (English), es (Spanish), hi (Hindi), ar (Arabic),
+     bn (Bengali), pt (Portuguese), ru (Russian), ja (Japanese), fr (French),
+     ur (Urdu), pa (Punjabi), vi (Vietnamese), tr (Turkish), ko (Korean),
+     id (Indonesian), de (German), fa (Persian), gu (Gujarati), it (Italian),
+     mr (Marathi), te (Telugu), ta (Tamil), th (Thai), ha (Hausa)
+     ```
+   - **Additional:** Greek, Hebrew, Malagasy, Dutch, Polish, Ukrainian
+
+4. **Quality Assurance:**
+   - **Multi-Stage Parser:**
+     - Numbered format (`1. text\n2. text`)
+     - JSON format (`[{"index": 1, "text": "..."}]`)
+     - Plain text (line-by-line)
+     - Persian/Arabic digit normalization (`۱۲۳` → `123`)
+     - 80% valid line threshold
+   - **Post-Translation Validation:**
+     - Character range check for non-Latin scripts
+     - Source comparison for Latin scripts
+     - Technical term pattern detection (parenthetical English)
+     - Interactive user prompts for incomplete batches (max 3 retries)
+     - **Guarantee:** No rendering until 100% translation or user decline
+
+5. **Resume Capability:**
+   - **Mechanism:** Ingests partial SRT files to recover existing translations
+   - **Smart Mapping:** Time-based alignment (prevents line count desync)
+   - **Use Case:** Continue interrupted translation jobs with `-c/--continue` flag
+   - **Cost Savings:** Avoids re-translating already completed batch segments
+
+6. **Technical Term Preservation:**
+   - **Pattern:** Maintains English terms in parentheses (e.g., "هوش مصنوعی عمومی (AGI)")
+   - **Scope:** All 32 languages (configurable per language)
+   - **Mechanism:** Prompt engineering + validation regex
+
+7. **Video Rendering (Smart Bitrate System):**
+   - **Resolution Detection:** ffprobe extracts width × height
+   - **Adaptive Mapping:**
+     ```
+     ≤480p  (≤500K pixels):  1.5 Mbps
+     ≤720p  (≤1M pixels):    2.5 Mbps
+     ≤1080p (≤2.5M pixels):  4.0 Mbps
+     4K+    (>2.5M pixels):  8.0 Mbps
+     ```
+   - **Hardware Acceleration:**
+     - **Apple Silicon:** `h264_videotoolbox` with bitrate targeting
+     - **Fallback:** `libx264 -crf 23 -preset medium` (quality-based)
+   - **Audio:** `-c:a copy` (lossless passthrough)
+   - **Font Injection:** Explicit `fontsdir` for sandboxed FFmpeg environments
+   - **File Size:** Optimized for minimal increase (typically 1.5-2x original)
+
+8. **ASS Styling (Advanced SubStation Alpha):**
+   - **Bilingual Layout:**
+     - **Primary:** Bottom, white, bold, 24px
+     - **Secondary:** Top, gray, 18px (e.g., English commentary over Persian)
+   - **RTL Support:** Proper alignment for Arabic/Persian/Urdu/Hebrew
+   - **Font Selection:** `B Nazanin` (Persian), `Noto Sans` (Fallback)
+   - **Resolution Scaling:** `font_size = (height / 1080) * 25`
+
+#### Workflow Example
+```bash
+# Full pipeline: Transcribe + Translate + Render
+amir subtitle video.mp4 -t en fa -r
+
+# Resume interrupted translation
+amir subtitle video.mp4 -t en fa -rc
+
+# Multiple languages
+amir subtitle video.mp4 -t en fa ar es -r
+```
+
+#### Technical Implementation Details
+- **File:** `lib/python/subtitle/processor.py` (2164 lines)
+- **Class:** `SubtitleProcessor`
+- **Key Methods:**
+  - `run_workflow()`: Orchestrates full pipeline
+  - `_parse_translated_batch_output()`: Robust multi-format parser
+  - `translate_with_deepseek()`: Batch translation with retry logic
+  - `create_ass_with_font()`: ASS generation with bilingual support
+  - `_ingest_partial_srt()`: Resume translation recovery
+
+### `llm-lists` (LLM Model Discovery)
+**Purpose:** Fetch and export available models from AI providers for quick reference.
+
+#### Supported Providers
+1. **Gemini:** Google's latest models via `google-genai` SDK
+2. **OpenAI:** GPT models via official SDK
+3. **DeepSeek:** Chat/Coder models (OpenAI-compatible endpoint)
+4. **Groq:** Ultra-fast inference models
+5. **Anthropic:** Claude models (manually curated list)
+
+#### Architecture
+- **Implementation:** Hybrid Bash/Python (`lib/commands/llm-lists.sh`)
+- **Python Script:** Dynamically generated with embedded code
+- **Environment:** Uses `.env` for API keys
+- **Execution:** Prefers virtual environment Python if available
+
+#### Usage
+```bash
+# List models
+amir llm-lists gemini
+amir llm-lists deepseek
+
+# Export formats
+amir llm-lists openai -e md        # Markdown
+amir llm-lists groq --export pdf   # PDF (requires pandoc)
+```
+
+#### Export Features
+- **Markdown:** Timestamped code block format
+- **PDF:** Converted via Pandoc with metadata
+- **Naming:** `{provider}_models_YYYYMMDD.{ext}`
 
 ## ⚙️ Configuration & Storage
 

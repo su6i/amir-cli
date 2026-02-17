@@ -18,6 +18,55 @@ done
 SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
 LIB_DIR="$SCRIPT_DIR/lib"
 
+# Allow `--no-venv` to skip auto-activation and optional install prompt
+NO_VENV=0
+if [[ "$1" == "--no-venv" ]]; then
+    NO_VENV=1
+    shift
+fi
+
+# Activate project virtualenv if present so Python invocations use it
+if [[ $NO_VENV -eq 0 ]]; then
+    if [[ -f "$SCRIPT_DIR/.venv/bin/activate" ]]; then
+        # shellcheck disable=SC1090
+        source "$SCRIPT_DIR/.venv/bin/activate"
+    else
+        # Prompt user to create/install venv on first run
+        echo "⚠️  Virtual environment not found at $SCRIPT_DIR/.venv"
+        read -r -p "Would you like to run ./install.sh --auto now to create it? [Y/n] " resp
+        resp=${resp:-Y}
+        if [[ "$resp" =~ ^([yY][eE][sS]|[yY])$ ]]; then
+            bash "$SCRIPT_DIR/install.sh" --auto
+            if [[ -f "$SCRIPT_DIR/.venv/bin/activate" ]]; then
+                # shellcheck disable=SC1090
+                source "$SCRIPT_DIR/.venv/bin/activate"
+            else
+                echo "⚠️  Installation finished but .venv not found or activation failed. Continuing without venv."
+            fi
+        else
+            echo "ℹ️  Continuing without virtualenv (use --no-venv to skip this prompt)."
+        fi
+    fi
+else
+    echo "ℹ️  --no-venv set: skipping virtualenv activation." >&2
+fi
+
+# ==============================================================================
+# Automatic Dependency Resolution (Self-Healing)
+# ==============================================================================
+check_deps_fast() {
+    for tool in ffmpeg ffprobe bc qrencode uv; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            return 1
+        fi
+    done
+    return 0
+}
+
+if ! check_deps_fast; then
+    bash "$SCRIPT_DIR/install.sh" --auto
+fi
+
 # Load Environment Variables if .env exists
 if [[ -f "$SCRIPT_DIR/.env" ]]; then
     set -a
@@ -137,6 +186,11 @@ case "$COMMAND" in
     subtitle)
         shift
         if [[ -f "$LIB_DIR/commands/subtitle.sh" ]]; then source "$LIB_DIR/commands/subtitle.sh"; run_subtitle "$@"; exit $?; fi
+        ;;
+    
+    llm-lists)
+        shift
+        if [[ -f "$LIB_DIR/commands/llm-lists.sh" ]]; then source "$LIB_DIR/commands/llm-lists.sh"; llm_lists "$@"; exit $?; fi
         ;;
 
     audio)

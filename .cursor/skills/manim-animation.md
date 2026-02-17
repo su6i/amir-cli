@@ -238,7 +238,6 @@ manim-custom-plugin/
 ### 14.2 Custom Mobject Implementation Pattern
 ```python
 from manim import VMobject, BLUE
-
 class CustomShape(VMobject):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -372,6 +371,53 @@ Scaling Manim rendering to industrial-grade throughput.
 ### 18.3 Render Queue Management
 *   **Logic:** Implementing a job queue system (e.g., Celery, RabbitMQ) to manage render requests and prioritize high-priority scenes.
 *   **Monitoring:** Utilizing Prometheus + Grafana to track render throughput, failure rates, and resource utilization.
+
+---
+
+## 19. Persian & Emoji Typography Standard (Amir's Protocol)
+Standards for handling bidirectional text, short Persian strings, and emoji parsing bugs in Manim.
+
+### 19.1 Persian Text Safety Protocol
+To avoid rendering freezes or Pango crashes, utilize `MarkupText` with a standardized font span and a "warmup" renderer.
+
+#### [IMPLEMENTATION] The `safe_persian_text` Utility
+```python
+def safe_persian_text(content, font="B Nazanin", font_size=36, color=WHITE):
+    """
+    Safely renders Persian text by cleaning problematic emojis and wrapping in Markup.
+    """
+    # Clean problematic emojis that cause ParseError in MarkupText
+    problematic = ["✨", "❤️", "⭐", "🌟", "💫", "🎯", "🔥", "💥"]
+    for emoji in problematic:
+        content = content.replace(emoji, "*")
+    
+    return MarkupText(
+        f'<span font_family="{font}">{content}</span>',
+        font_size=font_size,
+        color=color
+    )
+```
+
+### 19.2 Known Bugs & Workarounds
+| Bug | Origin | Workaround |
+| :--- | :--- | :--- |
+| **Short Text (<5 chars)** | Pango Cache | Use `MarkupText` or append `\u200c` (Zero Width Non-Joiner) |
+| **Emoji ParseError** | XML processing | Replace with symbols (`*`, `•`) or separate `Text` (emoji) from `MarkupText` (Persian) |
+| **VGroup Disappearance** | Rendering pipeline | Add objects individually to the scene inside loops instead of adding the entire `VGroup` at once |
+
+#### [CODE] Rendering Warmup Technique
+Add an invisible long string to "prime" the renderer before showing short Persian text:
+```python
+dummy = Text("x" * 50, font_size=1, fill_opacity=0, stroke_opacity=0)
+self.add(dummy)
+```
+
+### 19.3 Subtitle Standards for Manim
+For professional video subtitles in Manim:
+- **Font:** B Nazanin (Standard)
+- **Positioning:** `to_edge(DOWN)`
+- **Animation:** `FadeIn(subtitle, shift=UP)` or `Write(subtitle)`
+- **Duration:** 1.5s - 2.0s per line for readability.
 
 ---
 [Back to README](../../README.md)
