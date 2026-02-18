@@ -1971,17 +1971,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         events = []
         
         def wrap_parentheses_with_smaller_font(text: str) -> str:
-            """Wrap content inside parentheses with slightly smaller Arial font and fix BiDi"""
+            """Wrap content inside parentheses with smaller Arial font and fix BiDi"""
             rlm = "\u200F"
             base_fs = style.font_size
-            small_fs = max(14, base_fs - 4)
+            # Protocol: Secondary font should be 75% of primary
+            small_fs = max(14, int(base_fs * 0.75))
             
             # Pattern: matches (English Words) with possible pre-existing markers
-            # Protocol: Anchor both sides with RLM
             pattern = rf'[\u200F]?\(([a-zA-Z0-9\s/_\-\.]+)\)[\u200F]?'
             
-            # The replacement: RLM + StartSmallFont + ( + EnglishText + ) + ResumePersianFont + RLM
-            replacement = rf'{rlm}{{\\fnArial\\fs{small_fs}}}(\1){{\\fnB Nazanin\\fs{base_fs}}}{rlm}'
+            # The replacement: RLM + {SmallFont + (EnglishText)} + {ResumePersianFont} + RLM
+            # We include the parentheses inside the font tag to scale them too
+            replacement = r'%s{\fnArial\fs%d(\1)}{\fnB Nazanin\fs%d}%s' % (rlm, small_fs, base_fs, rlm)
             return re.sub(pattern, replacement, text)
         
         for idx, e in enumerate(entries):
@@ -2014,8 +2015,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     # Wrap English terms in parentheses with smaller font
                     sec_text_formatted = wrap_parentheses_with_smaller_font(sec_text_fixed)
                     # EN small gray top, FA white bottom
-                    # Ensure FA layer starts with a clear font/size reset
-                    en_fs = max(16, style.font_size - 4)
+                    # Protocol: Secondary language (EN) should be 75% of primary (FA)
+                    en_fs = max(16, int(style.font_size * 0.75))
                     fa_fs = style.font_size
                     # Add \u200f (RLM) at the very start of the Persian line to anchor direction
                     # Use explicit font/size settings to avoid picking up 'Default' blue style
