@@ -1278,10 +1278,16 @@ if __name__ == "__main__":
                     mapped = {}
                     for k, v in parsed_json.items():
                         key_str = self._normalize_digits(str(k).strip())
-                        if key_str.isdigit() and str(v).strip():
+                        if key_str.isdigit():
+                            # Keep even empty strings if explicitly returned
                             mapped[int(key_str)] = str(v).strip()
                     if mapped:
-                        return [mapped[i] for i in range(1, expected_count + 1) if mapped.get(i)]
+                        # Build full list with same length as expected
+                        ordered = [mapped.get(i) for i in range(1, expected_count + 1)]
+                        # Apply 80% threshold for JSON dicts too
+                        valid_count = sum(1 for v in ordered if v is not None)
+                        if valid_count >= int(expected_count * 0.8):
+                            return ordered
             except Exception:
                 pass
 
@@ -1437,7 +1443,7 @@ if __name__ == "__main__":
                         break 
                     else:
                         delay = min(3 + attempt, 10) # Progressive sleep 4s, 5s... max 10s
-                        self.logger.warning(f"⚠️ Batch {i//batch_size + 1} incomplete: expected {len(batch)}, got {len(trans_list)}. Retrying in {delay}s... (Attempt {attempt}/{max_retries})")
+                        self.logger.warning(f"⚠️ Batch {i + 1} incomplete: expected {len(batch)}, got {len(trans_list)}. Retrying in {delay}s... (Attempt {attempt}/{max_retries})")
                         time.sleep(delay)
                         if attempt >= max_retries:
                             # ZERO-SKIP POLICY: Raise error instead of skipping
@@ -1800,10 +1806,13 @@ if __name__ == "__main__":
         if not text:
             return text
         
+        # 0. Cleanup spaces before punctuation (LLM artifact)
+        text = re.sub(r'\s+([\.!؟،؛])', r'\1', text)
+        
         # 1. Informal & ZWNJ fixes
         informal = {
-            r'\bمی‌باشد\b': 'هست',
             r'\bمی‌باشند\b': 'هستن',
+            r'\bمی‌باشد\b': 'هست',
         }
         for p, r in informal.items():
             text = re.sub(p, r, text)
@@ -1815,19 +1824,14 @@ if __name__ == "__main__":
         for p, r in patterns:
             text = re.sub(p, r, text)
             
-        # 2. FORCE RTL Direction for Punctuation (The Magic Fix)
-        # RLE (\u202B) + Text + PDF (\u202C)
-        # Also inject RLM (\u200F) around English parentheses to prevent BiDi flip
-        
-        # 1. Anchor technical terms in parentheses
-        # We use \u200E (LRM) inside to stabilize English, 
-        # and \u200F (RLM) outside to anchor the whole block to the RTL flow.
-        lrm = "\u200E"
+        # 2. FORCE RTL Direction for Punctuation & Parentheses (The Magic Fix)
+        # Protocol: Encapsulate string with RLM and wrap tech terms on both sides
         rlm = "\u200F"
-        text = re.sub(rf'(\s?)(?<!{rlm})\(([a-zA-Z0-9\s/_\-\.]+)\)(?!{rlm})', rf'\1{rlm}({lrm}\2{rlm}){rlm}', text)
         
-        # 2. Anchor the whole string to RTL (Leading + Trailing)
-        # One RLM is enough
+        # Wrap English terms in parentheses with RLM on both sides
+        text = re.sub(r'(\s?)\(([a-zA-Z0-9\s/_\-\.]+)\)', rf'\1{rlm}(\2){rlm}', text)
+        
+        # Anchor the whole string to RTL (Leading + Trailing)
         if not text.startswith(rlm):
             text = rlm + text
         if not text.endswith(rlm):
@@ -1967,15 +1971,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         events = []
         
         def wrap_parentheses_with_smaller_font(text: str) -> str:
-            """Wrap content inside parentheses with slightly smaller Arial font"""
-            # Use specific size 2 points smaller than base to avoid huge discrepancies
+            """Wrap content inside parentheses with slightly smaller Arial font and fix BiDi"""
             rlm = "\u200F"
             base_fs = style.font_size
             small_fs = max(14, base_fs - 4)
-            # Match (Term) along with any pre-existing RLM markers
-            # This regex allows RLM outside or inside, but preserves them
-            pattern = rf'{rlm}?\(([a-zA-Z0-9\s/_\-\.]+)\){rlm}?'
-            # Always wrap with RLM to be safe
+            
+            # Pattern: matches (English Words) with possible pre-existing markers
+            # Protocol: Anchor both sides with RLM
+            pattern = rf'[\u200F]?\(([a-zA-Z0-9\s/_\-\.]+)\)[\u200F]?'
+            
+            # The replacement: RLM + StartSmallFont + ( + EnglishText + ) + ResumePersianFont + RLM
             replacement = rf'{rlm}{{\\fnArial\\fs{small_fs}}}(\1){{\\fnB Nazanin\\fs{base_fs}}}{rlm}'
             return re.sub(pattern, replacement, text)
         
