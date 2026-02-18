@@ -71,11 +71,11 @@ Use space-separated globs for maximum stability:
 
 ---
 
-## 4. Troubleshooting & Verification
-*   **Bad Substitution:** Often caused by malformed arrays or incorrect expansion. Declare arrays with `local -a`.
-*   **Colon Confusion:** Escape colons `\:` in descriptions when using `_alternative`.
-*   **Sluggishness:** Use `zstyle` caching or pre-generate static lookup tables.
+*   **Colon Confusion (CRITICAL):** Colons (`:`) in help strings within `_arguments` specifications MUST be escaped with a backslash (`\:`). Zsh completion specs use colons as separators; unescaped colons will cause the shell to interpret the help text as a new command part, leading to `zsh: command not found` errors. 
+    *   **Bad Example:** `[HH:MM:SS]` (Crashes)
+    *   **Good Example:** `[HH\:MM\:SS]` (Works)
+*   **Explicit Positional Indices:** When using `_arguments` for complex commands with subcommands, use explicit numeric indices (e.g., `'1: : '`, `'2: : '`) to align the argument mapping. This ensures Zsh knows which words have already been provided as commands and which are flags/files.
 
 ---
 ---
-*Updated: 2026-02-17 - Added Multi-Engine flag specs and Robust Subcommand Routing protocols.*
+*Updated: 2026-02-18 - Added "No Invention of the Wheel" protocols, Colon Escaping fixes, and Explicit Positional Alignment standards.*
