@@ -19,7 +19,7 @@ Built with modularity and ease of use in mind, `amir` works seamlessly across **
 
 - **🎬 Smart Video Compression:** Auto-detects hardware (Apple Silicon, NVENC, QSV) and optimizes settings for the best quality/size ratio. Features "AI Learning" to adapt to your preferences over time.
 - **🖼️ Advanced Image Processing:** AI-powered upscaling (Real-ESRGAN), document enhancement lab (140 variations), smart stacking (front/back), and professional corner rounding.
-- **🌍 Advanced Subtitle System:** AI-powered multilingual subtitles supporting **32 languages** (Top 25 by YouTube reach + extras). Features automatic translation with quality validation, resume capability, technical term preservation, and smart video rendering with resolution-adaptive bitrates.
+- **🌍 Advanced Subtitle System:** AI-powered multilingual subtitles supporting **32 languages**. Features automatic translation, multi-platform hardware encoding (Mac/Ubuntu) with 1:1 size parity, and Whisper Turbo as the default high-performance model.
 - **🤖 AI Powered:** Chat with Gemini/Gemma, generate code, and fetch model lists from 5 LLM providers (Gemini, OpenAI, DeepSeek, Groq, Anthropic).
 - **🛠️ System Utilities:** One-command system cleanup, password generation, file locking/unlocking, and QR code generation.
 - **☁️ File Transfer:** Instantly upload files to temporary hosting services and get a shareable link.
@@ -47,7 +47,7 @@ The installer will:
 ### Dependencies & Python Note 🐍
 Amir CLI uses **Python 3** for helper tasks (like data formatting and subtitle processing).
 
-- **Zero-setup philosophy:** The installer (`install.sh`) will now automatically create a Python virtual environment at `./.venv` and install required Python packages from `requirements.txt` when you run `./install.sh` or when `amir` is first executed and dependencies are missing. Users should not need to manually `pip install` packages or manage a virtualenv.
+- **Zero-setup philosophy:** The installer (`install.sh`) automatically creates a unified Python virtual environment at the root `./.venv`. No manual virtualenv management is required.
 - **System Requirements:**
   - `python3` (3.8+)
   - `ffmpeg` (for media tools)
@@ -143,7 +143,7 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir img <file> <size> [g]` | Legacy mode (detects resize vs crop). |
 | `amir pdf [files] [opts]` | **Multi-Engine A4 PDF Generator**: Render Markdown/Text/Images to PDF. Supports piping (e.g., `amir clip | amir pdf`), Puppeteer (Default), WeasyPrint, PIL (Robust Fallback). Features: High-fidelity Persian RTL (B Nazanin), auto-pagination, and ExFAT compatibility. |
 | `amir watermark <file> [text]` | Add watermark to image (auto-saved or `-o output`). |
-| `amir subtitle <file> [options]` | **AI-Powered Multilingual Subtitles**: Transcribe, translate (32 languages), and render with automatic validation. Features: resume incomplete translations, technical term preservation, resolution-adaptive bitrates (480p: 1.5M → 4K: 8M). See [SUBTITLE.md](docs/SUBTITLE.md). |
+| `amir subtitle <file> [options]` | **AI-Powered Multilingual Subtitles**: Transcribe, translate (32 languages), and render with automatic validation. Features: size-aware hardware encoding (1:1 parity), technical term preservation, and Whisper Turbo default. See [SUBTITLE.md](docs/SUBTITLE.md). |
 | `amir info <file>` | Show detailed technical metadata for any file. |
 
 ### 🧠 AI & Productivity
