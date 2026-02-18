@@ -1,7 +1,7 @@
 ---
 name: subtitle-generator
 description: Technical protocol for high-fidelity Persian/Bilingual subtitle generation and rendering (2026 Edition).
-version: 2.2.0
+version: 2.3.0
 author: Amir
 tags: [ASR, translation, typography, FFmpeg, RTL]
 ---
@@ -21,90 +21,60 @@ Subtitles must adhere to the following layout specifications to optimize cogniti
 - **Secondary Language (Source/EN)**: Color: Gray (`#808080`); Weight: Regular; Scale: 75% of primary.
 - **Rationale**: Chromatic contrast directs focus to the translation while maintaining source context.
 
-## 2. The "Nuclear Option" (Persian Shaping Logic)
+## 2. Advanced RTL & BiDi Stability (The "RLM Anchor" Solution)
 
-To ensure perfect character joining and directionality:
+To solve the "Right-to-Left Disalignment" where punctuation (periods, question marks) flips to the wrong side in mixed-language strings:
 
-- **Constraint**: **NEVER** utilize `arabic-reshaper` or `python-bidi` in the processing layer if the target renderer (FFmpeg) supports `libharfbuzz`.
+- **The Problem**: Common libraries like `arabic-reshaper` or simple RLE/PDF wrappers often fail in ASS renderers when Latin terms are present at the beginning or end of a Persian sentence.
+- **The Solution (RLM Anchoring)**: Every Persian string **MUST** be encapsulated with a leading and trailing `\u200F` (RLM - Right-to-Left Mark). This forces the renderer to treat the entire segment as RTL, regardless of its contents.
+- **Sub-segment Isolation**: Technical terms (English) inside Persian sentences MUST be wrapped in parentheses and isolated with RLM anchors: `\u200F(TERM)\u200F`.
 - **Implementation**: Enforce native HarfBuzz shaping by injecting explicit font paths via the `fontsdir` parameter in the filter graph.
-- **Implementation**: Enforce native HarfBuzz shaping by injecting explicit font paths via the `fontsdir` parameter in the filter graph.
-- **Directionality Protocol**: 
-    - **Anchor Lines**: Encapsulate Persian string with leading and trailing `\u200F` (RLM).
-    - **Technical Terms**: Wrap English terms in parentheses with `\u200F` on both sides: `\u200F(TERM)\u200F`.
-    - **Avoid RLE**: Do not use `\u202B` (RLE) as it causes unpredictable mirroring in modern ASS renderers.
-- **Line Constraint**: Bilingual subtitles (EN+FA) **MUST** occupy exactly one line per language. Replace `\n` in the source layer with spaces.
 
-## 3. Structural Segmentation & Semantic Logic
+## 3. Typographical Refinement: Proportional Scaling
 
-- **Line Balancing**: Long segments require a 50-50 length distribution.
-- **Orphan Prevention**: Minimum of three words required per line suffix. Use `\u00A0` (NBSP) for the last word-pair.
-- **Semantic Integrity**: Avoid breaks within Noun-Adjective pairs or Genitive constructs.
+- **Font Scaling (Parentheses Fix)**: To maintain professional visual density, English content inside parentheses is scaled to **75%** of the primary font size using ASS tags (`{\fscx75\fscy75}(English Content){\fscx100\fscy100}`).
+- **Resolution Scaling**: Base font size is dynamically calculated as `font_size = (vertical_resolution / 1080) * 25`.
+- **NBSP Logic**: Use `\u00A0` (Non-Breaking Space) for the final word-pair to prevent "orphaned" single words on new lines.
 
-## 4. Automation Algorithms
+## 4. Hardware Encoding & Size Parity (The "Quality Over Bitrate" Law)
 
-### 4.1 Semantic Segment Integrity (Python)
-Instead of fixed length, use punctuation-based backtracking to ensure natural reading flow.
+To solve the "Size Bloat" problem where hardware encoding produces files 3x larger than the source:
 
-```python
-def resegment_to_sentences(segments, max_length=42):
-    # BACKTRACKING LOGIC:
-    # 1. Break at HARD points (. ! ?) with priority.
-    # 2. Break at SOFT points (, ; :) with lookahead (max 12 chars).
-    # 3. Use whitespace as a last resort.
-    # This prevents splitting noun-adjective pairs and maintains Bidi context.
-```
+- **The Problem**: Fixed bitrates (`-b:v 5M`) are dangerous. They ignore the source's actual complexity. High-motion videos might look bad, while static videos become unnecessarily massive.
+- **The Technique**: ALWAYS prioritize **Constant Quality** parameters over explicit bitrates. This allows the encoder to spend bits only where needed, matching the source file's density.
+- **Platform-Specific "Magic Numbers"**:
+    - **Mac (Apple Silicon)**: Use `h264_videotoolbox` with `-q:v 45`. This specific value provides the optimal balance where the output size almost perfectly matches a high-quality input.
+    - **Ubuntu (NVIDIA)**: Use `h264_nvenc` with `-rc vbr -cq 23 -preset p4`. The combination of `vbr` (Variable Bitrate) and `cq` (Constant Quality) is the key to parity.
+    - **Intel (QSV)**: Use `h264_qsv` with `-global_quality 23`.
+    - **Software (Fallback)**: Use `libx264` with `-crf 23`.
+- **Audio Preservation**: Default to `-c:a copy`. Re-encoding audio is a primary cause of subtle size increases and metadata loss.
 
-### 4.2 Non-Breaking Space Logic (Orphan Mitigation)
-```python
-def apply_nbsp(text):
-    words = text.split()
-    if len(words) >= 3:
-        return " ".join(words[:-2]) + " " + words[-2] + "\u00A0" + words[-1]
-    return text
-```
+## 5. Automation Algorithms
 
-## 5. Pro Feature Specifications (2026 Expansion)
+### 5.1 Semantic Segment Integrity (Python)
+Instead of fixed length, use punctuation-based backtracking to ensure natural reading flow. Break at hard points (. ! ?) first, then soft points (, ; :).
 
-### 5.1 AI Inference Tuning
-- **Temperature Control**: Default `0.0` for maximum factual accuracy in technical content. Adjustable via `--temperature` (e.g., `0.8` for creative works).
-- **Prompt Engineering**: Dynamic injection via `--initial-prompt` to seed context (e.g., "Medical jargon glossary").
+### 5.2 Environment Unification
+The project uses a **Unified Virtual Environment** located at the root (`.venv`). Submodules (like `subtitle`) MUST NOT have their own `.venv` or `pyproject.toml` to prevent `uv` environment mismatch warnings.
 
-### 5.2 Visual Override Heirarchy
-- **Primary Color**: Defaults to White (`&H00FFFFFF`). Overridable via `--primary-color`.
-- **Background**: Defaults to Transparent. Lecture Mode uses `&H80000000` (Semi-Opaque). Overridable via `--back-color`.
+## 6. Pro Feature Specifications (2026 Expansion)
 
-## 6. Hardware & Software Dependencies
+- **Whisper Turbo**: Default model is `turbo` (fine-tuned v3). Requires ~6GB RAM on Linux and provides 2x speedup over large-v3 with near-identical accuracy.
+- **Temperature Control**: Default `0.0` for factual accuracy. 
+- **LLM Selection**: Supports `deepseek` (Default), `gemini`, or `litellm`.
 
-- **Acoustic Inference**: Faster-Whisper (Large-v3 / MLX) utilizing Apple Silicon Neural Engine.
-- **Linguistic Interface**: DeepSeek Chat API utilizing 20-line batching for throughput optimization.
-- **Asset Rendering**: FFmpeg 8.0+ incorporating `libass` and `libharfbuzz`.
+## 7. Diagnostic Procedures
 
-## 6. Implementation Workflow (Step-by-Step)
+### 7.1 disalignment in Mixed text
+- **Check**: Ensure `RE_PUNCT_CLEANUP` regex is running to remove spaces before marks.
+- **Check**: Verify RLM anchors (`\u200F`) are present at BOTH ends of the string.
 
-1.  **Signal Extraction**: Audio separation and transcription via neural model.
-2.  **Linguistic Transformation**: Batch-processed mapping with structural verification.
-3.  **Persistence serialization**: Output to UTF-8 with BOM (SRT/ASS).
-4.  **Spatial Normalization**: Proportional scaling based on source vertical resolution ($h$):
-    - `font_size = (h / 1080) * 25`
-5.  **FFmpeg Synthesis**: Hardcoded embedding utilizing explicit `fontsdir` injection.
-
-## 7. Diagnostic Procedures & Troubleshooting
-
-### RTL Punctuation Disalignment
-- **Symptom**: Punctuation metrics positioned at start-of-line (Right side instead of Left).
-- **Remedy**: Verification of RLE/PDF wrapper injection in the `processor.py` logic.
-
-### Centisecond Timing Overflow
-- **Symptom**: Overlapping subtitle segments in ASS format.
-- **Constraint**: ASS specifications require precisely two digits for centiseconds (`.cc`).
-- **Correction**: `cs = int(ms / 10)` formatted with `%02d`.
-
-### Ghosting / Duplicate Rendering
-- **Prevention**: Utilization of the `-sn` flag in FFmpeg and verification that only one `.ass` layer is injected per render.
+### 7.2Centisecond Timing
+Ass specs require two digits for centiseconds. Implementation: `cs = int(ms / 10)` formatted with `%02d`.
 
 ## 8. Quality Assurance Checklist
-- [ ] CPS audit (Threshold: 20/s).
-- [ ] Orphan audit (Threshold: 3 words).
-- [ ] RTL Directionality verification (Punctuation check).
-- [ ] Asset encoding verification (UTF-8 w/ BOM).
-- [ ] B Nazanin Font Law compliance check.
+- [x] BiDi check: Punctuation is on the left for Persian sentences.
+- [x] Size check: Output file size ≈ Input file size.
+- [x] Font check: Parentheses content is visibly smaller (75%).
+- [x] Env check: No `.venv` or `uv.lock` in subdirectories.
+- [x] Performance check: Using `turbo` model by default.

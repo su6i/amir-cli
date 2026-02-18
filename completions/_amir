@@ -527,14 +527,24 @@ _amir() {
                         '1:video file:_files -g "*.(mp4|mov|mkv|avi|MP4|MOV|MKV|webm|WEBM)"' \
                         '(-s --source)'{-s,--source}'[Source language code (default: en)]:source language:(en zh es hi ar bn pt ru ja fr ur pa vi tr ko id de fa gu it mr te ta th ha el he mg nl pl uk)' \
                         '(-t --target)'{-t,--target}'[Target language code(s)]:target language:(en zh es hi ar bn pt ru ja fr ur pa vi tr ko id de fa gu it mr te ta th ha el he mg nl pl uk)' \
-                        '(-m --model)'{-m,--model}'[Whisper model size]:model:(tiny base small medium large large-v2 large-v3)' \
                         '(-r --render)'{-r,--render}'[Render video with embedded subtitles]' \
                         '(-c --continue)'{-c,--continue}'[Resume incomplete translation]' \
+                        '(-f --force)'{-f,--force}'[Force re-transcription]' \
+                        '--correct[Correct transcription with AI]' \
+                        '--style[Subtitle style template]:style:(lecture vlog game cinematic minimalist)' \
+                        '--max-lines[Maximum lines per subtitle]:lines:(1 2)' \
+                        '--speaker[Enable Speaker Diarization]' \
+                        '--whisper-model[Whisper model size/name]:model:(turbo large-v3 large-v2 medium small base tiny)' \
+                        '--llm[LLM bridge for translation]:llm:(deepseek gemini litellm)' \
+                        '--model[Specific LLM model code (for LiteLLM)]:model' \
+                        '--initial-prompt[Whisper initial prompt (context)]:prompt' \
+                        '--temperature[Model temperature (0.0-1.0)]:temp' \
+                        '--openai-fallback[Use OpenAI if DeepSeek fails]' \
+                        '--min-duration[Minimum subtitle duration (seconds)]:duration' \
                         '--subtitle[Path to an existing subtitle file (SRT/ASS)]:subtitle file:_files -g "*.(srt|ass|SRT|ASS)"' \
                         '--no-translate[Skip translation step]' \
                         '--no-correction[Disable automatic transcription correction]' \
                         '--deepseek-transcribe[Use DeepSeek API for transcription]' \
-                        '(-f --force-transcribe)'{-f,--force-transcribe}'[Force re-transcription]' \
                         '(-l --list-languages)'{-l,--list-languages}'[List all supported languages]'
                     ;;
             esac
