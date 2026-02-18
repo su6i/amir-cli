@@ -97,7 +97,8 @@ _amir() {
                             '(-e --end -t --to)'{-e,--end,-t,--to}'[End time (HH:MM:SS)]:end time' \
                             '(-d --duration)'{-d,--duration}'[Duration (seconds or HH:MM:SS)]:duration' \
                             '(-o --output)'{-o,--output}'[Output filename]:output file:_files' \
-                            '--render[Re-encode video]'
+                            '--render[Re-encode video]' \
+                            '*:video file:_files -g "*.(mp4|mov|mkv|avi|webm|MP4|MOV|MKV|WEBM)"'
                         ;;
                 esac
             elif (( CURRENT >= 4 )); then
