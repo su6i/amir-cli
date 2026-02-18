@@ -76,46 +76,55 @@ _amir() {
             ;;
 
         video)
-            local first_arg="${words[3]}"
+            local subcmd="${words[3]}"
             if (( CURRENT == 3 )); then
-                _alternative \
-                    'commands:Subcommand:((stats\:Show\ AI\ statistics reset\:Reset\ AI\ data codecs\:Check\ codecs batch\:Batch\ process cut\:Cut/Trim\ video))' \
-                    'files:Video File:_files -g "*.(mp4|mov|mkv|avi|webm|MP4|MOV|MKV|WEBM)"'
-            elif [[ "$first_arg" == "batch" ]]; then
-                case $((CURRENT)) in
-                    4) _files -/ ;; # BATCH only shows directories
-                    5) _amir_resolutions ;;
-                    6) _amir_qualities ;;
-                    *) _message "Ready!" ;;
-                esac
-            elif [[ "$first_arg" == "cut" || "$first_arg" == "trim" ]]; then
-                case $((CURRENT)) in
-                    4) _files -g "*.(mp4|mov|mkv|avi|webm|MP4|MOV|MKV|WEBM)" ;;
+                local -a subcmds
+                subcmds=(
+                    'cut:Cut/Trim video segment'
+                    'batch:Process entire directory'
+                    'stats:View AI statistics'
+                    'reset:Reset AI data'
+                    'codecs:Check hardware encoders'
+                )
+                _describe -t subcmds 'video subcommands' subcmds
+                _files -g "*.(mp4|mov|mkv|avi|webm|MP4|MOV|MKV|WEBM)"
+            else
+                case "$subcmd" in
+                    cut|trim)
+                        if (( CURRENT == 4 )); then
+                            _files -g "*.(mp4|mov|mkv|avi|webm|MP4|MOV|MKV|WEBM)"
+                        else
+                            _arguments -s \
+                                '(-s --start)'{-s,--start}'[Start time (HH:MM:SS)]:start time' \
+                                '(-e --end -t --to)'{-e,--end,-t,--to}'[End time (HH:MM:SS)]:end time' \
+                                '(-d --duration)'{-d,--duration}'[Duration (seconds or HH:MM:SS)]:duration' \
+                                '(-o --output)'{-o,--output}'[Output filename]:output file:_files' \
+                                '--render[Re-encode video]'
+                        fi
+                        ;;
+                    batch)
+                        case $((CURRENT)) in
+                            4) _files -/ ;;
+                            5) _amir_resolutions ;;
+                            6) _amir_qualities ;;
+                        esac
+                        ;;
+                    stats|reset|codecs)
+                        _message "Ready to execute!"
+                        ;;
                     *)
-                        _arguments -s \
-                            '(-s --start)'{-s,--start}'[Start time (HH:MM:SS)]:start time' \
-                            '(-e --end -t --to)'{-e,--end,-t,--to}'[End time (HH:MM:SS)]:end time' \
-                            '(-d --duration)'{-d,--duration}'[Duration (seconds or HH:MM:SS)]:duration' \
-                            '(-o --output)'{-o,--output}'[Output filename]:output file:_files' \
-                            '--render[Re-encode video]'
+                        # Standard path: Multiple files or Compression options
+                        local prev="${words[CURRENT-1]}"
+                        prev="${(Q)prev}"
+                        if [[ "$prev" =~ \.(mp4|mov|mkv|avi|webm|MP4|MOV|MKV|WEBM)$ ]]; then
+                             _files -g "*.(mp4|mov|mkv|avi|webm|MP4|MOV|MKV|WEBM)"
+                        elif [[ "$prev" =~ ^[0-9]+$ || "$PREFIX" == "-"* ]]; then
+                             _amir_qualities
+                        else
+                             _amir_resolutions
+                        fi
                         ;;
                 esac
-                if [[ "$first_arg" == "stats" || "$first_arg" == "reset" || "$first_arg" == "codecs" ]]; then
-                    _message "Ready to execute!"
-                    return
-                fi
-
-                # Logic: If we are still potentially adding files (prev is a video file), show more files.
-                # If prev is a number, we are in resolution/quality mode.
-                if [[ "$prev" =~ \.(mp4|mov|mkv|avi|webm|MP4|MOV|MKV|WEBM)$ ]]; then
-                    _files -g "*.(mp4|mov|mkv|avi|webm|MP4|MOV|MKV|WEBM)"
-                elif [[ "$prev" =~ ^[0-9]+$ || "$PREFIX" == "-"* ]]; then
-                    _amir_qualities
-                else
-                    _alternative \
-                        'files:Video File:_files -g "*.(mp4|mov|mkv|avi|webm|MP4|MOV|MKV|WEBM)"' \
-                        'resolutions:Resolution:_amir_resolutions'
-                fi
             fi
             ;;
 
