@@ -2600,34 +2600,51 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     
                     hw_accel_args = []
                     if platform == 'cpu':
-                        # Classic reliable software encoding (matches initial project state)
+                        # Classic reliable software encoding
                         crf = get_default_crf()
                         hw_accel_args = ["-c:v", encoder, "-preset", "medium", "-crf", str(crf)]
-                    else:
-                        # Scalable Hardware encoding (Apple Silicon / NVIDIA / Intel)
-                        # q:v 45 is the magic number for Videotoolbox to match H264 input size
-                        quality = get_default_quality()
+                    elif platform == 'apple_silicon':
+                        # Videotoolbox (Mac) uses -q:v for quality
+                        quality = get_default_quality() # Value 45 is tuned for parity
                         hw_accel_args = ["-c:v", encoder, "-q:v", str(quality)]
-                        if codec == 'h265' and platform == 'apple_silicon':
-                            hw_accel_args.extend(["-tag:v", "hvc1"])
+                    elif platform == 'nvidia':
+                        # NVENC (Ubuntu/Linux) uses -cq for constant quality in VBR mode
+                        hw_accel_args = ["-c:v", encoder, "-rc", "vbr", "-cq", "23", "-preset", "p4"]
+                    elif platform == 'intel':
+                        # QSV uses -global_quality
+                        hw_accel_args = ["-c:v", encoder, "-global_quality", "23"]
+                    else:
+                        # General hardware fallback
+                        hw_accel_args = ["-c:v", encoder, "-q:v", "40"]
+
+                    if codec == 'h265' and platform == 'apple_silicon':
+                        hw_accel_args.extend(["-tag:v", "hvc1"])
                     
                     self.logger.info(f"🎬 Encoder: {encoder} ({platform.upper()}) | Codec: {codec.upper()}")
                     
                     # Add audio copy to preserve original audio quality
                     hw_accel_args.extend(["-c:a", "copy"])
                     
-                    # Resolve Font Directory to ensure B Nazanin is found
-                    # FFmpeg inside sandbox might not see system fonts unless explicitly told
+                    # Resolve Font Directory (Mac & Linux support)
                     fonts_dir_arg = ""
-                    user_font_dir = os.path.expanduser("~/Library/Fonts")
-                    system_font_dir = "/Library/Fonts"
+                    font_paths = [
+                        os.path.expanduser("~/Library/Fonts"), # Mac User
+                        "/Library/Fonts",                      # Mac System
+                        os.path.expanduser("~/.local/share/fonts"), # Linux User
+                        "/usr/share/fonts/truetype",           # Linux System
+                        "/usr/share/fonts"                     # Linux System Fallback
+                    ]
                     
-                    if os.path.exists(os.path.join(user_font_dir, "BNazanin.ttf")) or \
-                       os.path.exists(os.path.join(user_font_dir, "B Nazanin.ttf")):
-                        fonts_dir_arg = f":fontsdir={user_font_dir}"
-                    elif os.path.exists(os.path.join(system_font_dir, "BNazanin.ttf")) or \
-                         os.path.exists(os.path.join(system_font_dir, "B Nazanin.ttf")):
-                        fonts_dir_arg = f":fontsdir={system_font_dir}"
+                    found_font_dir = None
+                    for p in font_paths:
+                        if os.path.exists(p):
+                            if os.path.exists(os.path.join(p, "BNazanin.ttf")) or \
+                               os.path.exists(os.path.join(p, "B Nazanin.ttf")):
+                                found_font_dir = p
+                                break
+                    
+                    if found_font_dir:
+                        fonts_dir_arg = f":fontsdir={found_font_dir}"
                     
                     vf_arg = f"ass={safe_ass_name}{fonts_dir_arg}"
                     
