@@ -90,7 +90,7 @@ _amir() {
                 esac
             elif [[ "$first_arg" == "cut" || "$first_arg" == "trim" ]]; then
                 case $((CURRENT)) in
-                    4) _path_files -f -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM" ;;
+                    4) _files -g "*.(mp4|mov|mkv|avi|webm|MP4|MOV|MKV|WEBM)" ;;
                     *)
                         _arguments -s \
                             '(-s --start)'{-s,--start}'[Start time (HH:MM:SS)]:start time' \
