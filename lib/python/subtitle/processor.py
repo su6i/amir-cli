@@ -2591,36 +2591,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     # 2. Copy ASS to Sandbox
                     shutil.copy(ass_path, safe_ass_path)
                     
-                    # 3. FFmpeg Command with Source-Aware Precision
-                    # We match the original video's bitrate to maintain file size parity
-                    try:
-                        probe_cmd = ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
-                                    '-show_entries', 'format=bit_rate',
-                                    '-of', 'default=noprint_wrappers=1:nokey=1', safe_video_path]
-                        probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
-                        source_bitrate = probe_result.stdout.strip()
-                        
-                        if source_bitrate and source_bitrate.isdigit():
-                            # Use centralized bitrate multiplier from media config
-                            multiplier = get_bitrate_multiplier()
-                            target_bitrate = f"{int(int(source_bitrate) * multiplier)}"
-                        else:
-                            # Fallback if bit_rate not in format: check stream bit_rate
-                            probe_cmd = ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
-                                        '-show_entries', 'stream=bit_rate',
-                                        '-of', 'default=noprint_wrappers=1:nokey=1', safe_video_path]
-                            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
-                            source_bitrate = probe_result.stdout.strip()
-                            if source_bitrate and source_bitrate.isdigit():
-                                multiplier = get_bitrate_multiplier()
-                                target_bitrate = f"{int(int(source_bitrate) * multiplier)}"
-                            else:
-                                target_bitrate = get_fallback_bitrate()
-                    except:
-                        target_bitrate = get_fallback_bitrate()
-                    
-                    # Automatic Hardware Encoder Detection
-                    # Uses centralized config to detect best available encoder
+                    # 3. FFmpeg Command with Quality-Priority (Git History Restore)
+                    # We prioritize constant quality (CRF/Q:V) to maintain file size parity.
                     hw_info = detect_best_hw_encoder()
                     encoder = hw_info['encoder']
                     codec = hw_info['codec']
@@ -2628,15 +2600,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     
                     hw_accel_args = []
                     if platform == 'cpu':
-                        # CPU encoding with CRF
+                        # Classic reliable software encoding (matches initial project state)
                         crf = get_default_crf()
                         hw_accel_args = ["-c:v", encoder, "-preset", "medium", "-crf", str(crf)]
                     else:
-                        # Hardware encoding with Quality-based approach (Preferred for size/quality balance)
-                        # We use -q:v for hardware encoders as it's more stable for size parity on Mac
+                        # Scalable Hardware encoding (Apple Silicon / NVIDIA / Intel)
+                        # q:v 45 is the magic number for Videotoolbox to match H264 input size
                         quality = get_default_quality()
                         hw_accel_args = ["-c:v", encoder, "-q:v", str(quality)]
-                        # Add appropriate tag for h265/hevc
                         if codec == 'h265' and platform == 'apple_silicon':
                             hw_accel_args.extend(["-tag:v", "hvc1"])
                     
