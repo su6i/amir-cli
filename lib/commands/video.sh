@@ -309,44 +309,65 @@ process_video() {
     local duration_seconds=${duration%.*}
     local duration_formatted=$(printf '%02d:%02d:%02d' $(($duration_seconds/3600)) $(($duration_seconds%3600/60)) $(($duration_seconds%60)))
     
-    # Hardware Detection
+    # Hardware Detection & Encoder Selection
     local cpu_info="Unknown"
     local gpu_info="Unknown"
+    local encoder="libx265"
+    local tag_opt="-tag:v hvc1"
     
     if [[ "$OSTYPE" == "darwin"* ]]; then
         cpu_info=$(sysctl -n machdep.cpu.brand_string 2>/dev/null)
         gpu_info="Apple Silicon GPU"
         [[ "$cpu_info" == *"Intel"* ]] && gpu_info="Intel GPU"
+        if ffmpeg -encoders 2>/dev/null | grep -q "hevc_videotoolbox"; then
+            encoder="hevc_videotoolbox"
+        fi
     elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
         cpu_info=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)
-        gpu_info=$(lspci | grep -i vga | cut -d: -f3 | xargs 2>/dev/null || echo "Linux GPU")
-    else 
-        # Windows (Git Bash/WSL)
-        cpu_info="Windows CPU" 
-        gpu_info="Windows GPU"
+        if lspci 2>/dev/null | grep -iq nvidia; then
+            gpu_info="NVIDIA GPU"
+            if ffmpeg -encoders 2>/dev/null | grep -q "hevc_nvenc"; then
+                encoder="hevc_nvenc"
+                tag_opt=""
+            fi
+        else
+            gpu_info="Linux GPU"
+        fi
     fi
-    
+
+    # Load learning-based adjustments
     local quality_factor=${quality_factors[$quality]:-1.0}
-    local speed_factor=${speed_factors[$quality]:-6}
-    local speed_factor=${speed_factors[$quality]:-6}
-    local sample_count=${sample_counts[$quality]:-0}
     
-    # Encoder selection
-    local encoder="libx265"
-    local tag_opt="-tag:v hvc1"
+    # Apply AI learning offset: If previous files were too small (low quality factor),
+    # boost the quality value slightly. If they were too large, decrease it.
+    local adjusted_quality=$quality
+    if [[ $(echo "$quality_factor < 0.8" | bc) -eq 1 ]]; then
+        adjusted_quality=$(( quality + 5 ))
+    elif [[ $(echo "$quality_factor > 1.2" | bc) -eq 1 ]]; then
+        adjusted_quality=$(( quality - 5 ))
+    fi
+    [[ $adjusted_quality -gt 100 ]] && adjusted_quality=100
+    [[ $adjusted_quality -lt 10 ]] && adjusted_quality=10
+
+    # --- Standardized Quality Mapping ---
+    # User Scale (0-100) -> Encoder Specifics
+    local enc_flags=()
     
-    # Check available encoders
-    if ffmpeg -encoders 2>/dev/null | grep -q "hevc_videotoolbox"; then
-        encoder="hevc_videotoolbox"
-    elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_nvenc"; then
-        encoder="hevc_nvenc"
-        tag_opt=""
-    elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_amf"; then
-        encoder="hevc_amf"
-        tag_opt=""
-    elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_qsv"; then
-        encoder="hevc_qsv"
-        tag_opt=""
+    if [[ "$encoder" == "hevc_videotoolbox" ]]; then
+        # VideoToolbox: -q:v 0-100 (Linear-ish, higher is better)
+        # Shift scale to ensure 70 is truly "Premium"
+        local vt_q=$(( adjusted_quality + ( (100 - adjusted_quality) / 4 ) ))
+        enc_flags=("-q:v" "$vt_q")
+    elif [[ "$encoder" == "hevc_nvenc" ]]; then
+        # NVENC: -rc vbr -cq (0-51, lower is better)
+        local cq_val=$(( (100 - adjusted_quality) * 51 / 100 ))
+        enc_flags=("-rc" "vbr" "-cq" "$cq_val" "-qmin" "$cq_val" "-qmax" "$((cq_val + 5))")
+    else
+        # x265/x264: -crf (0-51, lower is better)
+        local crf_val=$(( (100 - adjusted_quality) * 51 / 100 ))
+        # Ensure CRF is in a sane range for compression (usually 18-35)
+        [[ $crf_val -lt 15 ]] && crf_val=15
+        enc_flags=("-crf" "$crf_val" "-preset" "medium")
     fi
     
     # Pre-calculate display name
@@ -421,7 +442,7 @@ process_video() {
     
     ffmpeg -hide_banner -loglevel info -stats -nostdin -y -i "$input_file" \
     -vf "$filter_cmd" -sws_flags bilinear \
-    -c:v "$encoder" -q:v $quality $tag_opt \
+    -c:v "$encoder" "${enc_flags[@]}" $tag_opt \
     -af "$audio_filter" \
     -c:a aac -pix_fmt yuv420p -movflags +faststart "$output" 2>&1 | while read -d $'\r' -r line; do
         printf "\r⏳ Processing... %s" "$line"
@@ -531,7 +552,7 @@ video() {
     local inputs=()
     # Load defaults from Config
     local target_h=$(get_config "video" "resolution" "720")
-    local quality=$(get_config "video" "quality" "60")
+    local quality=$(get_config "video" "quality" "70")
     
     # Validation for config values
     [[ "$target_h" =~ ^[0-9]+$ ]] || target_h=720
