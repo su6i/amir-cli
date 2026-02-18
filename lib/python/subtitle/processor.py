@@ -286,7 +286,7 @@ class SubtitleProcessor:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model_size: str = 'large-v3',
+        model_size: str = 'turbo',
         cache_dir: Optional[str] = None,
         logger: Optional[logging.Logger] = None,
         style: SubtitleStyle = SubtitleStyle.LECTURE,

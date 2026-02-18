@@ -40,7 +40,7 @@ def main():
     # AI Tuning (Pro)
     parser.add_argument("--llm", type=str, default="deepseek", choices=["deepseek", "gemini", "litellm"], help="LLM bridge for translation")
     parser.add_argument("--model", type=str, help="Specific model name (required for LiteLLM, e.g., gpt-4o)")
-    parser.add_argument("--whisper-model", type=str, default="large-v3", help="Whisper model size (e.g., large-v3, turbo)")
+    parser.add_argument("--whisper-model", type=str, default="turbo", help="Whisper model size (e.g., large-v3, turbo)")
     parser.add_argument("--initial-prompt", type=str, help="Whisper initial prompt (context)")
     parser.add_argument("--temperature", type=float, default=0.0, help="Model temperature (0.0-1.0)")
     parser.add_argument("--openai-fallback", action="store_true", help="Use OpenAI if DeepSeek fails")
