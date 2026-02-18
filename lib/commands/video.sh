@@ -510,12 +510,13 @@ process_video() {
     echo "📍 Output: $(realpath "$output")"
 }
 
-compress() {
+video() {
     # If no arguments, show help
     if [[ $# -eq 0 ]]; then
-        echo "Usage: amir compress <files|dirs...> [Resolution] [Quality]"
-        echo "Example: amir compress Video1.mp4 Video2.mp4 720 60"
-        echo "Batch:   amir compress ./Videos"
+        echo "Usage: amir video <files|dirs...> [Resolution] [Quality]"
+        echo "       amir video cut <file> [options]"
+        echo "Example: amir video Video1.mp4 720 60"
+        echo "Cut:     amir video cut input.mp4 -s 00:01:00 -e 00:02:00"
         return 1
     fi
 
@@ -529,8 +530,8 @@ compress() {
     # Smart Argument Parsing
     local inputs=()
     # Load defaults from Config
-    local target_h=$(get_config "compress" "resolution" "720")
-    local quality=$(get_config "compress" "quality" "60")
+    local target_h=$(get_config "video" "resolution" "720")
+    local quality=$(get_config "video" "quality" "60")
     
     # Validation for config values
     [[ "$target_h" =~ ^[0-9]+$ ]] || target_h=720
@@ -575,33 +576,93 @@ compress() {
     done
 }
 
-# --- Helper for Codec Info ---
-test_codec_support() {
-    local codec="$1"
-    if ffmpeg -encoders 2>/dev/null | grep -q "V..... $codec"; then
-        return 0
+run_video_cut() {
+    local input_file=""
+    local start_time=""
+    local end_time=""
+    local duration=""
+    local output_file=""
+    local encode=0
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -s|--start) start_time="$2"; shift 2 ;;
+            -e|--end) end_time="$2"; shift 2 ;;
+            -t|--to) end_time="$2"; shift 2 ;;
+            -d|--duration) duration="$2"; shift 2 ;;
+            -o|--output) output_file="$2"; shift 2 ;;
+            --render) encode=1; shift ;;
+            *) 
+                if [[ -f "$1" && -z "$input_file" ]]; then
+                    input_file="$1"
+                fi
+                shift 
+                ;;
+        esac
+    done
+
+    if [[ -z "$input_file" ]]; then
+        echo "❌ Error: No input file specified."
+        echo "Usage: amir video cut <file> [-s start] [-e end] [-o output]"
+        return 1
+    fi
+
+    # Auto-generate output name if not provided
+    if [[ -z "$output_file" ]]; then
+        local base="${input_file%.*}"
+        local ext="${input_file##*.}"
+        output_file="${base}_cut.${ext}"
+    fi
+
+    echo "✂️  Cutting Video: $(basename "$input_file")"
+    
+    local cmd=("ffmpeg" "-hide_banner" "-loglevel" "info" "-y")
+    
+    # Start time (seek)
+    if [[ -n "$start_time" ]]; then
+        cmd+=("-ss" "$start_time")
+    fi
+
+    cmd+=("-i" "$input_file")
+
+    # End time / Duration
+    if [[ -n "$end_time" ]]; then
+        cmd+=("-to" "$end_time")
+    elif [[ -n "$duration" ]]; then
+        cmd+=("-t" "$duration")
+    fi
+
+    if [[ $encode -eq 1 ]]; then
+        echo "⚙️  Mode: Rendering (High Quality)"
+        # Use our standard quality settings if rendering is requested
+        local target_h=$(get_config "video" "resolution" "720")
+        local quality=$(get_config "video" "quality" "60")
+        
+        # Simple rendering for cut (can be expanded later with process_video logic)
+        cmd+=("-c:v" "libx264" "-crf" "23" "-preset" "medium" "-c:a" "aac")
     else
+        echo "🚀 Mode: Stream Copy (Instant)"
+        cmd+=("-c" "copy")
+    fi
+
+    cmd+=("-map_metadata" "0" "$output_file")
+
+    # Execute
+    "${cmd[@]}" 2>&1 | while read -d $'\r' -r line; do
+        printf "\r⏳ Processing... %s" "$line"
+    done
+    printf "\r⏳ Processing... Done!                                        \n"
+
+    if [[ -f "$output_file" ]]; then
+        echo "✅ Output saved to: $(realpath "$output_file")"
+    else
+        echo "❌ Operation failed."
         return 1
     fi
 }
 
-codecs_check() {
-    echo "🔍 HEVC Codec Availability:"
-    echo "═════════════════════════"
-    
-    local codecs=("libx265" "hevc_videotoolbox" "hevc_vaapi" "hevc_nvenc" "hevc_qsv")
-    
-    for codec in "${codecs[@]}"; do
-        if test_codec_support "$codec"; then
-            echo "✅ $codec: Available"
-        else
-            echo "❌ $codec: Not available"
-        fi
-    done
-    return 0
-}
-
-run_compress() {
+run_video() {
     if [[ "$1" == "stats" ]]; then
         stats
     elif [[ "$1" == "reset" ]]; then
@@ -614,11 +675,14 @@ run_compress() {
         if [[ -d "$1" ]]; then
             local target_dir="$1"
             shift
-            compress "$target_dir" "$@"
+            video "$target_dir" "$@"
         else
-            compress "." "$@"
+            video "." "$@"
         fi
+    elif [[ "$1" == "cut" || "$1" == "trim" ]]; then
+        shift
+        run_video_cut "$@"
     else
-        compress "$@"
+        video "$@"
     fi
 }

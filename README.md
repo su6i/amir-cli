@@ -125,9 +125,9 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 ### 🎬 Multimedia
 | Command | Description |
 | :--- | :--- |
-| `amir compress <file/dir>` | Smart video compression. Supports **Batch Mode** and multiple files. |
-| `amir compress batch [dir]` | Dedicated batch processing for folders (strict directory selection). |
-| `amir compress stats` | View AI learning statistics & compression history. |
+| `amir video <file/dir>` | Advanced video processing (compress, cut, batch). Features AI Learning and hardware acceleration. |
+| `amir video cut <file> [opts]` | **NEW:** Cut video segments without re-encoding (instant) or with rendering. |
+| `amir video stats` | View AI learning statistics & compression history. |
 | `amir mp3 <file>` | Extract high-quality MP3 audio from a video file. |
 | `amir img upscale <file> [scale] [model]` | AI-Upscale or quality enhancement (1x mode). |
 | `amir img lab <file> [-s scale] [-m model]` | Generate 60/420 enhancement variations for testing. |
