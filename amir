@@ -97,11 +97,11 @@ case "$COMMAND" in
     
     # === Migrated Commands ===
     
-    compress)
+    video)
         shift
-        if [[ -f "$LIB_DIR/commands/compress.sh" ]]; then
-            source "$LIB_DIR/commands/compress.sh"
-            run_compress "$@"
+        if [[ -f "$LIB_DIR/commands/video.sh" ]]; then
+            source "$LIB_DIR/commands/video.sh"
+            run_video "$@"
             exit $?
         fi
         ;;
@@ -220,12 +220,12 @@ case "$COMMAND" in
     *)
         # Default behavior: Compression
         # If the first argument is a file (or anything else), treat it as a compression input
-        if [[ -f "$LIB_DIR/commands/compress.sh" ]]; then
-             source "$LIB_DIR/commands/compress.sh"
-             run_compress "$@"
+        if [[ -f "$LIB_DIR/commands/video.sh" ]]; then
+             source "$LIB_DIR/commands/video.sh"
+             run_video "$@"
              exit $?
         else
-            echo "❌ Error: Compression module not found."
+            echo "❌ Error: Video module not found."
             exit 1
         fi
         ;;

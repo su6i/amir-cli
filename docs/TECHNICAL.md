@@ -199,12 +199,15 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
 - **Dependencies:** The Python mode automatically manages `opencv-python` via `uv`, requiring no manual user installation.
 
 
-### `compress` (Video)
-- **Unified Entry:** Single command handles single files, multiple files, and the `batch` subcommand.
-- **Batch Mode:** Optimized for directories (e.g., `amir compress batch ./Videos`). Subcommand filtering ensures only directories are suggested during completion.
-- **Orientation Awareness:** Automatically detects Portrait vs. Landscape orientation. Portrait videos (e.g., 720x1280) are scaled correctly to avoid black landscape padding.
+### `video` (Advanced Video Processing)
+- **Unified Entry:** Single command handles compression, trimming, and batch processing.
+- **Subcommands:**
+    - `cut` (or `trim`): Fast video slicing. Uses `-c copy` (stream copy) by default for near-instant cutting without quality loss. Supports `-s` (start), `-e` (end), and `-d` (duration).
+    - `batch`: Optimized for directories.
+    - `stats`: View AI learning statistics.
+- **Orientation Awareness:** Automatically detects Portrait vs. Landscape orientation.
 - **Hardware Acceleration:** Auto-detects macOS Silicon (`videotoolbox`), NVIDIA (`nvenc`), or Intel (`qsv`).
-- **Clean Progress:** Uses a custom `while read -d $'\r'` filter to capture FFmpeg status and display it as a single, updating line in the terminal, preventing scroll-spam on all platforms.
+- **Clean Progress:** Captures FFmpeg status for a single-line terminal update.
 - **Table Alignment:** Uses Python's `unicodedata` library to strictly calculate visual string width (East Asian Width).
 - **AI Stats:** Log file tracks compression ratios to optimal settings.
 
