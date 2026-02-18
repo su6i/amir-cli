@@ -4,5 +4,9 @@ sentencepiece
 faster-whisper
 onnxruntime
 accelerate
-# ML requirements for BERT scoring, Whisper transcription, and local processing.
+av
+mlx-whisper
+mlx; sys_platform == 'darwin' and platform_machine == 'arm64'
+pyannote.audio
+# ML requirements for BERT scoring, Whisper transcription (MLX/Native), Speaker Diarization and local processing.
 # These packages are heavy and may require significant disk space and installation time.
