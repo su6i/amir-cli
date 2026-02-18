@@ -10,7 +10,7 @@ _amir() {
         local -a commands
         commands=(
             'init-project:Scaffold Agent Constitution in directory'
-            'compress:Compress video(s) or directory (e.g. file1 file2 OR ./folder)'
+            'video:Advanced video processing (compress, cut, batch)'
             'audio:Audio tools (extract, concat, to-video)'
             'img:Resize images (logo and custom sizes)'
             'pdf:Convert images to single A4 PDF'
@@ -75,11 +75,11 @@ _amir() {
             fi
             ;;
 
-        compress)
+        video)
             local first_arg="${words[3]}"
             if (( CURRENT == 3 )); then
                 _alternative \
-                    'commands:Management Command:((stats\:Show\ AI\ learning\ statistics reset\:Reset\ AI\ learning\ data codecs\:Check\ HEVC\ codec\ support batch\:Batch\ process\ all\ videos))' \
+                    'commands:Management Command:((stats\:Show\ AI\ learning\ statistics reset\:Reset\ AI\ learning\ data codecs\:Check\ HEVC\ codec\ support batch\:Batch\ process\ all\ videos cut\:Cut/Trim\ video\ segment))' \
                     'files:Video File:_path_files -f -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM"'
             elif [[ "$first_arg" == "batch" ]]; then
                 case $((CURRENT)) in
@@ -87,6 +87,18 @@ _amir() {
                     5) _amir_resolutions ;;
                     6) _amir_qualities ;;
                     *) _message "Ready!" ;;
+                esac
+            elif [[ "$first_arg" == "cut" || "$first_arg" == "trim" ]]; then
+                case $((CURRENT)) in
+                    4) _path_files -f -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM" ;;
+                    *)
+                        _arguments -s \
+                            '(-s --start)'{-s,--start}'[Start time (HH:MM:SS)]:start time' \
+                            '(-e --end -t --to)'{-e,--end,-t,--to}'[End time (HH:MM:SS)]:end time' \
+                            '(-d --duration)'{-d,--duration}'[Duration (seconds or HH:MM:SS)]:duration' \
+                            '(-o --output)'{-o,--output}'[Output filename]:output file:_files' \
+                            '--render[Re-encode video]'
+                        ;;
                 esac
             elif (( CURRENT >= 4 )); then
                 local prev="${words[CURRENT-1]}"
