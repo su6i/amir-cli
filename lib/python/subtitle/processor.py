@@ -114,6 +114,7 @@ try:
         get_bitrate_multiplier, 
         get_fallback_bitrate, 
         get_default_crf,
+        get_default_quality,
         detect_best_hw_encoder
     )
 except ImportError:
@@ -121,6 +122,7 @@ except ImportError:
     def get_bitrate_multiplier(): return 1.1
     def get_fallback_bitrate(): return "2.5M"
     def get_default_crf(): return 23
+    def get_default_quality(): return 65
     def detect_best_hw_encoder(): return {'encoder': 'libx264', 'codec': 'h264', 'platform': 'cpu'}
 
 # ==================== ENUMS & DATA CLASSES ====================
@@ -2630,8 +2632,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         crf = get_default_crf()
                         hw_accel_args = ["-c:v", encoder, "-preset", "medium", "-crf", str(crf)]
                     else:
-                        # Hardware encoding with bitrate
-                        hw_accel_args = ["-c:v", encoder, "-b:v", target_bitrate]
+                        # Hardware encoding with Quality-based approach (Preferred for size/quality balance)
+                        # We use -q:v for hardware encoders as it's more stable for size parity on Mac
+                        quality = get_default_quality()
+                        hw_accel_args = ["-c:v", encoder, "-q:v", str(quality)]
                         # Add appropriate tag for h265/hevc
                         if codec == 'h265' and platform == 'apple_silicon':
                             hw_accel_args.extend(["-tag:v", "hvc1"])
