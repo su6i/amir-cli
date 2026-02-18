@@ -79,8 +79,8 @@ _amir() {
             local first_arg="${words[3]}"
             if (( CURRENT == 3 )); then
                 _alternative \
-                    'commands:Management Command:((stats\:Show\ AI\ learning\ statistics reset\:Reset\ AI\ learning\ data codecs\:Check\ HEVC\ codec\ support batch\:Batch\ process\ all\ videos cut\:Cut/Trim\ video\ segment))' \
-                    'files:Video File:_files -g "*.(mp4|mov|mkv|avi|MP4|MOV|MKV|webm|WEBM)"'
+                    'commands:Subcommand:((stats\:Show\ AI\ statistics reset\:Reset\ AI\ data codecs\:Check\ codecs batch\:Batch\ process cut\:Cut/Trim\ video))' \
+                    'files:Video File:_files -g "*.(mp4|mov|mkv|avi|webm|MP4|MOV|MKV|WEBM)"'
             elif [[ "$first_arg" == "batch" ]]; then
                 case $((CURRENT)) in
                     4) _files -/ ;; # BATCH only shows directories
@@ -100,28 +100,21 @@ _amir() {
                             '--render[Re-encode video]'
                         ;;
                 esac
-            elif (( CURRENT >= 4 )); then
-                local prev="${words[CURRENT-1]}"
-                prev="${(Q)prev}" # Unquote special chars
-                
-                # If we picked a management subcommand, don't suggest resolutions
                 if [[ "$first_arg" == "stats" || "$first_arg" == "reset" || "$first_arg" == "codecs" ]]; then
                     _message "Ready to execute!"
                     return
                 fi
 
-                # If the previous word is NOT a number and doesn't look like a flag, suggest more files/dirs
-                if [[ ! "$prev" =~ ^[0-9]+$ && ! "$prev" == -* ]]; then
-                    _alternative \
-                        'files:Video File:_files -g "*.(mp4|mov|mkv|avi|MP4|MOV|MKV|webm|WEBM)"' \
-                        'resolutions:Target Resolution:_amir_resolutions'
+                # Logic: If we are still potentially adding files (prev is a video file), show more files.
+                # If prev is a number, we are in resolution/quality mode.
+                if [[ "$prev" =~ \.(mp4|mov|mkv|avi|webm|MP4|MOV|MKV|WEBM)$ ]]; then
+                    _files -g "*.(mp4|mov|mkv|avi|webm|MP4|MOV|MKV|WEBM)"
+                elif [[ "$prev" =~ ^[0-9]+$ || "$PREFIX" == "-"* ]]; then
+                    _amir_qualities
                 else
-                    # If we are already entering numbers, suggest quality
-                    if [[ "$prev" -gt 100 ]]; then
-                        _amir_qualities
-                    else
-                        _amir_qualities
-                    fi
+                    _alternative \
+                        'files:Video File:_files -g "*.(mp4|mov|mkv|avi|webm|MP4|MOV|MKV|WEBM)"' \
+                        'resolutions:Resolution:_amir_resolutions'
                 fi
             fi
             ;;
