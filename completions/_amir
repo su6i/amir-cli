@@ -80,7 +80,7 @@ _amir() {
             if (( CURRENT == 3 )); then
                 _alternative \
                     'commands:Management Command:((stats\:Show\ AI\ learning\ statistics reset\:Reset\ AI\ learning\ data codecs\:Check\ HEVC\ codec\ support batch\:Batch\ process\ all\ videos cut\:Cut/Trim\ video\ segment))' \
-                    'files:Video File:_path_files -f -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM"'
+                    'files:Video File:_files -g "*.(mp4|mov|mkv|avi|MP4|MOV|MKV|webm|WEBM)"'
             elif [[ "$first_arg" == "batch" ]]; then
                 case $((CURRENT)) in
                     4) _files -/ ;; # BATCH only shows directories
@@ -90,7 +90,7 @@ _amir() {
                 esac
             elif [[ "$first_arg" == "cut" || "$first_arg" == "trim" ]]; then
                 case $((CURRENT)) in
-                    4) _path_files -f -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM" ;;
+                    4) _files -g "*.(mp4|mov|mkv|avi|MP4|MOV|MKV|webm|WEBM)" ;;
                     *)
                         _arguments -s \
                             '(-s --start)'{-s,--start}'[Start time (HH:MM:SS)]:start time' \
@@ -110,15 +110,18 @@ _amir() {
                     return
                 fi
 
-                if [[ "$prev" =~ ^[0-9]+$ || "$PREFIX" == "-"* ]]; then
-                     if [[ "$prev" -gt 100 ]]; then
-                        _amir_qualities
-                     else
-                        _amir_qualities
-                     fi
+                # If the previous word is NOT a number and doesn't look like a flag, suggest more files/dirs
+                if [[ ! "$prev" =~ ^[0-9]+$ && ! "$prev" == -* ]]; then
+                    _alternative \
+                        'files:Video File:_files -g "*.(mp4|mov|mkv|avi|MP4|MOV|MKV|webm|WEBM)"' \
+                        'resolutions:Target Resolution:_amir_resolutions'
                 else
-                    # Priority: Resolutions
-                    _amir_resolutions
+                    # If we are already entering numbers, suggest quality
+                    if [[ "$prev" -gt 100 ]]; then
+                        _amir_qualities
+                    else
+                        _amir_qualities
+                    fi
                 fi
             fi
             ;;
