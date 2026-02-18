@@ -18,7 +18,8 @@ run_subtitle() {
 
     # Run the package via module execution (python -m subtitle)
     # We add lib/python to PYTHONPATH so 'subtitle' is recognized as a package
-    PYTHONPATH="$LIB_DIR/python:$PYTHONPATH" uv run --project "$SUBTITLE_DIR" python -m subtitle "$@"
+    # Since 'amir' has already activated the root .venv, we call python directly
+    PYTHONPATH="$LIB_DIR/python:$PYTHONPATH" python3 -m subtitle "$@"
     EXIT_CODE=$?
     
     return $EXIT_CODE
