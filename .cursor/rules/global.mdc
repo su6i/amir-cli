@@ -67,12 +67,15 @@ You are strictly bound by the defined Workflows. You simply CANNOT execute a tas
 - **Completion:** Only after Verification and User Approval can you merge the branch and delete it.
 - **Cleanup:** `git branch -D feature/name-of-feature` after successful merge.
 
-## 9. Research-First & Skill Documentation Protocol
-**Rule:** You MUST research thoroughly on the internet BEFORE attempting any unfamiliar technical task.
-- **Phase 1 (Research):** Search the web for best practices, official documentation, and community solutions. Understand the problem deeply before writing code.
-- **Phase 2 (Implementation):** Apply the researched solution.
-- **Phase 3 (Verification):** Wait for USER to confirm the output is correct.
-- **Phase 4 (Documentation):** After USER verification, document the learned technique in the relevant `.cursor/skills/*.md` file with:
+## 9. Research-First & "No Invention of the Wheel" Protocol
+**Rule:** You are FORBIDDEN from "reinventing the wheel." You MUST exhaustively review existing internal code and documented skills BEFORE starting any new implementation.
+- **Phase 1 (Internal Review):** Read all relevant `.cursor/skills/*.md` files and existing codebase logic. If a working pattern exists (e.g., Zsh completion patterns, Python data processing), you MUST adapt it instead of creating a new one.
+- **Phase 2 (Deep Search 2026):** If internal knowledge is insufficient, perform a "Deep Search" on the internet. Focus on:
+    - **Current Best Practices (2026):** The most modern, performance-optimized standards.
+    - **Corporate Standards:** Research how world-class tech companies (e.g., Google, Meta, Apple) implement similar logic.
+- **Phase 3 (Learning & Planning):** Do NOT write code until you have fully understood the researched material and best practices.
+- **Phase 4 (Implementation):** Apply the learned/researched state-of-the-art solution.
+- **Phase 5 (Verification & Skill Capture):** After USER verification, document the learned technique in the relevant skill file with:
     - **Problem Context:** What issue was being solved.
     - **Solution:** The exact, working code/command with explanations.
     - **Gotchas:** Any edge cases or common mistakes to avoid.
