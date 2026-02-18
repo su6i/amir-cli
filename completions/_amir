@@ -97,9 +97,9 @@ _amir() {
                     '1: : ' \
                     '2: : ' \
                     '3:video file:_files -g "*.(mp4|mov|mkv|avi|webm|MP4|MOV|MKV|WEBM)"' \
-                    '(-s --start)'{-s,--start}'[Start time (HH\:MM\:SS or seconds)]:start time (e.g. 00\:10\:30 or 120)' \
-                    '(-e --end -t --to)'{-e,--end,-t,--to}'[End time (HH\:MM\:SS or seconds)]:end time (e.g. 01\:20\:00 or 3600)' \
-                    '(-d --duration)'{-d,--duration}'[Duration (HH\:MM\:SS or seconds)]:duration (e.g. 00\:00\:30 or 30)' \
+                    '(-s --start)'{-s,--start}'[Start time (e.g. 00\:10\:30 for دقیقه\:ثانیه or 120 for ثانیه)]:start time (e.g. 00\:10\:30 or 120)' \
+                    '(-e --end -t --to)'{-e,--end,-t,--to}'[End time (e.g. 01\:20\:00 or 3600)]:end time (e.g. 01\:20\:00 or 3600)' \
+                    '(-d --duration)'{-d,--duration}'[Duration (e.g. 00\:00\:30 or 30)]:duration (e.g. 00\:00\:30 or 30)' \
                     '(-o --output)'{-o,--output}'[Output filename]:output file:_files' \
                     '--render[Re-encode video instead of copy stream]'
             elif (( CURRENT >= 4 )); then
