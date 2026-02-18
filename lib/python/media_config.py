@@ -89,6 +89,10 @@ class MediaConfig:
         """Get default preset for CPU encoding"""
         return self.get('encoding.quality.default_preset', 'medium')
     
+    def get_default_quality(self) -> int:
+        """Get default quality (Global Quality) for hardware encoding"""
+        return int(self.get('encoding.quality.default_quality', 65))
+    
     def detect_best_hw_encoder(self) -> Dict[str, str]:
         """
         Automatically detect the best available hardware encoder on this system
@@ -176,4 +180,8 @@ def detect_best_hw_encoder() -> Dict[str, str]:
         Dictionary with 'encoder', 'codec', and 'platform' keys
     """
     return _media_config.detect_best_hw_encoder()
+
+def get_default_quality() -> int:
+    """Get default quality for hardware encoding"""
+    return _media_config.get_default_quality()
 
