@@ -2629,9 +2629,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     if fonts_dir:
                         render_cmd.extend(["--fonts-dir", fonts_dir])
 
+                    # Prepare environment with FFMPEG_EXEC override
+                    # static_ffmpeg puts binaries in PATH, so shutil.which should find it
+                    # This bypasses 'amir' script's PATH override (which prefers Homebrew)
+                    current_env = os.environ.copy()
+                    ffmpeg_bin = shutil.which("ffmpeg")
+                    if ffmpeg_bin:
+                        current_env["FFMPEG_EXEC"] = ffmpeg_bin
+                        self.logger.info(f"🔧 Forcing FFmpeg binary: {ffmpeg_bin}")
+
                     # Execute and stream output
                     process = subprocess.Popen(
                         render_cmd,
+                        env=current_env,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
                         text=True,
@@ -2641,9 +2651,23 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     
                     for line in process.stdout:
                         # Forward the progress from video.sh
-                        print(line.strip(), flush=True) # Added .strip() for cleaner output
+                        line_stripped = line.strip()
+                        if not line_stripped:
+                            continue
+
+                        # Output progress in one line (\r for progress stats)
+                        # Check for typical ffmpeg progress markers
+                        if line_stripped.startswith("frame=") or line_stripped.startswith("size=") or \
+                           ("time=" in line_stripped and "bitrate=" in line_stripped):
+                            # Overwrite line with progress
+                            print(f"\r{line_stripped.ljust(100)}", end="", flush=True)
+                        else:
+                            # Print newlines for non-progress messages (errors, headers, etc)
+                            # First force a newline to clear any pending \r line
+                            print(f"\n{line_stripped}", flush=True)
                         
                     process.wait()
+                    print() # Final newline after loop finishes
                     
                     if process.returncode != 0:
                         self.logger.error("❌ Rendering failed in 'amir video' engine.")
