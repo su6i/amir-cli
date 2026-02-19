@@ -716,15 +716,18 @@ run_video_cut() {
         local target_h=$(get_config "video" "resolution" "720")
         local quality=$(get_config "video" "quality" "60")
         
-        # Hardware Detection
+        # Hardware Detection & Smart Encoder Selection
         local encoder="libx264"
         local tag_opts=()
-        # Disabled HW by default to ensure Quality/Size stability (User Request)
-        # if [[ "$OSTYPE" == "darwin"* ]]; then
-        #      if "$ffmpeg_cmd" -encoders 2>/dev/null | grep -q "hevc_videotoolbox"; then
-        #         encoder="hevc_videotoolbox"
-        #     fi
-        # elif ...
+        
+        # Smart Selection: AV1 for 1080p+ | libx264 for Others
+        local input_height=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
+        if [[ -n "$input_height" && "$input_height" -ge 1080 ]]; then
+            encoder="libsvtav1"
+            echo "💎 High-Res Detected (${input_height}p). Switching to AV1 Encoder..."
+        else
+            encoder="libx264"
+        fi
         
         # Bitrate Logic (Match Input)
         local bitrate_flags=()
@@ -769,18 +772,31 @@ run_video_cut() {
                      # Fallback to Quality mode
                      cmd+=("-vf" "$filter_complex" "-c:v" "$encoder" "-q:v" "$quality" "${tag_opts[@]}")
                  fi
+              else
+                  # Software/CPU Encoding Path
+                  if [[ "$encoder" == "libsvtav1" ]]; then
+                      # AV1 Specific Flags (High Efficiency)
+                      # Map quality 60 -> CRF 30 (approx standard for AV1)
+                      local av1_crf=$(( 60 - (quality / 2) )) # 60 -> 30, 70 -> 25
+                      [[ $av1_crf -lt 20 ]] && av1_crf=20
+                      cmd+=("-vf" "$filter_complex" "-c:v" "libsvtav1" "-preset" "10" "-crf" "$av1_crf" "-svtav1-params" "tune=0")
+                  else
+                      # H.264 Specific Flags (Standard)
+                      local crf_val=$(( (100 - quality) * 51 / 100 ))
+                      [[ $crf_val -lt 15 ]] && crf_val=15
+                      cmd+=("-vf" "$filter_complex" "-c:v" "libx264" "-crf" "$crf_val" "-preset" "medium")
+                  fi
+              fi
+              # Audio Copy (User Request: Quality "Red Line")
+              cmd+=("${bitrate_flags[@]}" "-c:a" "copy")
+         else
+             # No filters path
+             if [[ "$encoder" == "libsvtav1" ]]; then
+                  cmd+=("-c:v" "libsvtav1" "-preset" "10" "-crf" "30" "-c:a" "copy")
              else
-                 # CPU/Other needs flags (simplified for now)
-                  local crf_val=$(( (100 - quality) * 51 / 100 ))
-                  [[ $crf_val -lt 15 ]] && crf_val=15
-                  cmd+=("-vf" "$filter_complex" "-c:v" "libx264" "-crf" "$crf_val" "-preset" "medium")
+                  cmd+=("-c:v" "libx264" "-crf" "23" "-preset" "medium" "-c:a" "copy")
              fi
-             # Audio Copy to save size/quality (unless filtering required, which we aren't doing for audio)
-             cmd+=("${bitrate_flags[@]}" "-c:a" "copy")
-        else
-            # No filters, just re-encode (cut with re-encode)
-             cmd+=("-c:v" "libx264" "-crf" "23" "-preset" "medium" "-c:a" "copy")
-        fi
+         fi
     else
         echo "🚀 Mode: Stream Copy (Instant)"
         cmd+=("-c" "copy")
@@ -815,18 +831,21 @@ pad_to_width() {
     if [[ -f "$output_file" ]]; then
         # Print Stats Table (Restored Old Format - Robust)
         # Use -L to follow symlinks (size 0B bug fix)
-        local in_size=$(du -hL "$input_file" | cut -f1)
-        local out_size=$(du -h "$output_file" | cut -f1)
+        local in_size=$(du -hL "$input_file" 2>/dev/null | cut -f1)
+        local out_size=$(du -h "$output_file" 2>/dev/null | cut -f1)
         
         # Calculate Ratio if possible (using raw bytes with follow symlink)
-        local in_bytes=$(stat -f%zL "$input_file" 2>/dev/null || stat -L -c%s "$input_file" 2>/dev/null)
+        # MacOS: stat -L -f%z | Linux: stat -L -c%s
+        local in_bytes=$(stat -L -f%z "$input_file" 2>/dev/null || stat -L -c%s "$input_file" 2>/dev/null)
         local out_bytes=$(stat -f%z "$output_file" 2>/dev/null || stat -c%s "$output_file" 2>/dev/null)
+        
         local ratio="N/A"
         local percent_saved="0"
         if [[ -n "$in_bytes" && -n "$out_bytes" && "$in_bytes" -gt 0 ]]; then
              local r_val=$(echo "scale=2; $in_bytes / $out_bytes" | bc 2>/dev/null)
              ratio="${r_val}x"
-             percent_saved=$(echo "scale=1; 100 - ($out_bytes * 100 / $in_bytes)" | bc 2>/dev/null)
+             # Use integer math for percent to avoid bc scale issues
+             percent_saved=$(( 100 - (out_bytes * 100 / in_bytes) ))
         fi
 
         echo ""
@@ -834,16 +853,17 @@ pad_to_width() {
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
         
-        local col_w=22
+        local col_w=20
+        local border_w=22
         
-        local t_line="┌$(printf '─%.0s' {1..24})┬$(printf '─%.0s' {1..24})┬$(printf '─%.0s' {1..24})┬$(printf '─%.0s' {1..24})┐"
-        local h_line="├$(printf '─%.0s' {1..24})┼$(printf '─%.0s' {1..24})┼$(printf '─%.0s' {1..24})┼$(printf '─%.0s' {1..24})┤"
-        local b_line="└$(printf '─%.0s' {1..24})┴$(printf '─%.0s' {1..24})┴$(printf '─%.0s' {1..24})┴$(printf '─%.0s' {1..24})┘"
+        local t_line="┌$(printf '─%.0s' {1..22})┬$(printf '─%.0s' {1..22})┬$(printf '─%.0s' {1..22})┬$(printf '─%.0s' {1..22})┐"
+        local h_line="├$(printf '─%.0s' {1..22})┼$(printf '─%.0s' {1..22})┼$(printf '─%.0s' {1..22})┼$(printf '─%.0s' {1..22})┤"
+        local b_line="└$(printf '─%.0s' {1..22})┴$(printf '─%.0s' {1..22})┴$(printf '─%.0s' {1..22})┴$(printf '─%.0s' {1..22})┘"
 
         echo "$t_line"
         
         # Headers
-        printf "│ %s │ %s │ %s │ %s │\n" "$(pad_to_width "📥 INPUT" 22)" "$(pad_to_width "📤 OUTPUT" 22)" "$(pad_to_width "📊 DETAILS" 22)" "$(pad_to_width "📈 RATIO" 22)"
+        printf "│ %s │ %s │ %s │ %s │\n" "$(pad_to_width "📥 INPUT" 20)" "$(pad_to_width "📤 OUTPUT" 20)" "$(pad_to_width "📊 DETAILS" 20)" "$(pad_to_width "📈 RATIO" 20)"
         echo "$h_line"
         
         # Content
@@ -852,8 +872,8 @@ pad_to_width() {
         
         local duration_s=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$output_file" 2>/dev/null | cut -d. -f1)
 
-        printf "│ %s │ %s │ %s │ %s │\n" "$(pad_to_width "File: $f_in" 22)" "$(pad_to_width "File: $f_out" 22)" "$(pad_to_width "Codec: $encoder" 22)" "$(pad_to_width "Saved: ${percent_saved}%" 22)"
-        printf "│ %s │ %s │ %s │ %s │\n" "$(pad_to_width "Size: $in_size" 22)" "$(pad_to_width "Size: $out_size" 22)" "$(pad_to_width "Time: ${duration_s}s" 22)" "$(pad_to_width "Ratio: $ratio" 22)"
+        printf "│ %s │ %s │ %s │ %s │\n" "$(pad_to_width "File: $f_in" 20)" "$(pad_to_width "File: $f_out" 20)" "$(pad_to_width "Codec: $encoder" 20)" "$(pad_to_width "Saved: ${percent_saved}%" 20)"
+        printf "│ %s │ %s │ %s │ %s │\n" "$(pad_to_width "Size: $in_size" 20)" "$(pad_to_width "Size: $out_size" 20)" "$(pad_to_width "Time: ${duration_s}s" 20)" "$(pad_to_width "Ratio: $ratio" 20)"
         
         echo "$b_line"
         
