@@ -2613,10 +2613,30 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     
                     for p in font_paths:
                         if os.path.exists(p):
-                            if os.path.exists(os.path.join(p, "BNazanin.ttf")) or \
-                               os.path.exists(os.path.join(p, "B Nazanin.ttf")):
-                                fonts_dir = p
-                                break
+                            # Case-insensitive search
+                            found_font = None
+                            try:
+                                for f in os.listdir(p):
+                                    if "nazanin" in f.lower() and f.lower().endswith(".ttf"):
+                                        found_font = os.path.join(p, f)
+                                        break
+                            except OSError:
+                                continue
+                                
+                            if found_font:
+                                self.logger.info(f"Found font: {found_font}")
+                                # Copy to temp dir to ensure access and standard naming
+                                dest_font = os.path.join(temp_dir, "BNazanin.ttf")
+                                try:
+                                    shutil.copy(found_font, dest_font)
+                                    fonts_dir = temp_dir
+                                    self.logger.info(f"Copied font to temp dir: {dest_font}")
+                                    break
+                                except Exception as e:
+                                    self.logger.warning(f"Failed to copy font: {e}")
+                                    # Fallback to original dir if copy fails
+                                    fonts_dir = p
+                                    break
 
                     render_cmd = [
                         "amir", "video", "cut",

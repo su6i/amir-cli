@@ -743,17 +743,24 @@ run_video_cut() {
         fi
 
         if [[ -n "$input_bitrate" && "$input_bitrate" =~ ^[0-9]+$ ]]; then
-             # Target slightly higher (105%) to preserve quality during re-encode without bloat
-             target_bitrate_val=$(echo "$input_bitrate * 1.05 / 1" | bc)
+             # Heuristic: HEVC is ~50% more efficient than H.264.
+             # Target 80% bitrate for HEVC to ensure better quality but smaller size.
+             # Target 100% (or slightly more) for H.264 to preserve quality in re-encode.
+             local multiplier="1.0"
+             if [[ "$encoder" == "hevc_videotoolbox" || "$encoder" == "hevc_nvenc" || "$encoder" == "libx265" ]]; then
+                 multiplier="0.8"
+             fi
+             
+             target_bitrate_val=$(echo "$input_bitrate * $multiplier / 1" | bc)
              
              # Maxrate slightly higher for VBR headroom
-             local max_rat=$(echo "$target_bitrate_val * 1.2 / 1" | bc)
+             local max_rat=$(echo "$target_bitrate_val * 1.5 / 1" | bc)
              local buf=$(echo "$max_rat * 2" | bc)
              
              bitrate_flags=("-maxrate" "${max_rat}" "-bufsize" "${buf}")
         fi
 
-        echo "📊 Settings: $encoder (Q:$quality) | Bitrate Cap: ${max_bitrate:-Auto}"
+        echo "📊 Settings: $encoder (Q:$quality) | Bitrate Target: ${target_bitrate_val:-Auto}"
         
         # Construct Filter Chain
         if [[ -n "$filter_complex" ]]; then
@@ -766,15 +773,17 @@ run_video_cut() {
                      cmd+=("-vf" "$filter_complex" "-c:v" "$encoder" "-q:v" "$quality" "${tag_opts[@]}")
                  fi
              else
+             else
                  # CPU/Other needs flags (simplified for now)
                   local crf_val=$(( (100 - quality) * 51 / 100 ))
                   [[ $crf_val -lt 15 ]] && crf_val=15
                   cmd+=("-vf" "$filter_complex" "-c:v" "libx264" "-crf" "$crf_val" "-preset" "medium")
              fi
-             cmd+=("${bitrate_flags[@]}" "-c:a" "aac")
+             # Audio Copy to save size/quality (unless filtering required, which we aren't doing for audio)
+             cmd+=("${bitrate_flags[@]}" "-c:a" "copy")
         else
             # No filters, just re-encode (cut with re-encode)
-             cmd+=("-c:v" "libx264" "-crf" "23" "-preset" "medium" "-c:a" "aac")
+             cmd+=("-c:v" "libx264" "-crf" "23" "-preset" "medium" "-c:a" "copy")
         fi
     else
         echo "🚀 Mode: Stream Copy (Instant)"
@@ -789,7 +798,50 @@ run_video_cut() {
     
     # Check result
     if [[ -f "$output_file" ]]; then
-        echo "✅ Output saved to: $(realpath "$output_file")"
+        # Print Stats Table (Restored Old Format - Simplified Padding)
+        local in_size=$(du -h "$input_file" | cut -f1)
+        local out_size=$(du -h "$output_file" | cut -f1)
+        
+        # Calculate Ratio if possible (using raw bytes)
+        local in_bytes=$(stat -f%z "$input_file" 2>/dev/null || stat -c%s "$input_file" 2>/dev/null)
+        local out_bytes=$(stat -f%z "$output_file" 2>/dev/null || stat -c%s "$output_file" 2>/dev/null)
+        local ratio="N/A"
+        local percent_saved="0"
+        if [[ -n "$in_bytes" && -n "$out_bytes" && "$in_bytes" -gt 0 ]]; then
+             local r_val=$(echo "scale=2; $in_bytes / $out_bytes" | bc 2>/dev/null)
+             ratio="${r_val}x"
+             percent_saved=$(echo "scale=1; 100 - ($out_bytes * 100 / $in_bytes)" | bc 2>/dev/null)
+        fi
+
+        echo ""
+        echo "✅ COMPLETE: $(basename "$output_file")"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        
+        # Simple standard printf padding (reliable)
+        local fmt="│ %-30s │ %-30s │ %-20s │ %-10s │\n"
+        local h_line="├$(printf '%0.s─' {1..32})┼$(printf '%0.s─' {1..32})┼$(printf '%0.s─' {1..22})┼$(printf '%0.s─' {1..12})┤"
+        local t_line="┌$(printf '%0.s─' {1..32})┬$(printf '%0.s─' {1..32})┬$(printf '%0.s─' {1..22})┬$(printf '%0.s─' {1..12})┐"
+        local b_line="└$(printf '%0.s─' {1..32})┴$(printf '%0.s─' {1..32})┴$(printf '%0.s─' {1..22})┴$(printf '%0.s─' {1..12})┘"
+
+        echo "$t_line"
+        printf "$fmt" "📥 INPUT" "📤 OUTPUT" "📊 DETAILS" "📈 RATIO"
+        echo "$h_line"
+        
+        # Content
+        # Truncate filenames to fit
+        local f_in=$(basename "$input_file"); [[ ${#f_in} -gt 28 ]] && f_in="${f_in:0:25}..."
+        local f_out=$(basename "$output_file"); [[ ${#f_out} -gt 28 ]] && f_out="${f_out:0:25}..."
+        
+        local duration_s=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$output_file" 2>/dev/null | cut -d. -f1)
+
+        printf "$fmt" "File: $f_in" "File: $f_out" "Codec: $encoder" "Saved: ${percent_saved}%"
+        printf "$fmt" "Size: $in_size" "Size: $out_size" "Time: ${duration_s}s" "Ratio: $ratio"
+        
+        echo "$b_line"
+        
+        echo ""
+        echo "📍 Output: $(realpath "$output_file")"
     else
         echo "❌ Operation failed."
         return 1
