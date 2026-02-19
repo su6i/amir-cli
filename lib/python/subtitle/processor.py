@@ -1102,6 +1102,40 @@ if __name__ == "__main__":
             return text
         return text.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
 
+    def _merge_split_numbers(self, segments: List[Dict]) -> List[Dict]:
+        """
+        Heuristic to merge segments that look like split numbers.
+        Example: "is 1" + ",500" -> "is 1,500"
+        Addresses transcription errors where large numbers are split across lines.
+        """
+        if not segments: return []
+        merged = []
+        i = 0
+        while i < len(segments):
+            curr = segments[i]
+            if i + 1 < len(segments):
+                next_seg = segments[i+1]
+                # Check if current ends with digit and next starts with comma/dot + digit
+                text1 = curr['text'].strip()
+                text2 = next_seg['text'].strip()
+                
+                # Check patterns for split numbers (e.g. "1" and ",000")
+                if text1 and text1[-1].isdigit() and text2 and (text2.startswith(',') or text2.startswith('.')):
+                     # Likely split number
+                     # Merge entries: extend time and concatenate text
+                     new_seg = curr.copy()
+                     new_seg['end'] = next_seg['end']
+                     new_seg['text'] = text1 + text2 # Concatenate directly (no space for "1,000")
+                     
+                     self.logger.info(f"🔄 Smart Merge: '{text1}' + '{text2}' -> '{new_seg['text']}'")
+                     merged.append(new_seg)
+                     i += 2 # Skip next segment as it's merged
+                     continue
+            
+            merged.append(curr)
+            i += 1
+        return merged
+
     def _load_collocations(self) -> set:
         """Load small collocations list from data file into a set of lowercase bigrams."""
         if getattr(self, '_collocations_cache', None) is not None:
@@ -2274,6 +2308,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # All downstream translations MUST follow this structure.
             src_entries = self.parse_srt(src_srt)
             src_entries = self.sanitize_entries(src_entries)
+            
+            # Smart Merge: Fix split numbers (e.g. "1" + ",000") before saving
+            src_entries = self._merge_split_numbers(src_entries)
             with open(src_srt, 'w', encoding='utf-8-sig') as f:
                 for idx, entry in enumerate(src_entries, 1):
                     f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
@@ -2466,6 +2503,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         # Extract only untranslated lines
                         texts_to_retry = [src_entries[i]['text'] for i in untranslated_indices]
                         
+                        # Apply Smart Merging for Split Numbers (Fix e.g. "1" + ",000")
+                        # This is applied to the source texts before sending for retry translation
+                        texts_to_retry = self._merge_split_numbers(texts_to_retry)
+                        
                         # Translate only these lines with CONTEXT
                         retried_translations = []
                         
@@ -2625,18 +2666,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                                 
                             if found_font:
                                 self.logger.info(f"Found font: {found_font}")
-                                # Copy to temp dir to ensure access and standard naming
-                                dest_font = os.path.join(temp_dir, "BNazanin.ttf")
-                                try:
-                                    shutil.copy(found_font, dest_font)
-                                    fonts_dir = temp_dir
-                                    self.logger.info(f"Copied font to temp dir: {dest_font}")
-                                    break
-                                except Exception as e:
-                                    self.logger.warning(f"Failed to copy font: {e}")
-                                    # Fallback to original dir if copy fails
-                                    fonts_dir = p
-                                    break
+                                # Standard Approach: Point to the directory containing the font
+                                fonts_dir = p
+                                break
 
                     render_cmd = [
                         "amir", "video", "cut",
