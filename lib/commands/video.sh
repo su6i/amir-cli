@@ -717,17 +717,14 @@ run_video_cut() {
         local quality=$(get_config "video" "quality" "60")
         
         # Hardware Detection
-        local encoder="libx265"
-        local tag_opts=("-tag:v" "hvc1")
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-             if "$ffmpeg_cmd" -encoders 2>/dev/null | grep -q "hevc_videotoolbox"; then
-                encoder="hevc_videotoolbox"
-            fi
-        elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            if lspci 2>/dev/null | grep -iq nvidia && "$ffmpeg_cmd" -encoders 2>/dev/null | grep -q "hevc_nvenc"; then
-                 encoder="hevc_nvenc"; tag_opts=()
-            fi
-        fi
+        local encoder="libx264"
+        local tag_opts=()
+        # Disabled HW by default to ensure Quality/Size stability (User Request)
+        # if [[ "$OSTYPE" == "darwin"* ]]; then
+        #      if "$ffmpeg_cmd" -encoders 2>/dev/null | grep -q "hevc_videotoolbox"; then
+        #         encoder="hevc_videotoolbox"
+        #     fi
+        # elif ...
         
         # Bitrate Logic (Match Input)
         local bitrate_flags=()
