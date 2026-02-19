@@ -770,7 +770,6 @@ run_video_cut() {
                      cmd+=("-vf" "$filter_complex" "-c:v" "$encoder" "-q:v" "$quality" "${tag_opts[@]}")
                  fi
              else
-             else
                  # CPU/Other needs flags (simplified for now)
                   local crf_val=$(( (100 - quality) * 51 / 100 ))
                   [[ $crf_val -lt 15 ]] && crf_val=15
