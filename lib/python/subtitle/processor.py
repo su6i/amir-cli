@@ -2597,36 +2597,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     encoder = hw_info['encoder']
                     codec = hw_info['codec']
                     platform = hw_info['platform']
-                    
-                    hw_accel_args = []
-                    if platform == 'cpu':
-                        # Classic reliable software encoding
-                        crf = get_default_crf()
-                        hw_accel_args = ["-c:v", encoder, "-preset", "medium", "-crf", str(crf)]
-                    elif platform == 'apple_silicon':
-                        # Videotoolbox (Mac) uses -q:v for quality
-                        quality = get_default_quality() # Value 45 is tuned for parity
-                        hw_accel_args = ["-c:v", encoder, "-q:v", str(quality)]
-                    elif platform == 'nvidia':
-                        # NVENC (Ubuntu/Linux) uses -cq for constant quality in VBR mode
-                        hw_accel_args = ["-c:v", encoder, "-rc", "vbr", "-cq", "23", "-preset", "p4"]
-                    elif platform == 'intel':
-                        # QSV uses -global_quality
-                        hw_accel_args = ["-c:v", encoder, "-global_quality", "23"]
-                    else:
-                        # General hardware fallback
-                        hw_accel_args = ["-c:v", encoder, "-q:v", "40"]
-
-                    if codec == 'h265' and platform == 'apple_silicon':
-                        hw_accel_args.extend(["-tag:v", "hvc1"])
-                    
-                    self.logger.info(f"🎬 Encoder: {encoder} ({platform.upper()}) | Codec: {codec.upper()}")
-                    
-                    # Add audio copy to preserve original audio quality
-                    hw_accel_args.extend(["-c:a", "copy"])
+                    # Unified Rendering: Delegate to 'amir video cut'
+                    # This ensures we use the centralized logic in video.sh (Bitrate Cap, Encoder Selection, etc.)
+                    self.logger.info("🚀 Delegating rendering to 'amir video' engine...")
                     
                     # Resolve Font Directory (Mac & Linux support)
-                    fonts_dir_arg = ""
+                    fonts_dir = None
                     font_paths = [
                         os.path.expanduser("~/Library/Fonts"), # Mac User
                         "/Library/Fonts",                      # Mac System
@@ -2635,30 +2611,45 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         "/usr/share/fonts"                     # Linux System Fallback
                     ]
                     
-                    found_font_dir = None
                     for p in font_paths:
                         if os.path.exists(p):
                             if os.path.exists(os.path.join(p, "BNazanin.ttf")) or \
                                os.path.exists(os.path.join(p, "B Nazanin.ttf")):
-                                found_font_dir = p
+                                fonts_dir = p
                                 break
-                    
-                    if found_font_dir:
-                        fonts_dir_arg = f":fontsdir={found_font_dir}"
-                    
-                    vf_arg = f"ass={safe_ass_name}{fonts_dir_arg}"
-                    
-                    cmd = [
-                        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-                        "-i", safe_video_name,
-                        "-vf", vf_arg,
-                        *hw_accel_args,
-                        "-progress", "pipe:1",  # Enable progress pipe
-                        safe_output_name
+
+                    render_cmd = [
+                        "amir", "video", "cut",
+                        safe_video_path,
+                        "--subtitles", safe_ass_path,
+                        "--output", safe_output_path,
+                        "--render"
                     ]
                     
-                    # Run FFmpeg with Progress Tracking
-                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=temp_dir)
+                    if fonts_dir:
+                        render_cmd.extend(["--fonts-dir", fonts_dir])
+
+                    # Execute and stream output
+                    process = subprocess.Popen(
+                        render_cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                        universal_newlines=True
+                    )
+                    
+                    for line in process.stdout:
+                        # Forward the progress from video.sh
+                        print(line.strip(), flush=True) # Added .strip() for cleaner output
+                        
+                    process.wait()
+                    
+                    if process.returncode != 0:
+                        self.logger.error("❌ Rendering failed in 'amir video' engine.")
+                        return None
+                        
+                    self.logger.info("✅ Rendering completed successfully via centralized engine.")
                     
                      # Get duration for progress bar
                     dur = 0
