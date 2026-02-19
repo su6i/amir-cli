@@ -658,21 +658,27 @@ run_video_cut() {
     # Subtitle Filter Logic
     local filter_complex=""
     if [[ -n "$subtitle_file" ]]; then
+        # Helper function for robust ffmpeg escaping
+        escape_ffmpeg() {
+            local s="$1"
+            s="${s//\\/\\\\}"  # \ -> \\
+            s="${s//:/\\:}"    # : -> \:
+            s="${s//\'/\\\'}"  # ' -> \'
+            s="${s//,/\\,}"    # , -> \,
+            s="${s//\[/\\[}"   # [ -> \[
+            s="${s//\]/\\]}"   # ] -> \]
+            s="${s// /\\ }"    # Space -> \ Space
+            echo "$s"
+        }
+
         # Check fonts dir
         local fonts_opt=""
         if [[ -n "$fonts_dir" ]]; then
-            # Escape backslashes and colons for ffmpeg filter string
-            local esc_fonts="${fonts_dir//\\/\\\\}"
-            esc_fonts="${esc_fonts//:/\\:}"
+            local esc_fonts=$(escape_ffmpeg "$fonts_dir")
             fonts_opt=":fontsdir=${esc_fonts}"
         fi
         
-        # Escape backslashes and colons for the subtitle filename
-        local esc_sub="${subtitle_file//\\/\\\\}"
-        esc_sub="${esc_sub//:/\\:}"
-        
-        # Use simple escaping instead of single quotes
-        # ffmpeg filter syntax: ass=filename:option=value
+        local esc_sub=$(escape_ffmpeg "$subtitle_file")
         filter_complex="ass=${esc_sub}${fonts_opt}"
         
         # If subtitles are present, force render mode
@@ -737,8 +743,10 @@ run_video_cut() {
     cmd+=("-map_metadata" "0" "$output_file")
 
     # Execute
-    # Execute command (Debug Mode: Show full output)
-    "${cmd[@]}"
+    "${cmd[@]}" 2>&1 | while read -d $'\r' -r line; do
+        printf "\r⏳ Processing... %s" "$line"
+    done
+    printf "\r⏳ Processing... Done!                                        \n"
     
     # Check result
     if [[ -f "$output_file" ]]; then
