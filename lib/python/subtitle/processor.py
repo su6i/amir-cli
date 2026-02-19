@@ -2651,53 +2651,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         
                     self.logger.info("✅ Rendering completed successfully via centralized engine.")
                     
-                     # Get duration for progress bar
-                    dur = 0
-                    try:
-                        # Use ffprobe on the safe link
-                        dur_cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
-                                   '-of', 'default=noprint_wrappers=1:nokey=1', safe_video_path]
-                        dur_r = subprocess.run(dur_cmd, capture_output=True, text=True)
-                        dur = float(dur_r.stdout.strip())
-                    except:
-                        pass
-                    
-                    pbar = tqdm(total=100, unit="%", desc="  Encoding")
-                    
-                    stderr_lines = deque(maxlen=200)
-                    def capture_stderr():
-                        for line in proc.stderr:
-                            stderr_lines.append(line)
-                    
-                    # Capture stderr in background for error reporting
-                    t_err = threading.Thread(target=capture_stderr)
-                    t_err.start()
-                    
-                    # Parse stdout for progress
-                    while True:
-                        line = proc.stdout.readline()
-                        if not line and proc.poll() is not None:
-                            break
-                        
-                        if line and 'out_time_ms=' in line:
-                            try:
-                                ms = int(line.split('=')[1])
-                                if dur > 0:
-                                    pct = min(100, (ms / 1000000) / dur * 100)
-                                    pbar.n = int(pct)
-                                    pbar.refresh()
-                            except:
-                                pass
-                    
-                    t_err.join()
-                    pbar.close()
-                    
-                    if proc.returncode != 0:
-                        self.logger.error(f"❌ FFmpeg failed (code {proc.returncode})")
-                        for line in stderr_lines[-10:]:
-                            self.logger.error(f"  {line.strip()}")
-                        raise RuntimeError("Rendering failed inside sandbox")
-                    
                     # 4. Move Result to Final Destination
                     if os.path.exists(output_video):
                         os.remove(output_video)
