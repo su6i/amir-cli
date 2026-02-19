@@ -1989,8 +1989,6 @@ if __name__ == "__main__":
         header = f"""[Script Info]
 ScriptType: v4.00+
 WrapStyle: 2
-PlayResX: 1920
-PlayResY: 1080
 
 [V4+ Styles]
 {format_line}
