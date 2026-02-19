@@ -647,7 +647,7 @@ run_video_cut() {
         output_file="${base}_cut.${ext}"
     fi
 
-    echo "✂️  Cutting Video: $(basename "$input_file")"
+    echo "🎬  Processing Video: ${display_in:-$(basename "$input_file")}"
     
     # Allow override of ffmpeg binary via env var (e.g. from static_ffmpeg in python)
     local ffmpeg_cmd="${FFMPEG_EXEC:-ffmpeg}"
@@ -857,31 +857,31 @@ pad_to_width() {
 
         echo ""
         echo "✅ COMPLETE: $(basename "$output_file")"
-        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "══════════════════════════════════════════════════════════════════════════"
         echo ""
         
-        # Premium Unicode Table (Restored & Fixed)
-        local col_w=20
-        local t_line="┌──────────────────────┬──────────────────────┬──────────────────────┬──────────────────────┐"
-        local h_line="├──────────────────────┼──────────────────────┼──────────────────────┼──────────────────────┤"
-        local b_line="└──────────────────────┴──────────────────────┴──────────────────────┴──────────────────────┘"
+        # Premium Unicode Table (Width Optimized: 16 per col)
+        # Total width ~ 77 chars (fits in standard 80-col terminal)
+        local t_line="┌──────────────────┬──────────────────┬──────────────────┬──────────────────┐"
+        local h_line="├──────────────────┼──────────────────┼──────────────────┼──────────────────┤"
+        local b_line="└──────────────────┴──────────────────┴──────────────────┴──────────────────┘"
 
         echo "$t_line"
-        printf "│ %s │ %s │ %s │ %s │\n" "$(pad_to_width "📥 INPUT" 20)" "$(pad_to_width "📤 OUTPUT" 20)" "$(pad_to_width "📊 DETAILS" 20)" "$(pad_to_width "📈 RATIO" 20)"
+        printf "│ %s │ %s │ %s │ %s │\n" "$(pad_to_width "📥 INPUT" 16)" "$(pad_to_width "📤 OUTPUT" 16)" "$(pad_to_width "📊 DETAILS" 16)" "$(pad_to_width "📈 RATIO" 16)"
         echo "$h_line"
         
         # Use display overrides or fall back to basenames
         local f_in_label="${display_in:-$(basename "$input_file")}"
         local f_out_label="${display_out:-$(basename "$output_file")}"
 
-        # Truncate labels for table
-        local label_in="File: $f_in_label"; [[ $(get_visual_width "$label_in") -gt 20 ]] && label_in="${label_in:0:17}..."
-        local label_out="File: $f_out_label"; [[ $(get_visual_width "$label_out") -gt 20 ]] && label_out="${label_out:0:17}..."
+        # Truncate labels for table (Max 16 chars)
+        local label_in="File: $f_in_label"; [[ $(get_visual_width "$label_in") -gt 16 ]] && label_in="${label_in:0:13}..."
+        local label_out="File: $f_out_label"; [[ $(get_visual_width "$label_out") -gt 16 ]] && label_out="${label_out:0:13}..."
         
         local duration_s=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$output_file" 2>/dev/null | cut -d. -f1)
 
-        printf "│ %s │ %s │ %s │ %s │\n" "$(pad_to_width "$label_in" 20)" "$(pad_to_width "$label_out" 20)" "$(pad_to_width "Codec: $encoder" 20)" "$(pad_to_width "Saved: ${percent_saved}%" 20)"
-        printf "│ %s │ %s │ %s │ %s │\n" "$(pad_to_width "Size: $in_size" 20)" "$(pad_to_width "Size: $out_size" 20)" "$(pad_to_width "Time: ${duration_s}s" 20)" "$(pad_to_width "Ratio: $ratio" 20)"
+        printf "│ %s │ %s │ %s │ %s │\n" "$(pad_to_width "$label_in" 16)" "$(pad_to_width "$label_out" 16)" "$(pad_to_width "Codec: $encoder" 16)" "$(pad_to_width "Saved: ${percent_saved}%" 16)"
+        printf "│ %s │ %s │ %s │ %s │\n" "$(pad_to_width "Size: $in_size" 16)" "$(pad_to_width "Size: $out_size" 16)" "$(pad_to_width "Time: ${duration_s}s" 16)" "$(pad_to_width "Ratio: $ratio" 16)"
         echo "$b_line"
         
         echo ""
