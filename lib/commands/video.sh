@@ -309,65 +309,39 @@ process_video() {
     local duration_seconds=${duration%.*}
     local duration_formatted=$(printf '%02d:%02d:%02d' $(($duration_seconds/3600)) $(($duration_seconds%3600/60)) $(($duration_seconds%60)))
     
-    # Hardware Detection & Encoder Selection
+    # Hardware Detection
     local cpu_info="Unknown"
     local gpu_info="Unknown"
-    local encoder="libx265"
-    local tag_opt="-tag:v hvc1"
     
     if [[ "$OSTYPE" == "darwin"* ]]; then
         cpu_info=$(sysctl -n machdep.cpu.brand_string 2>/dev/null)
         gpu_info="Apple Silicon GPU"
         [[ "$cpu_info" == *"Intel"* ]] && gpu_info="Intel GPU"
-        if ffmpeg -encoders 2>/dev/null | grep -q "hevc_videotoolbox"; then
-            encoder="hevc_videotoolbox"
-        fi
     elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
         cpu_info=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)
-        if lspci 2>/dev/null | grep -iq nvidia; then
-            gpu_info="NVIDIA GPU"
-            if ffmpeg -encoders 2>/dev/null | grep -q "hevc_nvenc"; then
-                encoder="hevc_nvenc"
-                tag_opt=""
-            fi
-        else
-            gpu_info="Linux GPU"
-        fi
+        gpu_info=$(lspci | grep -i vga | cut -d: -f3 | xargs 2>/dev/null || echo "Linux GPU")
     fi
-
-    # Load learning-based adjustments
+    
     local quality_factor=${quality_factors[$quality]:-1.0}
+    local speed_factor=${speed_factors[$quality]:-6}
+    local sample_count=${sample_counts[$quality]:-0}
     
-    # Apply AI learning offset: If previous files were too small (low quality factor),
-    # boost the quality value slightly. If they were too large, decrease it.
-    local adjusted_quality=$quality
-    if [[ $(echo "$quality_factor < 0.8" | bc) -eq 1 ]]; then
-        adjusted_quality=$(( quality + 5 ))
-    elif [[ $(echo "$quality_factor > 1.2" | bc) -eq 1 ]]; then
-        adjusted_quality=$(( quality - 5 ))
-    fi
-    [[ $adjusted_quality -gt 100 ]] && adjusted_quality=100
-    [[ $adjusted_quality -lt 10 ]] && adjusted_quality=10
-
-    # --- Standardized Quality Mapping ---
-    # User Scale (0-100) -> Encoder Specifics
-    local enc_flags=()
+    # Encoder selection
+    local encoder="libx265"
+    local tag_opt="-tag:v hvc1"
     
-    if [[ "$encoder" == "hevc_videotoolbox" ]]; then
-        # VideoToolbox: -q:v 0-100 (Linear-ish, higher is better)
-        # Shift scale to ensure 70 is truly "Premium"
-        local vt_q=$(( adjusted_quality + ( (100 - adjusted_quality) / 4 ) ))
-        enc_flags=("-q:v" "$vt_q")
-    elif [[ "$encoder" == "hevc_nvenc" ]]; then
-        # NVENC: -rc vbr -cq (0-51, lower is better)
-        local cq_val=$(( (100 - adjusted_quality) * 51 / 100 ))
-        enc_flags=("-rc" "vbr" "-cq" "$cq_val" "-qmin" "$cq_val" "-qmax" "$((cq_val + 5))")
-    else
-        # x265/x264: -crf (0-51, lower is better)
-        local crf_val=$(( (100 - adjusted_quality) * 51 / 100 ))
-        # Ensure CRF is in a sane range for compression (usually 18-35)
-        [[ $crf_val -lt 15 ]] && crf_val=15
-        enc_flags=("-crf" "$crf_val" "-preset" "medium")
+    # Check available encoders
+    if ffmpeg -encoders 2>/dev/null | grep -q "hevc_videotoolbox"; then
+        encoder="hevc_videotoolbox"
+    elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_nvenc"; then
+        encoder="hevc_nvenc"
+        tag_opt=""
+    elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_amf"; then
+        encoder="hevc_amf"
+        tag_opt=""
+    elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_qsv"; then
+        encoder="hevc_qsv"
+        tag_opt=""
     fi
     
     # Pre-calculate display name
@@ -437,12 +411,23 @@ process_video() {
     # Windows/Linux fix for audio filters
     local audio_filter="aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo"
     
+    local input_bitrate=$(ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
+    local bitrate_flags=()
+    if [[ -n "$input_bitrate" && "$input_bitrate" =~ ^[0-9]+$ ]]; then
+        # Apply 15% safety overhead to the ceiling
+        local max_bitrate=$(echo "$input_bitrate * 1.15 / 1" | bc)
+        # Standard bufsize is usually 2x maxrate for VBR stability
+        local buf_size=$((max_bitrate * 2))
+        bitrate_flags=("-maxrate" "${max_bitrate}" "-bufsize" "${buf_size}")
+    fi
+
     # Execute ffmpeg with a single-line progress filter
     local filter_cmd="fps=25,scale=${target_w}:${target_h_final}:force_original_aspect_ratio=decrease,pad=${target_w}:${target_h_final}:(ow-iw)/2:(oh-ih)/2,setsar=1"
     
     ffmpeg -hide_banner -loglevel info -stats -nostdin -y -i "$input_file" \
     -vf "$filter_cmd" -sws_flags bilinear \
-    -c:v "$encoder" "${enc_flags[@]}" $tag_opt \
+    -c:v "$encoder" -q:v $quality $tag_opt \
+    "${bitrate_flags[@]}" \
     -af "$audio_filter" \
     -c:a aac -pix_fmt yuv420p -movflags +faststart "$output" 2>&1 | while read -d $'\r' -r line; do
         printf "\r⏳ Processing... %s" "$line"
@@ -460,8 +445,21 @@ process_video() {
     
     local output_size=$(ls -lh "$output" | awk '{print $5}')
     local output_bytes=$(ls -l "$output" | awk '{print $5}')
+    
+    # Calculate Ratio & Percent (Correct Logic)
     local ratio=$(echo "scale=2; $input_bytes / $output_bytes" | bc 2>/dev/null || echo "0")
-    local percent_saved=$(echo "scale=1; 100 - ($output_bytes * 100 / $input_bytes)" | bc 2>/dev/null || echo "0")
+    local percent_calc=$(echo "scale=1; 100 - ($output_bytes * 100 / $input_bytes)" | bc 2>/dev/null || echo "0")
+    
+    local label_saved="Reduction"
+    local val_saved="${percent_calc}%"
+    
+    # If percent is negative, it means size INCREASED
+    if [[ $(echo "$percent_calc < 0" | bc) -eq 1 ]]; then
+        label_saved="Increase"
+        # Invert sign for display
+        val_saved=$(echo "scale=1; $percent_calc * -1" | bc)"%"
+    fi
+
     local actual_speed=$(echo "scale=2; $duration_seconds / $total_elapsed" | bc 2>/dev/null || echo "0")
     
     local actual_ratio=$(echo "scale=4; $output_bytes / $input_bytes" | bc 2>/dev/null || echo "0.05")
@@ -509,7 +507,7 @@ process_video() {
     local t_in_file=$(pad_to_width "File: $(basename "$input_file")" $col_width)
     local t_out_file=$(pad_to_width "File: $(basename "$output")" $col_width)
     local t_time=$(pad_to_width "Time: $total_elapsed_formatted" $col_width)
-    local t_saved=$(pad_to_width "Reduction: ${percent_saved}%" $col_width)
+    local t_saved=$(pad_to_width "${label_saved}: ${val_saved}" $col_width)
     
     local t_in_size=$(pad_to_width "Size: $input_size" $col_width)
     local t_out_size=$(pad_to_width "Size: $output_size" $col_width)
@@ -603,6 +601,8 @@ run_video_cut() {
     local end_time=""
     local duration=""
     local output_file=""
+    local subtitle_file=""
+    local fonts_dir=""
     local encode=0
 
     # Parse arguments
@@ -613,6 +613,8 @@ run_video_cut() {
             -t|--to) end_time="$2"; shift 2 ;;
             -d|--duration) duration="$2"; shift 2 ;;
             -o|--output) output_file="$2"; shift 2 ;;
+            --subtitles) subtitle_file="$2"; shift 2 ;;
+            --fonts-dir) fonts_dir="$2"; shift 2 ;;
             --render) encode=1; shift ;;
             *) 
                 if [[ -f "$1" && -z "$input_file" ]]; then
@@ -647,21 +649,80 @@ run_video_cut() {
 
     cmd+=("-i" "$input_file")
 
-    # End time / Duration
     if [[ -n "$end_time" ]]; then
         cmd+=("-to" "$end_time")
     elif [[ -n "$duration" ]]; then
         cmd+=("-t" "$duration")
     fi
 
+    # Subtitle Filter Logic
+    local filter_complex=""
+    if [[ -n "$subtitle_file" ]]; then
+        # Check fonts dir
+        local fonts_opt=""
+        if [[ -n "$fonts_dir" ]]; then
+            fonts_opt=":fontsdir=$fonts_dir"
+        fi
+        # We need to escape the filename for filter_complex
+        # Simple escape: replace : with \: and \ with \\
+        local esc_sub="${subtitle_file//\\/\\\\}"
+        esc_sub="${esc_sub//:/\\:}"
+        filter_complex="ass=${esc_sub}${fonts_opt}"
+        
+        # If subtitles are present, force render mode
+        encode=1
+    fi
+
     if [[ $encode -eq 1 ]]; then
         echo "⚙️  Mode: Rendering (High Quality)"
-        # Use our standard quality settings if rendering is requested
+        
+        # Hardware Detection & Quality Settings (Reuse logic from process_video is ideal, but here we inline for now)
+        # TODO: Refactor process_video to return flags to avoid duplication. 
+        # For now, we use the simple "working well" logic + Bitrate Cap.
+        
         local target_h=$(get_config "video" "resolution" "720")
         local quality=$(get_config "video" "quality" "60")
         
-        # Simple rendering for cut (can be expanded later with process_video logic)
-        cmd+=("-c:v" "libx264" "-crf" "23" "-preset" "medium" "-c:a" "aac")
+        # Hardware Detection
+        local encoder="libx265"
+        local tag_opt="-tag:v hvc1"
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+             if ffmpeg -encoders 2>/dev/null | grep -q "hevc_videotoolbox"; then
+                encoder="hevc_videotoolbox"
+            fi
+        elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            if lspci 2>/dev/null | grep -iq nvidia && ffmpeg -encoders 2>/dev/null | grep -q "hevc_nvenc"; then
+                 encoder="hevc_nvenc"; tag_opt=""
+            fi
+        fi
+        
+        # Bitrate Cap
+        local bitrate_flags=()
+        local input_bitrate=$(ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
+        if [[ -n "$input_bitrate" && "$input_bitrate" =~ ^[0-9]+$ ]]; then
+             local max_bitrate=$(echo "$input_bitrate * 1.15 / 1" | bc)
+             local buf_size=$((max_bitrate * 2))
+             bitrate_flags=("-maxrate" "${max_bitrate}" "-bufsize" "${buf_size}")
+        fi
+
+        echo "📊 Settings: $encoder (Q:$quality) | Bitrate Cap: ${max_bitrate:-Auto}"
+        
+        # Construct Filter Chain
+        if [[ -n "$filter_complex" ]]; then
+             if [[ "$encoder" == "hevc_videotoolbox" ]]; then
+                 # VideoToolbox needs -q:v
+                 cmd+=("-vf" "$filter_complex" "-c:v" "$encoder" "-q:v" "$quality" "$tag_opt")
+             else
+                 # CPU/Other needs flags (simplified for now)
+                  local crf_val=$(( (100 - quality) * 51 / 100 ))
+                  [[ $crf_val -lt 15 ]] && crf_val=15
+                  cmd+=("-vf" "$filter_complex" "-c:v" "libx264" "-crf" "$crf_val" "-preset" "medium")
+             fi
+             cmd+=("${bitrate_flags[@]}" "-c:a" "aac")
+        else
+            # No filters, just re-encode (cut with re-encode)
+             cmd+=("-c:v" "libx264" "-crf" "23" "-preset" "medium" "-c:a" "aac")
+        fi
     else
         echo "🚀 Mode: Stream Copy (Instant)"
         cmd+=("-c" "copy")

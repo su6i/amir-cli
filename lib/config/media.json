@@ -8,7 +8,7 @@
     },
     "quality": {
       "default_crf": 23,
-      "default_quality": 70,
+      "default_quality": 60,
       "default_preset": "medium"
     },
     "hardware_acceleration": {
