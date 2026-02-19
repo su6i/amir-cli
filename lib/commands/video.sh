@@ -643,7 +643,7 @@ run_video_cut() {
     # Allow override of ffmpeg binary via env var (e.g. from static_ffmpeg in python)
     local ffmpeg_cmd="${FFMPEG_EXEC:-ffmpeg}"
 
-    local cmd=("$ffmpeg_cmd" "-hide_banner" "-loglevel" "info" "-y")
+    local cmd=("$ffmpeg_cmd" "-hide_banner" "-loglevel" "error" "-stats" "-y")
     
     # Start time (seek)
     if [[ -n "$start_time" ]]; then
