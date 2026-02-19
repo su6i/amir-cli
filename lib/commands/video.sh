@@ -675,8 +675,8 @@ run_video_cut() {
         fi
         
         local esc_sub=$(escape_ffmpeg_quoted "$subtitle_file")
-        # Use explicit filename key and double quotes
-        filter_complex="ass=filename=\"${esc_sub}\"${fonts_opt}"
+        # Use explicit filename key and double quotes. Switch to 'subtitles' filter (standard).
+        filter_complex="subtitles=filename=\"${esc_sub}\"${fonts_opt}"
         
         # If subtitles are present, force render mode
         encode=1
