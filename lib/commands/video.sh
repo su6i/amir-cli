@@ -694,14 +694,14 @@ run_video_cut() {
         
         # Hardware Detection
         local encoder="libx265"
-        local tag_opt="-tag:v hvc1"
+        local tag_opts=("-tag:v" "hvc1")
         if [[ "$OSTYPE" == "darwin"* ]]; then
              if ffmpeg -encoders 2>/dev/null | grep -q "hevc_videotoolbox"; then
                 encoder="hevc_videotoolbox"
             fi
         elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
             if lspci 2>/dev/null | grep -iq nvidia && ffmpeg -encoders 2>/dev/null | grep -q "hevc_nvenc"; then
-                 encoder="hevc_nvenc"; tag_opt=""
+                 encoder="hevc_nvenc"; tag_opts=()
             fi
         fi
         
@@ -720,7 +720,7 @@ run_video_cut() {
         if [[ -n "$filter_complex" ]]; then
              if [[ "$encoder" == "hevc_videotoolbox" ]]; then
                  # VideoToolbox needs -q:v
-                 cmd+=("-vf" "$filter_complex" "-c:v" "$encoder" "-q:v" "$quality" "$tag_opt")
+                 cmd+=("-vf" "$filter_complex" "-c:v" "$encoder" "-q:v" "$quality" "${tag_opts[@]}")
              else
                  # CPU/Other needs flags (simplified for now)
                   local crf_val=$(( (100 - quality) * 51 / 100 ))
@@ -744,7 +744,8 @@ run_video_cut() {
         printf "\r⏳ Processing... %s" "$line"
     done
     printf "\r⏳ Processing... Done!                                        \n"
-
+    
+    # Check result
     if [[ -f "$output_file" ]]; then
         echo "✅ Output saved to: $(realpath "$output_file")"
     else
