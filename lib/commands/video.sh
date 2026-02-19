@@ -743,10 +743,8 @@ run_video_cut() {
     cmd+=("-map_metadata" "0" "$output_file")
 
     # Execute
-    "${cmd[@]}" 2>&1 | while read -d $'\r' -r line; do
-        printf "\r⏳ Processing... %s" "$line"
-    done
-    printf "\r⏳ Processing... Done!                                        \n"
+    # Execute command (Debug Mode: Show full output directly)
+    "${cmd[@]}"
     
     # Check result
     if [[ -f "$output_file" ]]; then
