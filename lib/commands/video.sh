@@ -640,7 +640,10 @@ run_video_cut() {
 
     echo "✂️  Cutting Video: $(basename "$input_file")"
     
-    local cmd=("ffmpeg" "-hide_banner" "-loglevel" "info" "-y")
+    # Allow override of ffmpeg binary via env var (e.g. from static_ffmpeg in python)
+    local ffmpeg_cmd="${FFMPEG_EXEC:-ffmpeg}"
+
+    local cmd=("$ffmpeg_cmd" "-hide_banner" "-loglevel" "info" "-y")
     
     # Start time (seek)
     if [[ -n "$start_time" ]]; then
@@ -717,22 +720,37 @@ run_video_cut() {
         local encoder="libx265"
         local tag_opts=("-tag:v" "hvc1")
         if [[ "$OSTYPE" == "darwin"* ]]; then
-             if ffmpeg -encoders 2>/dev/null | grep -q "hevc_videotoolbox"; then
+             if "$ffmpeg_cmd" -encoders 2>/dev/null | grep -q "hevc_videotoolbox"; then
                 encoder="hevc_videotoolbox"
             fi
         elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            if lspci 2>/dev/null | grep -iq nvidia && ffmpeg -encoders 2>/dev/null | grep -q "hevc_nvenc"; then
+            if lspci 2>/dev/null | grep -iq nvidia && "$ffmpeg_cmd" -encoders 2>/dev/null | grep -q "hevc_nvenc"; then
                  encoder="hevc_nvenc"; tag_opts=()
             fi
         fi
         
-        # Bitrate Cap
+        # Bitrate Logic (Match Input)
         local bitrate_flags=()
-        local input_bitrate=$(ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
+        local input_bitrate=""
+        local target_bitrate_val=""
+        
+        # 1. Try Container Bitrate first (usually more accurate for file size)
+        input_bitrate=$(ffprobe -v error -show_entries format=bit_rate -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
+        
+        # 2. Fallback to Stream Bitrate
+        if [[ -z "$input_bitrate" || ! "$input_bitrate" =~ ^[0-9]+$ ]]; then
+             input_bitrate=$(ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
+        fi
+
         if [[ -n "$input_bitrate" && "$input_bitrate" =~ ^[0-9]+$ ]]; then
-             local max_bitrate=$(echo "$input_bitrate * 1.15 / 1" | bc)
-             local buf_size=$((max_bitrate * 2))
-             bitrate_flags=("-maxrate" "${max_bitrate}" "-bufsize" "${buf_size}")
+             # Target slightly higher (105%) to preserve quality during re-encode without bloat
+             target_bitrate_val=$(echo "$input_bitrate * 1.05 / 1" | bc)
+             
+             # Maxrate slightly higher for VBR headroom
+             local max_rat=$(echo "$target_bitrate_val * 1.2 / 1" | bc)
+             local buf=$(echo "$max_rat * 2" | bc)
+             
+             bitrate_flags=("-maxrate" "${max_rat}" "-bufsize" "${buf}")
         fi
 
         echo "📊 Settings: $encoder (Q:$quality) | Bitrate Cap: ${max_bitrate:-Auto}"
@@ -740,8 +758,13 @@ run_video_cut() {
         # Construct Filter Chain
         if [[ -n "$filter_complex" ]]; then
              if [[ "$encoder" == "hevc_videotoolbox" ]]; then
-                 # VideoToolbox needs -q:v
-                 cmd+=("-vf" "$filter_complex" "-c:v" "$encoder" "-q:v" "$quality" "${tag_opts[@]}")
+                 if [[ -n "$target_bitrate_val" ]]; then
+                     # Use Average Bitrate mode to match input specs (as requested by user)
+                     cmd+=("-vf" "$filter_complex" "-c:v" "$encoder" "-b:v" "${target_bitrate_val}" "${tag_opts[@]}")
+                 else
+                     # Fallback to Quality mode
+                     cmd+=("-vf" "$filter_complex" "-c:v" "$encoder" "-q:v" "$quality" "${tag_opts[@]}")
+                 fi
              else
                  # CPU/Other needs flags (simplified for now)
                   local crf_val=$(( (100 - quality) * 51 / 100 ))
@@ -761,7 +784,7 @@ run_video_cut() {
     cmd+=("-map_metadata" "0" "$output_file")
 
     # Execute
-    # Execute command (Debug Mode: Show full output directly)
+    # Direct execution without pipe to avoid subshell/signal issues
     "${cmd[@]}"
     
     # Check result
