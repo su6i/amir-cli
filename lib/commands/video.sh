@@ -604,6 +604,10 @@ run_video_cut() {
     local subtitle_file=""
     local fonts_dir=""
     local encode=0
+    
+    # UI Display Overrides (for symlinked/temp files)
+    local display_in=""
+    local display_out=""
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -615,12 +619,17 @@ run_video_cut() {
             -o|--output) output_file="$2"; shift 2 ;;
             --subtitles) subtitle_file="$2"; shift 2 ;;
             --fonts-dir) fonts_dir="$2"; shift 2 ;;
+            --display-input) display_in="$2"; shift 2 ;;
+            --display-output) display_out="$2"; shift 2 ;;
             --render) encode=1; shift ;;
             *) 
                 if [[ -f "$1" && -z "$input_file" ]]; then
                     input_file="$1"
+                    shift
+                else
+                    echo "Unknown argument: $1"
+                    return 1
                 fi
-                shift 
                 ;;
         esac
     done
@@ -806,7 +815,7 @@ run_video_cut() {
 
 # --- Table Helpers (The Scientific Way) ---
 
-# Calculate visual width (2 for wide/emoji, 1 for normal)
+# Calculate visual width (2 for wide/emoji, 1 for normal) using Python unicodedata
 get_visual_width() {
     python3 -c "import unicodedata, sys; s=sys.argv[1]; print(sum(2 if unicodedata.east_asian_width(c) in 'WF' else 0 if unicodedata.category(c) in ('Mn','Me','Cf') else 1 for c in s))" "$1" 2>/dev/null || echo ${#1}
 }
@@ -829,22 +838,20 @@ pad_to_width() {
     
     # Check result
     if [[ -f "$output_file" ]]; then
-        # Print Stats Table (Restored Old Format - Robust)
-        # Use -L to follow symlinks (size 0B bug fix)
+        # Print Stats Table (Restored Premium Unicode Format)
         local in_size=$(du -hL "$input_file" 2>/dev/null | cut -f1)
         local out_size=$(du -h "$output_file" 2>/dev/null | cut -f1)
         
-        # Calculate Ratio if possible (using raw bytes with follow symlink)
-        # MacOS: stat -L -f%z | Linux: stat -L -c%s
+        # Calculate Ratio (Mac: stat -L -f%z | Linux: stat -L -c%s)
         local in_bytes=$(stat -L -f%z "$input_file" 2>/dev/null || stat -L -c%s "$input_file" 2>/dev/null)
         local out_bytes=$(stat -f%z "$output_file" 2>/dev/null || stat -c%s "$output_file" 2>/dev/null)
         
         local ratio="N/A"
         local percent_saved="0"
         if [[ -n "$in_bytes" && -n "$out_bytes" && "$in_bytes" -gt 0 ]]; then
-             local r_val=$(echo "scale=2; $in_bytes / $out_bytes" | bc 2>/dev/null)
-             ratio="${r_val}x"
-             # Use integer math for percent to avoid bc scale issues
+             # Simple ratio using awk for floats
+             ratio=$(awk "BEGIN {printf \"%.2fx\", $in_bytes/$out_bytes}" 2>/dev/null || echo "N/A")
+             # Integer math for percent
              percent_saved=$(( 100 - (out_bytes * 100 / in_bytes) ))
         fi
 
@@ -853,28 +860,28 @@ pad_to_width() {
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
         
+        # Premium Unicode Table (Restored & Fixed)
         local col_w=20
-        local border_w=22
-        
-        local t_line="┌$(printf '─%.0s' {1..22})┬$(printf '─%.0s' {1..22})┬$(printf '─%.0s' {1..22})┬$(printf '─%.0s' {1..22})┐"
-        local h_line="├$(printf '─%.0s' {1..22})┼$(printf '─%.0s' {1..22})┼$(printf '─%.0s' {1..22})┼$(printf '─%.0s' {1..22})┤"
-        local b_line="└$(printf '─%.0s' {1..22})┴$(printf '─%.0s' {1..22})┴$(printf '─%.0s' {1..22})┴$(printf '─%.0s' {1..22})┘"
+        local t_line="┌──────────────────────┬──────────────────────┬──────────────────────┬──────────────────────┐"
+        local h_line="├──────────────────────┼──────────────────────┼──────────────────────┼──────────────────────┤"
+        local b_line="└──────────────────────┴──────────────────────┴──────────────────────┴──────────────────────┘"
 
         echo "$t_line"
-        
-        # Headers
         printf "│ %s │ %s │ %s │ %s │\n" "$(pad_to_width "📥 INPUT" 20)" "$(pad_to_width "📤 OUTPUT" 20)" "$(pad_to_width "📊 DETAILS" 20)" "$(pad_to_width "📈 RATIO" 20)"
         echo "$h_line"
         
-        # Content
-        local f_in=$(basename "$input_file"); [[ ${#f_in} -gt 16 ]] && f_in="${f_in:0:13}..."
-        local f_out=$(basename "$output_file"); [[ ${#f_out} -gt 16 ]] && f_out="${f_out:0:13}..."
+        # Use display overrides or fall back to basenames
+        local f_in_label="${display_in:-$(basename "$input_file")}"
+        local f_out_label="${display_out:-$(basename "$output_file")}"
+
+        # Truncate labels for table
+        local label_in="File: $f_in_label"; [[ $(get_visual_width "$label_in") -gt 20 ]] && label_in="${label_in:0:17}..."
+        local label_out="File: $f_out_label"; [[ $(get_visual_width "$label_out") -gt 20 ]] && label_out="${label_out:0:17}..."
         
         local duration_s=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$output_file" 2>/dev/null | cut -d. -f1)
 
-        printf "│ %s │ %s │ %s │ %s │\n" "$(pad_to_width "File: $f_in" 20)" "$(pad_to_width "File: $f_out" 20)" "$(pad_to_width "Codec: $encoder" 20)" "$(pad_to_width "Saved: ${percent_saved}%" 20)"
+        printf "│ %s │ %s │ %s │ %s │\n" "$(pad_to_width "$label_in" 20)" "$(pad_to_width "$label_out" 20)" "$(pad_to_width "Codec: $encoder" 20)" "$(pad_to_width "Saved: ${percent_saved}%" 20)"
         printf "│ %s │ %s │ %s │ %s │\n" "$(pad_to_width "Size: $in_size" 20)" "$(pad_to_width "Size: $out_size" 20)" "$(pad_to_width "Time: ${duration_s}s" 20)" "$(pad_to_width "Ratio: $ratio" 20)"
-        
         echo "$b_line"
         
         echo ""
