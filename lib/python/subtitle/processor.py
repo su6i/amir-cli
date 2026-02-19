@@ -2684,7 +2684,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         "--subtitles", safe_ass_path,
                         "--output", safe_output_path,
                         "--display-input", os.path.basename(current_video_input),
-                        "--display-output", output_video,
+                        "--display-output", os.path.basename(output_video),
                         "--render"
                     ]
                     
