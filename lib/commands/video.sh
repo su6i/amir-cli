@@ -657,9 +657,22 @@ run_video_cut() {
 
     # Subtitle Filter Logic
     local filter_complex=""
+    local tmp_sub="" 
+
+    # Cleanup trap (will run on exit)
+    cleanup_subs() {
+        if [[ -n "$tmp_sub" && -f "$tmp_sub" ]]; then
+            rm -f "$tmp_sub"
+        fi
+    }
+    trap cleanup_subs EXIT
+
     if [[ -n "$subtitle_file" ]]; then
-        # Helper function for robust ffmpeg escaping (unquoted)
-        # Escape all special chars: \ : ' , [ ] Space
+        # Create safe temp copy to avoid FFmpeg parsing headaches with spaces/special chars
+        tmp_sub="/tmp/safe_subs_$$.ass"
+        cp "$subtitle_file" "$tmp_sub"
+
+        # Helper function for basic escaping (mainly for fonts_dir if needed)
         escape_ffmpeg() {
             local s="$1"
             s="${s//\\/\\\\}"  # \ -> \\
@@ -679,9 +692,11 @@ run_video_cut() {
             fonts_opt=":fontsdir=${esc_fonts}"
         fi
         
-        local esc_sub=$(escape_ffmpeg "$subtitle_file")
-        # Use explicit filename key and unquoted value (with robust escaping)
-        # This avoids quoting issues while handling spaces/special chars correctly
+        # Use safe temp path (no spaces/special chars guaranteed by /tmp/safe_subs_$$.ass)
+        # But escape it just in case /tmp path has weirdness (unlikely)
+        local esc_sub=$(escape_ffmpeg "$tmp_sub") 
+        
+        # Use subtitles filter with explicit filename key
         filter_complex="subtitles=filename=${esc_sub}${fonts_opt}"
         
         # If subtitles are present, force render mode
