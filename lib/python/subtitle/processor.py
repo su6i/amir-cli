@@ -1967,26 +1967,34 @@ if __name__ == "__main__":
         
         style = self.style_config
         
-        primary_style = (
-            f"Style: Default,{style.font_name},{style.font_size},"
-            f"{style.primary_color},{style.back_color},"
-            f"{style.outline},{style.shadow},{style.border_style},"
-            f"{style.alignment},10,10,10,1"
-        )
-        
-        fa_style = ""
         if lang == 'fa' or secondary_srt:
             # Sync FA font size with English to avoid visual jump
             fa_font_size = style.font_size
-            fa_style = f"Style: FaDefault,B Nazanin,{fa_font_size},&H00FFFFFF,{style.back_color},{style.outline},{style.shadow},{style.border_style},{style.alignment},10,10,10,1"
+            fa_style = (
+                f"Style: FaDefault,B Nazanin,{fa_font_size},&H00FFFFFF,&H000000FF,&H00000000,{style.back_color},"
+                f"-1,0,0,0,100,100,0,0,{style.border_style},{style.outline},{style.shadow},"
+                f"{style.alignment},10,10,10,1"
+            )
         
+        # Standard V4+ Styles Format (23 entries)
+        format_line = "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding"
+
+        # Update primary_style to match full format
+        primary_style_full = (
+            f"Style: Default,{style.font_name},{style.font_size},{style.primary_color},&H000000FF,&H00000000,{style.back_color},"
+            f"0,0,0,0,100,100,0,0,{style.border_style},{style.outline},{style.shadow},"
+            f"{style.alignment},10,10,10,1"
+        )
+
         header = f"""[Script Info]
 ScriptType: v4.00+
 WrapStyle: 2
+PlayResX: 1920
+PlayResY: 1080
 
 [V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, BackColour, Outline, Shadow, BorderStyle, Alignment, MarginL, MarginR, MarginV, Encoding
-{primary_style}
+{format_line}
+{primary_style_full}
 {fa_style}
 
 [Events]
@@ -2007,7 +2015,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         events = []
         
         def wrap_parentheses_with_smaller_font(text: str) -> str:
-            """Wrap content inside parentheses with smaller Arial font and fix BiDi"""
+            """Wrap content inside parentheses with smaller font and fix BiDi"""
             rlm = "\u200F"
             base_fs = style.font_size
             # Protocol: Secondary font should be 75% of primary
@@ -2016,9 +2024,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # Pattern: matches (English Words) with possible pre-existing markers
             pattern = rf'[\u200F]?\(([a-zA-Z0-9\s/_\-\.]+)\)[\u200F]?'
             
-            # The replacement: RLM + {SmallFont + (EnglishText)} + {ResumePersianFont} + RLM
-            # We include the parentheses inside the font tag to scale them too
-            replacement = r'%s{\fnArial\fs%d(\1)}{\fnB Nazanin\fs%d}%s' % (rlm, small_fs, base_fs, rlm)
+            # The replacement: RLM + {Scale + (EnglishText)} + {Resume} + RLM
+            # Using fscx/fscy for scaling is safer than font switching inside brackets for BiDi
+            replacement = r'%s{\fscx75\fscy75}(\1){\fscx100\fscy100}%s' % (rlm, rlm)
             return re.sub(pattern, replacement, text)
         
         for idx, e in enumerate(entries):
@@ -2675,6 +2683,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         safe_video_path,
                         "--subtitles", safe_ass_path,
                         "--output", safe_output_path,
+                        "--display-input", os.path.basename(current_video_input),
+                        "--display-output", output_video,
                         "--render"
                     ]
                     
