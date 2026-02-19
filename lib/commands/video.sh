@@ -661,22 +661,19 @@ run_video_cut() {
         # Check fonts dir
         local fonts_opt=""
         if [[ -n "$fonts_dir" ]]; then
-            # Escape backslashes and single quotes for ffmpeg filter string
-            # 1. Escape backslashes: \ -> \\
+            # Escape backslashes and colons for ffmpeg filter string
             local esc_fonts="${fonts_dir//\\/\\\\}"
-            # 2. Escape single quotes: ' -> '\'' (for shell) inside the single-quoted string?
-            # Actually, standard ffmpeg filter quoting: 'filename'
-            # If filename has ', it's tricky. Assuming no single quotes for now, but handle spaces.
-            # Just wrap in single quotes.
-            fonts_opt=":fontsdir='${esc_fonts}'"
+            esc_fonts="${esc_fonts//:/\\:}"
+            fonts_opt=":fontsdir=${esc_fonts}"
         fi
         
-        # Escape backslashes for Windows paths
+        # Escape backslashes and colons for the subtitle filename
         local esc_sub="${subtitle_file//\\/\\\\}"
+        esc_sub="${esc_sub//:/\\:}"
         
-        # Wrap filename in single quotes to handle spaces and special chars safely
-        # ffmpeg filter syntax: ass='filename'
-        filter_complex="ass='${esc_sub}'${fonts_opt}"
+        # Use simple escaping instead of single quotes
+        # ffmpeg filter syntax: ass=filename:option=value
+        filter_complex="ass=${esc_sub}${fonts_opt}"
         
         # If subtitles are present, force render mode
         encode=1
@@ -740,10 +737,8 @@ run_video_cut() {
     cmd+=("-map_metadata" "0" "$output_file")
 
     # Execute
-    "${cmd[@]}" 2>&1 | while read -d $'\r' -r line; do
-        printf "\r⏳ Processing... %s" "$line"
-    done
-    printf "\r⏳ Processing... Done!                                        \n"
+    # Execute command (Debug Mode: Show full output)
+    "${cmd[@]}"
     
     # Check result
     if [[ -f "$output_file" ]]; then
