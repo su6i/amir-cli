@@ -661,13 +661,22 @@ run_video_cut() {
         # Check fonts dir
         local fonts_opt=""
         if [[ -n "$fonts_dir" ]]; then
-            fonts_opt=":fontsdir=$fonts_dir"
+            # Escape backslashes and single quotes for ffmpeg filter string
+            # 1. Escape backslashes: \ -> \\
+            local esc_fonts="${fonts_dir//\\/\\\\}"
+            # 2. Escape single quotes: ' -> '\'' (for shell) inside the single-quoted string?
+            # Actually, standard ffmpeg filter quoting: 'filename'
+            # If filename has ', it's tricky. Assuming no single quotes for now, but handle spaces.
+            # Just wrap in single quotes.
+            fonts_opt=":fontsdir='${esc_fonts}'"
         fi
-        # We need to escape the filename for filter_complex
-        # Simple escape: replace : with \: and \ with \\
+        
+        # Escape backslashes for Windows paths
         local esc_sub="${subtitle_file//\\/\\\\}"
-        esc_sub="${esc_sub//:/\\:}"
-        filter_complex="ass=${esc_sub}${fonts_opt}"
+        
+        # Wrap filename in single quotes to handle spaces and special chars safely
+        # ffmpeg filter syntax: ass='filename'
+        filter_complex="ass='${esc_sub}'${fonts_opt}"
         
         # If subtitles are present, force render mode
         encode=1
