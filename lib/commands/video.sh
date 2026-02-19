@@ -658,28 +658,25 @@ run_video_cut() {
     # Subtitle Filter Logic
     local filter_complex=""
     if [[ -n "$subtitle_file" ]]; then
-        # Helper function for robust ffmpeg escaping
-        escape_ffmpeg() {
+        # Helper function for quoted ffmpeg escaping (double quotes)
+        # Inside "...", we need to escape \ and "
+        escape_ffmpeg_quoted() {
             local s="$1"
             s="${s//\\/\\\\}"  # \ -> \\
-            s="${s//:/\\:}"    # : -> \:
-            s="${s//\'/\\\'}"  # ' -> \'
-            s="${s//,/\\,}"    # , -> \,
-            s="${s//\[/\\[}"   # [ -> \[
-            s="${s//\]/\\]}"   # ] -> \]
-            s="${s// /\\ }"    # Space -> \ Space
+            s="${s//\"/\\\"}"  # " -> \"
             echo "$s"
         }
 
         # Check fonts dir
         local fonts_opt=""
         if [[ -n "$fonts_dir" ]]; then
-            local esc_fonts=$(escape_ffmpeg "$fonts_dir")
-            fonts_opt=":fontsdir=${esc_fonts}"
+            local esc_fonts=$(escape_ffmpeg_quoted "$fonts_dir")
+            fonts_opt=":fontsdir=\"${esc_fonts}\""
         fi
         
-        local esc_sub=$(escape_ffmpeg "$subtitle_file")
-        filter_complex="ass=${esc_sub}${fonts_opt}"
+        local esc_sub=$(escape_ffmpeg_quoted "$subtitle_file")
+        # Use explicit filename key and double quotes
+        filter_complex="ass=filename=\"${esc_sub}\"${fonts_opt}"
         
         # If subtitles are present, force render mode
         encode=1
