@@ -81,6 +81,7 @@ _amir() {
                 'compress:Process video with smart selection'
                 'cut:Cut / Trim video segment'
                 'batch:Batch process all videos in directory'
+                'download:Download video from any website (YouTube, news, etc.)'
                 'stats:Show AI learning statistics'
                 'reset:Reset AI learning data'
                 'codecs:Check encoder support'
@@ -117,6 +118,17 @@ _amir() {
                         '4:resolution:_amir_resolutions' \
                         '5:quality:_amir_qualities' \
                         '*:extra files:_files'
+                    ;;
+                download|dl)
+                    _arguments -s \
+                        '1: : ' '2: : ' \
+                        '3:url:_message "Enter video page URL (e.g. https://tuckercarlson.com/...)"' \
+                        '(-s --subtitle)'{-s,--subtitle}'[Generate subtitles after download]' \
+                        '(-r --render)'{-r,--render}'[Burn subtitles into video]' \
+                        '--only-subs[Generate subtitles only, delete raw video]' \
+                        '(-t --target)'{-t,--target}'[Subtitle target language (default\: fa)]:language:(fa en ar zh es fr de ru ja ko tr pt hi)' \
+                        '(-b --browser)'{-b,--browser}'[Browser to extract cookies from (default\: chrome)]:browser:(chrome safari firefox brave chromium)' \
+                        '--cookies[Path to Netscape cookies.txt file]:cookies file:_files'
                     ;;
                 *)
                     # Fallback for old amir video <file>
