@@ -26,15 +26,19 @@ run_audio() {
         to-video)
             audio_to_video "$@"
             ;;
+        youtube|yt)
+            audio_youtube "$@"
+            ;;
         *)
-            echo "Usage: amir audio {extract|concat|to-video} [options]"
+            echo "Usage: amir audio {extract|concat|to-video|youtube} [options]"
             echo "       amir audio <directory>  (Smart folder-to-video flow)"
             echo ""
             echo "Subcommands:"
             echo "  extract <video_file> [bitrate]  Extract MP3 from video"
-            echo "  extract <video_file> [bitrate]  Extract MP3 from video"
             echo "  concat [files...] -o output     Join multiple audio files"
             echo "  to-video <audio> -i <image>     Create video from audio and image"
+            echo "  youtube <url> [format] [bitrate] Download audio from YouTube"
+            echo "    Formats: mp3 (default), wav, ogg"
             return 1
             ;;
     esac
@@ -181,6 +185,146 @@ audio_to_video() {
         echo "$OUTPUT"
     else
         log_error "FFmpeg failed to create video." >&2
+        return 1
+    fi
+}
+
+audio_youtube() {
+    local URL="$1"
+    local OUT_FORMAT="${2:-mp3}"
+    local TARGET_BITRATE="${3:-128}"
+
+    if [[ -z "$URL" ]]; then
+        log_error "YouTube URL is required." >&2
+        echo "Usage: amir audio youtube <url> [format] [bitrate]" >&2
+        echo "Formats: mp3 (default), wav, ogg" >&2
+        return 1
+    fi
+
+    if ! command -v yt-dlp &>/dev/null; then
+        log_error "yt-dlp is not installed. Install with: brew install yt-dlp" >&2
+        return 1
+    fi
+
+    local FFMPEG_PATH=$(get_ffmpeg_path)
+
+    # ── Step 1: Fetch metadata only (no download) ─────────────────────────────
+    log_info "🔍 Fetching stream list from YouTube (no download yet)..." >&2
+    local JSON
+    JSON=$(yt-dlp -j "$URL" 2>/dev/null)
+    if [[ -z "$JSON" ]]; then
+        log_error "Could not fetch video metadata. Check the URL or your connection." >&2
+        return 1
+    fi
+
+    # ── Step 2: Pick the best audio stream closest to target bitrate ──────────
+    # Write selector to a temp file (heredoc + pipe conflict in zsh if using stdin)
+    local PY_SEL
+    PY_SEL=$(mktemp /tmp/amir_ytsel.XXXXXX.py)
+    cat > "$PY_SEL" << 'PYEOF'
+import json, sys
+
+data   = json.loads(sys.argv[1])
+target = int(sys.argv[2])
+title  = data.get('title', 'audio').replace('/', '_').replace('\x00', '')
+
+formats = data.get('formats', [])
+# audio-only streams with a known bitrate
+audio = [
+    f for f in formats
+    if f.get('vcodec', 'none') == 'none'
+    and f.get('acodec', 'none') not in ('none', None)
+    and f.get('abr')
+]
+
+if not audio:
+    # fallback: any stream that has audio
+    audio = [f for f in formats if f.get('acodec', 'none') not in ('none', None) and f.get('abr')]
+
+if not audio:
+    print("ERROR:no audio streams found")
+    sys.exit(1)
+
+# Pick the stream closest to target bitrate.
+# Prefer m4a/aac over webm/opus for wider compatibility.
+def score(f):
+    diff = abs(f['abr'] - target)
+    fmt_bonus = 0 if f.get('ext', '') in ('m4a', 'aac') else 1  # prefer m4a
+    return (diff, fmt_bonus)
+
+best       = min(audio, key=score)
+actual_abr = int(best.get('abr', 0))
+# Never upscale: if source abr > target, ffmpeg will re-encode down to target.
+# If source abr <= target, keep source abr (don't inflate).
+encode_abr = min(actual_abr, target)
+
+print(f"{best['format_id']}|{actual_abr}|{encode_abr}|{best.get('ext','m4a')}|{title}")
+PYEOF
+
+    local SELECTION
+    SELECTION=$(python3 "$PY_SEL" "$JSON" "$TARGET_BITRATE")
+    rm -f "$PY_SEL"
+
+    if [[ "$SELECTION" == ERROR:* ]]; then
+        log_error "${SELECTION#ERROR:}" >&2
+        return 1
+    fi
+
+    local FMT_ID    ; FMT_ID=$(echo    "$SELECTION" | cut -d'|' -f1)
+    local SRC_ABR   ; SRC_ABR=$(echo   "$SELECTION" | cut -d'|' -f2)
+    local ENC_ABR   ; ENC_ABR=$(echo   "$SELECTION" | cut -d'|' -f3)
+    local SRC_EXT   ; SRC_EXT=$(echo   "$SELECTION" | cut -d'|' -f4)
+    local TITLE     ; TITLE=$(echo     "$SELECTION" | cut -d'|' -f5)
+
+    log_info "📊 Source stream: format_id=${FMT_ID}  abr=${SRC_ABR}kbps  ext=${SRC_EXT}" >&2
+    log_info "🎯 Target: ${TARGET_BITRATE}kbps → will encode at ${ENC_ABR}kbps (no upscale)" >&2
+
+    local RAW_FILE="${TITLE}.${SRC_EXT}"
+
+    # ── Step 3: Download only the selected stream ─────────────────────────────
+    log_info "⬇️  Downloading stream ${FMT_ID} (~${SRC_ABR}kbps ${SRC_EXT})..." >&2
+    yt-dlp -f "$FMT_ID" -o "$RAW_FILE" "$URL"
+    if [[ $? -ne 0 || ! -f "$RAW_FILE" ]]; then
+        log_error "Download failed." >&2
+        return 1
+    fi
+
+    # ── Step 4: Local conversion with ffmpeg ──────────────────────────────────
+    local OUTPUT_FILE
+    case "$OUT_FORMAT" in
+        mp3)
+            OUTPUT_FILE="${TITLE}_${ENC_ABR}kbps.mp3"
+            log_info "🔄 Converting to MP3 at ${ENC_ABR}kbps..." >&2
+            "$FFMPEG_PATH" -hide_banner -loglevel error -stats -y \
+                -i "$RAW_FILE" -vn -c:a libmp3lame -b:a "${ENC_ABR}k" "$OUTPUT_FILE"
+            ;;
+        wav)
+            OUTPUT_FILE="${TITLE}_wav.wav"
+            log_info "🔄 Converting to WAV..." >&2
+            "$FFMPEG_PATH" -hide_banner -loglevel error -stats -y \
+                -i "$RAW_FILE" -vn "$OUTPUT_FILE"
+            ;;
+        ogg)
+            OUTPUT_FILE="${TITLE}_${ENC_ABR}kbps.ogg"
+            log_info "🔄 Converting to OGG at ${ENC_ABR}kbps..." >&2
+            "$FFMPEG_PATH" -hide_banner -loglevel error -stats -y \
+                -i "$RAW_FILE" -vn -c:a libvorbis -b:a "${ENC_ABR}k" "$OUTPUT_FILE"
+            ;;
+        *)
+            log_error "Unsupported format: $OUT_FORMAT. Use: mp3, wav, ogg" >&2
+            rm -f "$RAW_FILE"
+            return 1
+            ;;
+    esac
+
+    local EXIT_CODE=$?
+    rm -f "$RAW_FILE"   # remove the raw downloaded stream
+
+    if [[ $EXIT_CODE -eq 0 ]]; then
+        log_success "✅ Done: $OUTPUT_FILE" >&2
+        echo "$OUTPUT_FILE"
+    else
+        log_error "ffmpeg conversion failed." >&2
         return 1
     fi
 }
