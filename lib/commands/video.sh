@@ -530,12 +530,26 @@ process_video() {
 }
 
 video() {
+    # Support explicit 'compress' subcommand by skipping it
+    if [[ "$1" == "compress" ]]; then
+        shift
+    fi
+
     # If no arguments, show help
     if [[ $# -eq 0 ]]; then
-        echo "Usage: amir video <files|dirs...> [Resolution] [Quality]"
-        echo "       amir video cut <file> [options]"
-        echo "Example: amir video Video1.mp4 720 60"
-        echo "Cut:     amir video cut input.mp4 -s 00:01:00 -e 00:02:00"
+        echo "Usage: amir video compress <files...> [Resolution] [Quality]"
+        echo "       amir video cut / trim <file> [options]"
+        echo "       amir video batch <dir> [Resolution]"
+        echo ""
+        echo "Example (Compress): amir video compress movie.mp4 1080 60"
+        echo "Example (Trim):     amir video trim clip.mp4 -s 00:01:30 -t 00:03:00"
+        echo ""
+        echo "Options for cut/trim:"
+        echo "  -s, --start      Start time (HH:MM:SS or seconds)"
+        echo "  -e, --end        End time (HH:MM:SS or seconds)"
+        echo "  -t, --to         End time (alias for --end)"
+        echo "  -d, --duration   Duration from start"
+        echo "  -o, --output     Output filename"
         return 1
     fi
 
@@ -892,26 +906,143 @@ pad_to_width() {
     fi
 }
 
+# ==============================================================================
+# Video Download (web, YouTube, CloudflareStream, 1000+ sites via yt-dlp)
+# ==============================================================================
+video_download() {
+    local URL=""
+    local LANG="fa"
+    local DO_SUBTITLE=false
+    local DO_RENDER=false
+    local ONLY_SUBS=false
+    local BROWSER="chrome"
+    local COOKIES_FILE=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --subtitle|-s)   DO_SUBTITLE=true; shift ;;
+            --render|-r)     DO_SUBTITLE=true; DO_RENDER=true; shift ;;
+            --only-subs)     DO_SUBTITLE=true; ONLY_SUBS=true; shift ;;
+            --target|-t)     LANG="$2"; shift 2 ;;
+            --browser|-b)    BROWSER="$2"; shift 2 ;;
+            --cookies)       COOKIES_FILE="$2"; shift 2 ;;
+            -*)
+                log_error "Unknown option: $1" >&2
+                echo "Usage: amir video download <url> [options]" >&2
+                return 1
+                ;;
+            *)  URL="$1"; shift ;;
+        esac
+    done
+
+    if [[ -z "$URL" ]]; then
+        log_error "URL is required." >&2
+        echo "" >&2
+        echo "Usage: amir video download <url> [options]" >&2
+        echo "" >&2
+        echo "Options:" >&2
+        echo "  --subtitle, -s        Generate subtitles (default lang: fa)" >&2
+        echo "  --target, -t <lang>   Subtitle language (e.g. fa, en, ar)" >&2
+        echo "  --render, -r          Burn subtitles into video" >&2
+        echo "  --only-subs           Keep only subtitle files, delete raw video" >&2
+        echo "  --browser <name>      Browser for cookies (default: chrome)" >&2
+        echo "  --cookies <file>      Path to Netscape cookies.txt file" >&2
+        return 1
+    fi
+
+    if ! command -v yt-dlp &>/dev/null; then
+        log_error "yt-dlp is not installed. Install with: brew install yt-dlp" >&2
+        return 1
+    fi
+
+    # Build cookie arguments
+    local -a COOKIE_ARGS=()
+    if [[ -n "$COOKIES_FILE" ]]; then
+        COOKIE_ARGS=(--cookies "$COOKIES_FILE")
+    elif [[ -n "$BROWSER" && "$BROWSER" != "none" ]]; then
+        COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
+    fi
+
+    log_info "⬇️  Downloading: $URL" >&2
+    log_info "   Auth via: ${COOKIES_FILE:-browser:$BROWSER}" >&2
+
+    # Download and capture the final file path via --print after_move:filepath
+    local VIDEO_FILE
+    VIDEO_FILE=$(yt-dlp \
+        "${COOKIE_ARGS[@]}" \
+        --extractor-args "generic:impersonate" \
+        -f "bestvideo+bestaudio/best" \
+        --merge-output-format mp4 \
+        --print "after_move:filepath" \
+        -o "%(title)s.%(ext)s" \
+        "$URL" 2>/dev/null)
+
+    # Verify the file actually exists
+    if [[ -z "$VIDEO_FILE" || ! -f "$VIDEO_FILE" ]]; then
+        # Fallback: re-run with visible stderr so user sees error
+        yt-dlp \
+            "${COOKIE_ARGS[@]}" \
+            --extractor-args "generic:impersonate" \
+            -f "bestvideo+bestaudio/best" \
+            --merge-output-format mp4 \
+            -o "%(title)s.%(ext)s" \
+            "$URL" >&2
+        log_error "Download failed or output path could not be determined." >&2
+        return 1
+    fi
+
+    log_success "Downloaded: $VIDEO_FILE" >&2
+
+    # ── Subtitle generation ─────────────────────────────────────────────────
+    if $DO_SUBTITLE; then
+        local AMIR_BIN
+        AMIR_BIN="$(dirname "$LIB_DIR")/amir"
+        local -a SUB_FLAGS=("-t" "$LANG")
+        $DO_RENDER && SUB_FLAGS+=("-r")
+
+        log_info "🎙️  Generating subtitles (lang: $LANG)..." >&2
+        "$AMIR_BIN" subtitle "$VIDEO_FILE" "${SUB_FLAGS[@]}" >&2
+
+        if $ONLY_SUBS; then
+            log_info "🗑️  Removing raw video (--only-subs)..." >&2
+            rm -f "$VIDEO_FILE"
+            local BASE="${VIDEO_FILE%.*}"
+            for f in "${BASE}"*.srt "${BASE}"*.ass; do
+                [[ -f "$f" ]] && echo "$f"
+            done
+            return 0
+        fi
+
+        # If rendered, subtitle command produces a new file with lang suffix
+        if $DO_RENDER; then
+            local RENDERED="${VIDEO_FILE%.*}_${LANG}.mp4"
+            [[ -f "$RENDERED" ]] && VIDEO_FILE="$RENDERED"
+        fi
+    fi
+
+    log_success "✅ Final file: $VIDEO_FILE" >&2
+    echo "$VIDEO_FILE"
+}
+
 run_video() {
     if [[ "$1" == "stats" ]]; then
-        stats
+        print_compression_stats
     elif [[ "$1" == "reset" ]]; then
-        reset
+        reset_compression_history
     elif [[ "$1" == "codecs" ]]; then
-        codecs_check
+        check_hevc_support
     elif [[ "$1" == "batch" ]]; then
         shift
-        # If the first arg after 'batch' is a directory, use it, otherwise use "."
-        if [[ -d "$1" ]]; then
-            local target_dir="$1"
-            shift
-            video "$target_dir" "$@"
-        else
-            video "." "$@"
-        fi
+        run_video_batch "$@"
     elif [[ "$1" == "cut" || "$1" == "trim" ]]; then
         shift
         run_video_cut "$@"
+    elif [[ "$1" == "compress" ]]; then
+        shift
+        video "$@"
+    elif [[ "$1" == "download" || "$1" == "dl" ]]; then
+        shift
+        video_download "$@"
     else
         video "$@"
     fi
