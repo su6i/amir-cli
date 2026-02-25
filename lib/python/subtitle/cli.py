@@ -4,18 +4,83 @@
 import argparse
 import os
 import sys
+from typing import Optional, Tuple
 from .processor import SubtitleProcessor, SubtitleStyle
 
+
+def _parse_time_str(s: str) -> Optional[float]:
+    """Convert a time string to seconds.
+    Accepts: 'begin' (→ 0.0), 'end' (→ None), plain number (seconds),
+    or HH:MM:SS / H:MM:SS / MM:SS timestamp.
+    """
+    if s.lower() in ('begin', 'start'):
+        return 0.0
+    if s.lower() == 'end':
+        return None  # signals "to end of video"
+    try:
+        return float(s)
+    except ValueError:
+        pass
+    parts = s.split(':')
+    try:
+        if len(parts) == 3:
+            h, m, sec = parts
+            return int(h) * 3600 + int(m) * 60 + float(sec)
+        elif len(parts) == 2:
+            m, sec = parts
+            return int(m) * 60 + float(sec)
+    except (ValueError, TypeError):
+        pass
+    raise ValueError(f"Cannot parse time value: '{s}'")
+
+
+def _parse_limit_args(limit_args) -> Tuple[Optional[float], Optional[float]]:
+    """Parse --limit arguments into (start_sec, end_sec) tuple.
+    - No args  → (None, None)
+    - 1 arg    → (0.0, N)  — backward compat: first N seconds
+    - 2 args   → (start, end)
+    end_sec=None means to the end of the video.
+    """
+    if not limit_args:
+        return None, None
+    if len(limit_args) == 1:
+        val = _parse_time_str(limit_args[0])
+        return (0.0, val)
+    if len(limit_args) == 2:
+        start = _parse_time_str(limit_args[0])
+        end   = _parse_time_str(limit_args[1])
+        return (start or 0.0, end)
+    raise ValueError(f"--limit accepts 1 or 2 time arguments, got {len(limit_args)}")
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Multi-language video subtitle generator (2026 Pro Edition)")
+    parser = argparse.ArgumentParser(
+        description="Multi-language video subtitle generator (2026 Pro Edition)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Note:
+  This tool is for subtitle generation. For video trimming/cutting,
+  use the dedicated video module:
+    amir video cut <file> [options]
+    amir video trim <file> [options]
+"""
+    )
     parser.add_argument("video", help="Video file path")
-    parser.add_argument("-s", "--source", default="en", help="Source language")
-    parser.add_argument("-t", "--target", nargs='+', default=['fa'], help="Target language(s)")
-    parser.add_argument("-r", "--render", action="store_true", help="Render video")
+    parser.add_argument("-s", "--source", default="en", help="Source language (audio language for Whisper transcription)")
+    parser.add_argument("--sub", "-t", nargs='+', dest="sub_langs", default=['fa'], metavar='LANG',
+        help="Subtitle languages to display, in top-to-bottom order. "
+             "Each language is translated from --source if needed. "
+             "Examples: --sub fa | --sub en fa | --sub fr fa en")
+    parser.add_argument("-r", "--render", action="store_true", default=True, help="Burn subtitles into video (default: enabled)")
+    parser.add_argument("--no-render", action="store_false", dest="render", help="Skip burning — generate subtitle files only")
     
-    parser.add_argument("-f", "--force", action="store_true", help="Force re-transcription")
+    parser.add_argument("-f", "--force", action="store_true", help="Force re-transcription and skip SRT smart resume (still uses local hash cache + provider KV caches)")
     parser.add_argument("-c", "--correct", action="store_true", help="Correct transcription with AI")
-    parser.add_argument("-l", "--limit", type=float, help="Limit transcription duration (seconds)")
+    parser.add_argument("-l", "--limit", nargs='+', metavar='TIME',
+        help="Limit transcription to a time range. "
+             "1 arg: first N seconds from start (e.g. --limit 120). "
+             "2 args: start end (e.g. --limit 120 end, --limit begin 00:50:38, --limit 1800 1:22:00). "
+             "Use 'begin'/'end' as aliases for start/end of video.")
     
     # New Pro Arguments
     parser.add_argument("--style", type=str, default="lecture", choices=[e.value for e in SubtitleStyle], help="Subtitle style template")
@@ -38,7 +103,7 @@ def main():
     parser.add_argument("--primary-color", type=str, help="Primary color (ASS hex, e.g., &H00FFFFFF)")
     
     # AI Tuning (Pro)
-    parser.add_argument("--llm", type=str, default="deepseek", choices=["deepseek", "gemini", "litellm"], help="LLM bridge for translation")
+    parser.add_argument("--llm", type=str, default="deepseek", choices=["deepseek", "gemini", "litellm", "minimax", "grok"], help="LLM bridge for translation (default: deepseek)")
     parser.add_argument("--model", type=str, help="Specific model name (required for LiteLLM, e.g., gpt-4o)")
     parser.add_argument("--whisper-model", type=str, default="turbo", help="Whisper model size (e.g., large-v3, turbo)")
     parser.add_argument("--initial-prompt", type=str, help="Whisper initial prompt (context)")
@@ -48,9 +113,15 @@ def main():
     # Logic Overrides (Pro)
     parser.add_argument("--min-duration", type=float, default=1.0, help="Minimum subtitle duration (seconds)")
 
+    # Telegram post generation
+    parser.add_argument("--post", action="store_true", default=False,
+                        help="Generate a Telegram channel intro post after subtitle workflow")
+    parser.add_argument("--post-only", action="store_true", dest="post_only", default=False,
+                        help="Generate Telegram post only from existing SRTs (skip transcription/translation/rendering)")
+
     args = parser.parse_args()
     
-    if not os.path.exists(args.video):
+    if not os.path.exists(args.video) and not args.post_only:
         print(f"Error: {args.video} not found")
         sys.exit(1)
         
@@ -77,15 +148,19 @@ def main():
         ,use_bert=args.use_bert,
         bert_model=args.bert_model
     )
+    limit_start, limit_end = _parse_limit_args(args.limit)
     processor.run_workflow(
-        args.video, 
-        args.source, 
-        args.target, 
-        render=args.render, 
+        args.video,
+        args.source,
+        args.sub_langs,
+        render=args.render,
         force=args.force,
         correct=args.correct,
-        limit=args.limit,
-        detect_speakers=args.speaker
+        limit_start=limit_start,
+        limit_end=limit_end,
+        detect_speakers=args.speaker,
+        gen_post=args.post,
+        post_only=args.post_only,
     )
 
 if __name__ == "__main__":

@@ -205,11 +205,44 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
     - `cut` (or `trim`): Fast video slicing. Uses `-c copy` (stream copy) by default for near-instant cutting without quality loss. Supports `-s` (start), `-e` (end), and `-d` (duration).
     - `batch`: Optimized for directories.
     - `stats`: View AI learning statistics.
+    - `download <url> [opts]`: Download from YouTube & 1000+ sites (see below).
 - **Orientation Awareness:** Automatically detects Portrait vs. Landscape orientation.
 - **Hardware Acceleration:** Auto-detects macOS Silicon (`videotoolbox`), NVIDIA (`nvenc`), or Intel (`qsv`).
 - **Clean Progress:** Captures FFmpeg status for a single-line terminal update.
 - **Table Alignment:** Uses Python's `unicodedata` library to strictly calculate visual string width (East Asian Width).
 - **AI Stats:** Log file tracks compression ratios to optimal settings.
+
+#### `video download` — Download + Subtitle Pipeline
+
+```bash
+amir video download <url> [options]
+```
+
+| Flag | Behavior |
+|------|----------|
+| `--yt-subs` | Download YouTube's built-in subtitles (human-curated first, auto-gen fallback). No Whisper. |
+| `--subtitle / -s` | Run Whisper AI transcription on the downloaded video, then burn. Sets `DO_RENDER=true`. |
+| `--translate` | Download YT subs + translate via DeepSeek → **burn into video by default** (`DO_RENDER=true`). Skip Whisper. |
+| `--no-render` | Override: generate SRT only, skip burning. Combine with `--translate` for subtitle-only output. |
+| `--target / -t [src] lang` | Subtitle language. Two-value form: `-t en fa` (source=en, target=fa). Single: `-t fa` (source stays default `en`). |
+| `--only-subs` | After subtitle generation, prompt to delete the raw downloaded video. |
+| `--get-link / -l` | Print the direct stream URL(s) without downloading (for external download managers). |
+| `--browser <name>` | Browser for cookie extraction (default: `chrome`). |
+| `--cookies <file>` | Path to a Netscape `cookies.txt` file (for paywalled or geo-restricted content). |
+
+**Key design rules:**
+- `--translate` implies `DO_RENDER=true` — the translated subtitle is burned into the video automatically.
+- Use `--no-render` to get SRT-only output: `amir video download <url> --translate -t en fa --no-render`.
+- The `-t` parser guards against consuming the URL as a language: values matching `^https?://` or longer than 10 chars are never parsed as language codes.
+- Shell-escaped backslashes are stripped from the URL automatically (`URL="${URL//\\/}"`) — users can paste unquoted zsh-escaped URLs without errors.
+- Same-source/target validation: `-t en` with default source `en` produces a clear error instead of a silent no-op.
+
+**Translation workflow (`--translate`):**
+1. Download video with yt-dlp (`--print after_move:filepath` → captures final path without swallowing progress bar)
+2. Fetch YT built-in subtitles (`--skip-download --write-subs --write-auto-subs`, prefer `*.en.srt` over `*.en-orig.srt`)
+3. Copy chosen source SRT to `_en.srt` (triggers Whisper-skip in `amir subtitle`)
+4. Call `amir subtitle <video> -s en -t fa` with or without `--no-render`
+5. `amir subtitle` does LLM translation → validates 100% → optionally burns with ffmpeg
 
 ### `pdf` (Multi-Engine High-Fidelity Rendering)
 - **Architecture:** Hybrid system utilizing specialized rendering engines with a robust fallback pipeline.

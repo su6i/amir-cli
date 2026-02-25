@@ -39,19 +39,8 @@ run_transfer() {
                     ;;
                     
                 "anonfiles")
-                    # anonfiles.com - Reliable with long history
-                    local response=$(curl -4 -s -F "file=@$1" "https://api.anonfiles.com/upload" 2>&1)
-                    
-                    if echo "$response" | grep -q '"url"'; then
-                        local link=$(echo "$response" | grep -o '"url":"[^"]*"' | cut -d'"' -f4)
-                        if [[ -n "$link" ]]; then
-                            echo "✅ Upload successful via anonfiles.com!"
-                            echo "📍 Link: $link"
-                            echo -n "$link" | pbcopy 2>/dev/null || echo -n "$link" | xclip -selection clipboard 2>/dev/null
-                            echo "📋 Link copied to clipboard"
-                            return 0
-                        fi
-                    fi
+                    # anonfiles.com shut down in 2023 — skip silently
+                    continue
                     ;;
                     
                 "pixeldrain")
