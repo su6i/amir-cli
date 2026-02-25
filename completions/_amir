@@ -142,18 +142,20 @@ _amir() {
                     # amir video subtitle <file/url> — same flags as top-level amir subtitle
                     _arguments -s \
                         '1: : ' '2: : ' \
-                        '3:video file or URL:_files -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM"' \
-                        '(-s --source)'{-s,--source}'[Source language code (default\: en)]:source language:(en zh es hi ar bn pt ru ja fr de fa tr ko)' \
-                        '(-t --target)'{-t,--target}'[Target language code(s)]:target language:(fa en ar zh es fr de ru ja ko tr pt hi)' \
+                        '3:video/SRT file or URL:_files -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM *.srt *.SRT"' \
+                        '(-s --source)'{-s,--source}'[Source language / audio language for Whisper]:source lang:(en zh es hi ar bn pt ru ja fr de fa tr ko)' \
+                        '*'{--sub,-t}'[Subtitle display langs in top→bottom order (repeatable)]:lang:(fa en de ar zh es fr ru ja ko tr pt hi)' \
                         '(-r --render)'{-r,--render}'[Burn subtitles into video (default\: enabled)]' \
                         '--no-render[Generate subtitle files only — do not burn into video]' \
                         '(-f --force)'{-f,--force}'[Force re-transcription]' \
                         '(-c --correct)'{-c,--correct}'[Correct transcription with AI]' \
-                        '(-l --limit)'{-l,--limit}'[Limit transcription to N seconds (for quick testing)]:seconds' \
+                        '(-l --limit)'{-l,--limit}'[Time range — N seconds, or start end (use begin/start/end keywords)]:time:(begin end start)' \
                         '--llm[LLM bridge for translation]:llm:(deepseek gemini litellm minimax grok)' \
                         '--model[Specific LLM model code (for LiteLLM)]:model' \
                         '--whisper-model[Whisper model size/name]:model:(turbo large-v3 large-v2 medium small base tiny)' \
-                        '--style[Subtitle style template]:style:(lecture vlog game cinematic minimalist)'
+                        '--style[Subtitle style template]:style:(lecture vlog game cinematic minimalist)' \
+                        '--post[Generate Telegram channel post after subtitle workflow]' \
+                        '--post-only[Generate social post from existing SRTs only (skip processing)]'
                     ;;
                 *)
                     # Fallback for old amir video <file>
@@ -599,14 +601,14 @@ _amir() {
                 *)
                     _arguments -s \
                         '1: : ' \
-                        '2:video file or URL:_files -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM"' \
-                        '(-s --source)'{-s,--source}'[Source language code (default\: en)]:source language:(en zh es hi ar bn pt ru ja fr ur pa vi tr ko id de fa gu it mr te ta th ha el he mg nl pl uk)' \
-                        '(-t --target)'{-t,--target}'[Target language code(s)]:target language:(en zh es hi ar bn pt ru ja fr ur pa vi tr ko id de fa gu it mr te ta th ha el he mg nl pl uk)' \
+                        '2:video/SRT file or URL:_files -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM *.srt *.SRT"' \
+                        '(-s --source)'{-s,--source}'[Source language / audio language for Whisper (default\: en)]:source lang:(en zh es hi ar bn pt ru ja fr ur pa vi tr ko id de fa gu it mr te ta th ha el he mg nl pl uk)' \
+                        '*'{--sub,-t}'[Subtitle display langs in top→bottom order (repeatable)]:lang:(fa en de ar zh es fr ru ja ko tr pt hi ur pa vi id gu it)' \
                         '(-r --render)'{-r,--render}'[Burn subtitles into video (default\: enabled)]' \
                         '--no-render[Generate subtitle files only — do not burn into video]' \
                         '(-f --force)'{-f,--force}'[Force re-transcription]' \
                         '(-c --correct)'{-c,--correct}'[Correct transcription with AI]' \
-                        '(-l --limit)'{-l,--limit}'[Limit transcription to N seconds — for quick testing (e.g. 120)]:seconds' \
+                        '(-l --limit)'{-l,--limit}'[Time range — N seconds, or two values: start end (use begin/start/end keywords)]:time:(begin end start)' \
                         '--style[Subtitle style template]:style:(lecture vlog game cinematic minimalist)' \
                         '--max-lines[Maximum lines per subtitle]:lines:(1 2)' \
                         '--speaker[Enable Speaker Diarization]' \
@@ -623,7 +625,9 @@ _amir() {
                         '--shadow[Shadow depth]:depth' \
                         '--outline[Outline width]:width' \
                         '--use-bert[Enable BERT collocation scoring]' \
-                        '(-R --resolution)'{-R,--resolution}'[After download: compress to height]:height:(240 360 480 720 1080)'
+                        '--post[Generate Telegram channel post after subtitle workflow]' \
+                        '--post-only[Generate social post from existing SRTs only (skip processing)]' \
+                        '(-R --resolution)'{-R,--resolution}'[After URL download: compress to height]:height:(240 360 480 720 1080)'
                     ;;
             esac
             ;;
