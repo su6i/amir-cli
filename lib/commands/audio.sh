@@ -283,7 +283,8 @@ PYEOF
 
     # ── Step 3: Download only the selected stream ─────────────────────────────
     log_info "⬇️  Downloading stream ${FMT_ID} (~${SRC_ABR}kbps ${SRC_EXT})..." >&2
-    yt-dlp -f "$FMT_ID" -o "$RAW_FILE" "$URL"
+    yt-dlp --continue --newline -f "$FMT_ID" -o "$RAW_FILE" "$URL" \
+        2> >(grep --line-buffered -E '^\[download\]|^ERROR|^WARNING:' >&2)
     if [[ $? -ne 0 || ! -f "$RAW_FILE" ]]; then
         log_error "Download failed." >&2
         return 1
@@ -347,7 +348,7 @@ smart_audio_flow() {
     
     log_info "🤖 Automatically calling subtitle module (with rendering)..." >&2
     # Added -r to render/burn subtitles into the video
-    "$SCRIPT_DIR/amir" subtitle "$FINAL_VIDEO" -t fa -r >&2
+    "${AMIR_ROOT:-$(dirname "$(dirname "$LIB_DIR")")}/amir" subtitle "$FINAL_VIDEO" -t fa -r >&2
     
     log_success "✨ Process complete! Final video: $FINAL_VIDEO" >&2
     echo "$FINAL_VIDEO"
