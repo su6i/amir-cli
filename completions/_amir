@@ -154,8 +154,9 @@ _amir() {
                         '--model[Specific LLM model code (for LiteLLM)]:model' \
                         '--whisper-model[Whisper model size/name]:model:(turbo large-v3 large-v2 medium small base tiny)' \
                         '--style[Subtitle style template]:style:(lecture vlog game cinematic minimalist)' \
-                        '--post[Generate Telegram channel post after subtitle workflow]' \
-                        '--post-only[Generate social post from existing SRTs only (skip processing)]'
+                        '*--post[Generate posts after workflow (optional: telegram youtube linkedin)]:platform:(telegram youtube linkedin)' \
+                        '*--post-only[Post only — skip processing (optional: telegram youtube linkedin)]:platform:(telegram youtube linkedin)' \
+                        '--prompt-file[Custom prompt file for post generation]:file:_files'
                     ;;
                 *)
                     # Fallback for old amir video <file>
@@ -625,8 +626,9 @@ _amir() {
                         '--shadow[Shadow depth]:depth' \
                         '--outline[Outline width]:width' \
                         '--use-bert[Enable BERT collocation scoring]' \
-                        '--post[Generate Telegram channel post after subtitle workflow]' \
-                        '--post-only[Generate social post from existing SRTs only (skip processing)]' \
+                        '*--post[Generate posts after workflow (optional: telegram youtube linkedin)]:platform:(telegram youtube linkedin)' \
+                        '*--post-only[Post only — skip processing (optional: telegram youtube linkedin)]:platform:(telegram youtube linkedin)' \
+                        '--prompt-file[Custom prompt file for post generation]:file:_files' \
                         '(-R --resolution)'{-R,--resolution}'[After URL download: compress to height]:height:(240 360 480 720 1080)'
                     ;;
             esac

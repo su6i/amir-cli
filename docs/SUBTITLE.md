@@ -95,11 +95,16 @@ amir subtitle video.mp4 -s de --sub fa
 # Transcribe from SRT file (skip Whisper)
 amir subtitle video_en.srt -s en --sub fa
 
-# Generate Telegram channel intro post
+# Generate Telegram channel intro post (default platform)
 amir subtitle video.mp4 --post
+
+# Generate posts for specific platforms
+amir subtitle video.mp4 --post youtube
+amir subtitle video.mp4 --post telegram youtube linkedin
 
 # Only generate posts from existing SRTs (faster)
 amir subtitle video.mp4 --post-only
+amir subtitle video.mp4 --post-only linkedin
 ```
 
 ### 📋 Full Usage Guide
@@ -160,18 +165,43 @@ amir subtitle https://youtube.com/watch?v=... -R 720
 amir subtitle video.mp4 --llm gemini --model gemini-2.0-flash
 ```
 
-**Social media posts (new):**
+**Social media posts:**
 
 ```bash
-# Generate Telegram intro post alongside subtitles
+# Telegram (default when no platform given)
 amir subtitle video.mp4 --post
 
-# Create posts for multiple output languages (separate file per language)
-amir subtitle video.mp4 --sub fa en de --post    # → fa_telegram.txt, en_telegram.txt, de_telegram.txt
+# Specific platform(s)
+amir subtitle video.mp4 --post youtube
+amir subtitle video.mp4 --post telegram youtube linkedin
 
-# Only generate posts from already-existing SRT files (no transcription)
-amir subtitle video.mp4 --post-only              # super fast
+# Multiple output languages → one file per lang×platform
+amir subtitle video.mp4 --sub fa en de --post telegram    # → fa_telegram.txt, en_telegram.txt, de_telegram.txt
+
+# Post only from already-existing SRT files (no transcription)
+amir subtitle video.mp4 --post-only              # super fast — telegram default
+amir subtitle video.mp4 --post-only linkedin
+
+# Custom prompt file (one-time override)
+amir subtitle video.mp4 --post youtube --prompt-file ~/my_youtube_prompt.txt
+
+# Persistent platform override: create ~/.amir/prompts/{platform}.txt
+mkdir -p ~/.amir/prompts
+cat > ~/.amir/prompts/youtube.txt <<'EOF'
+Write a YouTube description for: {title}
+Language: {srt_lang_name}
+Content: {full_text}
+EOF
+amir subtitle video.mp4 --post youtube   # now uses your custom prompt
 ```
+
+**Prompt template variables** (for custom prompt files):
+
+| Variable | Description |
+|----------|-------------|
+| `{title}` | Video title (derived from filename) |
+| `{srt_lang_name}` | Subtitle language full name (e.g. `Persian`, `English`) |
+| `{full_text}` | Full subtitle text content |
 
 **SRT input (skip Whisper, go straight to translation):**
 
@@ -235,8 +265,24 @@ amir video download "https://youtube.com/watch?v=XYZ" --subtitle -t fa
 | Flag | Type | Options | Description |
 |------|------|---------|-------------|
 | `--limit` | args | `N` \| `start` `end` | Transcribe time range: `--limit 120` first 2min, `--limit 30 200` start-end |
-| `--post` | bool | — | Generate Telegram intro post alongside subtitles |
-| `--post-only` | bool | — | Generate posts from existing SRTs (skip processing) |
+
+### Social Media Post Generation
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--post` | platforms | `telegram` | Generate posts after workflow. Optional platform args: `telegram` `youtube` `linkedin` |
+| `--post-only` | platforms | `telegram` | Skip processing — generate posts from existing SRTs only |
+| `--prompt-file` | file | — | One-time custom prompt file (overrides `~/.amir/prompts/{platform}.txt`) |
+
+**Platform details:**
+
+| Platform | Output file suffix | Post type |
+|----------|-------------------|-----------|
+| `telegram` | `_fa_telegram.txt` | Short Persian intro, hashtags, ~150 words |
+| `youtube` | `_en_youtube.txt` | SEO description, 200–400 words, timestamp hints |
+| `linkedin` | `_fa_linkedin.txt` | Professional bilingual post, 150–250 words |
+
+**Persistent prompt override:** place a file at `~/.amir/prompts/{platform}.txt` using vars `{title}`, `{srt_lang_name}`, `{full_text}`.
 
 ### Visual & Styling
 
