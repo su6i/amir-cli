@@ -2827,8 +2827,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         try:
             # Post-only mode: skip all processing and generate post from existing SRTs.
             if post_only:
-                self.generate_posts(original_base, source_lang, {}, platforms=platforms or ['telegram'],
-                                    prompt_file=prompt_file)
+                try:
+                    self.generate_posts(original_base, source_lang, {}, platforms=platforms or ['telegram'],
+                                        prompt_file=prompt_file)
+                except Exception as _pe:
+                    self.logger.warning(f"⚠️ Post generation skipped (post-only mode): {_pe}")
                 return {}
 
             # SAFETY: Check disk space before starting
@@ -3408,8 +3411,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             # Social post generation (auto-triggered when platforms list is given)
             if platforms:
-                self.generate_posts(original_base, source_lang, result, platforms=platforms,
-                                    prompt_file=prompt_file)
+                try:
+                    self.generate_posts(original_base, source_lang, result, platforms=platforms,
+                                        prompt_file=prompt_file)
+                except Exception as _pe:
+                    self.logger.warning(f"⚠️ Post generation failed (workflow continues): {_pe}")
 
             self.logger.info("Execution sequence finalized.")
             return result
@@ -3726,49 +3732,64 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         saved: Dict[str, str] = {}
 
         for srt_lang in srt_langs:
-            srt_path = result.get(srt_lang) or f"{original_base}_{srt_lang}.srt"
-            if not os.path.exists(srt_path):
+            try:
+                srt_path = result.get(srt_lang) or f"{original_base}_{srt_lang}.srt"
+                if not os.path.exists(srt_path):
+                    continue
+
+                # Extract clean subtitle text + compute duration
+                entries = self.parse_srt(srt_path)
+                duration = self._srt_duration_str(entries)
+                lines = []
+                for e in entries:
+                    t = e['text']
+                    for c in _bidi:
+                        t = t.replace(c, '')
+                    lines.append(t.strip())
+                full_text = '\n'.join(lines[:150]) + ('\n...' if len(lines) > 150 else '')
+                # Remove surrogate characters that break UTF-8 encoding when sent to APIs
+                full_text = full_text.encode('utf-8', errors='replace').decode('utf-8')
+                title_clean = title.encode('utf-8', errors='replace').decode('utf-8')
+
+                srt_lang_name = get_language_config(srt_lang).name
+
+                for platform in platforms:
+                    try:
+                        system, user = self._get_post_prompt(platform, title_clean, srt_lang_name, full_text,
+                                                             prompt_file=prompt_file, srt_lang=srt_lang,
+                                                             duration=duration)
+                    except ValueError as ve:
+                        self.logger.warning(str(ve))
+                        continue
+                    except Exception as _pe:
+                        self.logger.warning(f"⚠️ Prompt build failed for {platform}/{srt_lang}: {_pe}")
+                        continue
+
+                    try:
+                        post_text = self._call_llm_for_post(system, user)
+                    except Exception as _le:
+                        self.logger.warning(f"⚠️ LLM call failed for {platform}/{srt_lang}: {_le}")
+                        continue
+
+                    if not post_text:
+                        self.logger.warning(f"⚠️ Empty response for {platform}/{srt_lang} — skipping")
+                        continue
+
+                    try:
+                        post_text = self._sanitize_post(post_text, platform)
+                        post_path = f"{original_base}_{srt_lang}_{platform}.txt"
+                        with open(post_path, 'w', encoding='utf-8') as f:
+                            f.write(post_text)
+                        saved[f"{srt_lang}_{platform}"] = post_path
+                        label = f"پست {platform} ({srt_lang.upper()})"
+                        self.logger.info(f"📝 {label} saved: {Path(post_path).name}")
+                        print(f"\n{'━'*60}\n📝  {label}:\n{'━'*60}\n{post_text}\n{'━'*60}\n")
+                    except Exception as _we:
+                        self.logger.warning(f"⚠️ Could not save post for {platform}/{srt_lang}: {_we}")
+
+            except Exception as _lang_e:
+                self.logger.warning(f"⚠️ Skipping lang={srt_lang} due to unexpected error: {_lang_e}")
                 continue
-
-            # Extract clean subtitle text + compute duration
-            entries = self.parse_srt(srt_path)
-            duration = self._srt_duration_str(entries)
-            lines = []
-            for e in entries:
-                t = e['text']
-                for c in _bidi:
-                    t = t.replace(c, '')
-                lines.append(t.strip())
-            full_text = '\n'.join(lines[:150]) + ('\n...' if len(lines) > 150 else '')
-            # Remove surrogate characters that break UTF-8 encoding when sent to APIs
-            full_text = full_text.encode('utf-8', errors='replace').decode('utf-8')
-            title_clean = title.encode('utf-8', errors='replace').decode('utf-8')
-
-            srt_lang_name = get_language_config(srt_lang).name
-
-            for platform in platforms:
-                try:
-                    system, user = self._get_post_prompt(platform, title_clean, srt_lang_name, full_text,
-                                                         prompt_file=prompt_file, srt_lang=srt_lang,
-                                                         duration=duration)
-                except ValueError as ve:
-                    self.logger.warning(str(ve))
-                    continue
-
-                post_text = self._call_llm_for_post(system, user)
-                if not post_text:
-                    continue
-
-                post_text = self._sanitize_post(post_text, platform)
-
-                post_path = f"{original_base}_{srt_lang}_{platform}.txt"
-                with open(post_path, 'w', encoding='utf-8') as f:
-                    f.write(post_text)
-
-                saved[f"{srt_lang}_{platform}"] = post_path
-                label = f"پست {platform} ({srt_lang.upper()})"
-                self.logger.info(f"📝 {label} saved: {Path(post_path).name}")
-                print(f"\n{'━'*60}\n📝  {label}:\n{'━'*60}\n{post_text}\n{'━'*60}\n")
 
         return saved
 
