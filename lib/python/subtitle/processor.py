@@ -2617,6 +2617,28 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         
         self.logger.info(f"ASS asset generation complete: {Path(ass_path).name}")
 
+    @staticmethod
+    def _srt_duration_str(entries: List[Dict]) -> str:
+        """Return human-readable duration from the last SRT entry's end timestamp."""
+        if not entries:
+            return ''
+        last_end = entries[-1]['end']  # e.g. '24:50:03,120'
+        try:
+            hms, ms = last_end.split(',')
+            h, m, s = map(int, hms.split(':'))
+            total_sec = h * 3600 + m * 60 + s
+            hours = total_sec // 3600
+            mins  = (total_sec % 3600) // 60
+            secs  = total_sec % 60
+            if hours > 0:
+                return f'{hours} ساعت و {mins} دقیقه'
+            elif secs >= 30:
+                return f'{mins} دقیقه و {secs} ثانیه'
+            else:
+                return f'{mins} دقیقه'
+        except Exception:
+            return ''
+
     def parse_srt(self, srt_path: str) -> List[Dict]:
         with open(srt_path, 'r', encoding='utf-8-sig') as f:
             content = f.read()
@@ -3413,7 +3435,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     # Language names are resolved via get_language_config(lang).name — no hardcoded dicts needed.
 
     def _get_post_prompt(self, platform: str, title: str, srt_lang_name: str, full_text: str,
-                          prompt_file: Optional[str] = None, srt_lang: str = 'fa'):
+                          prompt_file: Optional[str] = None, srt_lang: str = 'fa',
+                          duration: str = ''):
         """Return (system_prompt, user_prompt) tuple for the given platform.
 
         Prompt resolution priority:
@@ -3662,8 +3685,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if not os.path.exists(srt_path):
                 continue
 
-            # Extract clean subtitle text
+            # Extract clean subtitle text + compute duration
             entries = self.parse_srt(srt_path)
+            duration = self._srt_duration_str(entries)
             lines = []
             for e in entries:
                 t = e['text']
@@ -3677,7 +3701,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             for platform in platforms:
                 try:
                     system, user = self._get_post_prompt(platform, title, srt_lang_name, full_text,
-                                                         prompt_file=prompt_file, srt_lang=srt_lang)
+                                                         prompt_file=prompt_file, srt_lang=srt_lang,
+                                                         duration=duration)
                 except ValueError as ve:
                     self.logger.warning(str(ve))
                     continue
