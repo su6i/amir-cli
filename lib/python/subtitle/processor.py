@@ -3619,6 +3619,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     def _call_llm_for_post(self, system: str, user: str) -> Optional[str]:
         """Call LLM with DeepSeek → Gemini fallback. Returns generated text or None."""
+        # Sanitize surrogate chars that break UTF-8 API calls
+        system = system.encode('utf-8', errors='replace').decode('utf-8')
+        user = user.encode('utf-8', errors='replace').decode('utf-8')
         try:
             _ds = OpenAI(api_key=self.api_key, base_url="https://api.deepseek.com/v1")
             _resp = _ds.chat.completions.create(
@@ -3737,12 +3740,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     t = t.replace(c, '')
                 lines.append(t.strip())
             full_text = '\n'.join(lines[:150]) + ('\n...' if len(lines) > 150 else '')
+            # Remove surrogate characters that break UTF-8 encoding when sent to APIs
+            full_text = full_text.encode('utf-8', errors='replace').decode('utf-8')
+            title_clean = title.encode('utf-8', errors='replace').decode('utf-8')
 
             srt_lang_name = get_language_config(srt_lang).name
 
             for platform in platforms:
                 try:
-                    system, user = self._get_post_prompt(platform, title, srt_lang_name, full_text,
+                    system, user = self._get_post_prompt(platform, title_clean, srt_lang_name, full_text,
                                                          prompt_file=prompt_file, srt_lang=srt_lang,
                                                          duration=duration)
                 except ValueError as ve:
