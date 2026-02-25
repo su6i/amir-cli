@@ -78,6 +78,7 @@ _amir() {
         video)
             local -a video_subcmds
             video_subcmds=(
+                'subtitle:Transcribe + translate video (Whisper AI + LLM). Also accepts a URL'
                 'compress:Process video with smart selection'
                 'cut:Cut / Trim video segment'
                 'batch:Batch process all videos in directory'
@@ -122,13 +123,39 @@ _amir() {
                 download|dl)
                     _arguments -s \
                         '1: : ' '2: : ' \
-                        '3:url:_message "Enter video page URL (e.g. https://tuckercarlson.com/...)"' \
-                        '(-s --subtitle)'{-s,--subtitle}'[Generate subtitles after download]' \
-                        '(-r --render)'{-r,--render}'[Burn subtitles into video]' \
-                        '--only-subs[Generate subtitles only, delete raw video]' \
+                        '3:url: ' \
+                        '(-s --subtitle)'{-s,--subtitle}'[Transcribe + burn subtitles via Whisper AI]' \
+                        '--yt-subs[Download YouTube'\''s own subtitles (human first, auto-gen fallback)]' \
+                        '--translate[With --yt-subs: translate EN→target via LLM — no Whisper needed]' \
+                        '(-r --render)'{-r,--render}'[Burn subtitle into video (use with --yt-subs)]' \
+                        '--no-render[Save subtitle files only, skip burning (use with --subtitle)]' \
+                        '--only-subs[Keep subtitle files; prompt to delete raw video]' \
+                        '--sub-format[Subtitle format]:format:(srt ass all)' \
+                        '(-y --yes)'{-y,--yes}'[Auto-confirm delete prompt (use with --only-subs)]' \
+                        '(-l --get-link)'{-l,--get-link}'[Print direct stream URL(s) only — for download managers]' \
                         '(-t --target)'{-t,--target}'[Subtitle target language (default\: fa)]:language:(fa en ar zh es fr de ru ja ko tr pt hi)' \
+                        '(-R --resolution)'{-R,--resolution}'[Compress to height after download (e.g. 720)]:height:(240 360 480 720 1080)' \
                         '(-b --browser)'{-b,--browser}'[Browser to extract cookies from (default\: chrome)]:browser:(chrome safari firefox brave chromium)' \
                         '--cookies[Path to Netscape cookies.txt file]:cookies file:_files'
+                    ;;
+                subtitle)
+                    # amir video subtitle <file/url> — same flags as top-level amir subtitle
+                    _arguments -s \
+                        '1: : ' '2: : ' \
+                        '3:video/SRT file or URL:_files -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM *.srt *.SRT"' \
+                        '(-s --source)'{-s,--source}'[Source language / audio language for Whisper]:source lang:(en zh es hi ar bn pt ru ja fr de fa tr ko)' \
+                        '*'{--sub,-t}'[Subtitle display langs in top→bottom order (repeatable)]:lang:(fa en de ar zh es fr ru ja ko tr pt hi)' \
+                        '(-r --render)'{-r,--render}'[Burn subtitles into video (default\: enabled)]' \
+                        '--no-render[Generate subtitle files only — do not burn into video]' \
+                        '(-f --force)'{-f,--force}'[Force re-transcription]' \
+                        '(-c --correct)'{-c,--correct}'[Correct transcription with AI]' \
+                        '(-l --limit)'{-l,--limit}'[Time range — N seconds, or start end (use begin/start/end keywords)]:time:(begin end start)' \
+                        '--llm[LLM bridge for translation]:llm:(deepseek gemini litellm minimax grok)' \
+                        '--model[Specific LLM model code (for LiteLLM)]:model' \
+                        '--whisper-model[Whisper model size/name]:model:(turbo large-v3 large-v2 medium small base tiny)' \
+                        '--style[Subtitle style template]:style:(lecture vlog game cinematic minimalist)' \
+                        '--post[Generate Telegram channel post after subtitle workflow]' \
+                        '--post-only[Generate social post from existing SRTs only (skip processing)]'
                     ;;
                 *)
                     # Fallback for old amir video <file>
@@ -574,28 +601,33 @@ _amir() {
                 *)
                     _arguments -s \
                         '1: : ' \
-                        '2:video file:_files -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM"' \
-                        '(-s --source)'{-s,--source}'[Source language code (default\: en)]:source language:(en zh es hi ar bn pt ru ja fr ur pa vi tr ko id de fa gu it mr te ta th ha el he mg nl pl uk)' \
-                        '(-t --target)'{-t,--target}'[Target language code(s)]:target language:(en zh es hi ar bn pt ru ja fr ur pa vi tr ko id de fa gu it mr te ta th ha el he mg nl pl uk)' \
-                        '(-r --render)'{-r,--render}'[Render video with embedded subtitles]' \
-                        '(-c --continue)'{-c,--continue}'[Resume incomplete translation]' \
+                        '2:video/SRT file or URL:_files -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM *.srt *.SRT"' \
+                        '(-s --source)'{-s,--source}'[Source language / audio language for Whisper (default\: en)]:source lang:(en zh es hi ar bn pt ru ja fr ur pa vi tr ko id de fa gu it mr te ta th ha el he mg nl pl uk)' \
+                        '*'{--sub,-t}'[Subtitle display langs in top→bottom order (repeatable)]:lang:(fa en de ar zh es fr ru ja ko tr pt hi ur pa vi id gu it)' \
+                        '(-r --render)'{-r,--render}'[Burn subtitles into video (default\: enabled)]' \
+                        '--no-render[Generate subtitle files only — do not burn into video]' \
                         '(-f --force)'{-f,--force}'[Force re-transcription]' \
-                        '--correct[Correct transcription with AI]' \
+                        '(-c --correct)'{-c,--correct}'[Correct transcription with AI]' \
+                        '(-l --limit)'{-l,--limit}'[Time range — N seconds, or two values: start end (use begin/start/end keywords)]:time:(begin end start)' \
                         '--style[Subtitle style template]:style:(lecture vlog game cinematic minimalist)' \
                         '--max-lines[Maximum lines per subtitle]:lines:(1 2)' \
                         '--speaker[Enable Speaker Diarization]' \
                         '--whisper-model[Whisper model size/name]:model:(turbo large-v3 large-v2 medium small base tiny)' \
-                        '--llm[LLM bridge for translation]:llm:(deepseek gemini litellm)' \
+                        '--llm[LLM bridge for translation]:llm:(deepseek gemini litellm minimax grok)' \
                         '--model[Specific LLM model code (for LiteLLM)]:model' \
                         '--initial-prompt[Whisper initial prompt (context)]:prompt' \
                         '--temperature[Model temperature (0.0-1.0)]:temp' \
                         '--openai-fallback[Use OpenAI if DeepSeek fails]' \
                         '--min-duration[Minimum subtitle duration (seconds)]:duration' \
-                        '--subtitle[Path to an existing subtitle file (SRT/ASS)]:subtitle file:_files -g "*.(srt|ass|SRT|ASS)"' \
-                        '--no-translate[Skip translation step]' \
-                        '--no-correction[Disable automatic transcription correction]' \
-                        '--deepseek-transcribe[Use DeepSeek API for transcription]' \
-                        '(-l --list-languages)'{-l,--list-languages}'[List all supported languages]'
+                        '--alignment[ASS alignment override (2=Bottom, 8=Top, 5=Center)]:alignment:(2 5 8)' \
+                        '--font-size[Primary font size]:size' \
+                        '--sec-font-size[Secondary font size]:size' \
+                        '--shadow[Shadow depth]:depth' \
+                        '--outline[Outline width]:width' \
+                        '--use-bert[Enable BERT collocation scoring]' \
+                        '--post[Generate Telegram channel post after subtitle workflow]' \
+                        '--post-only[Generate social post from existing SRTs only (skip processing)]' \
+                        '(-R --resolution)'{-R,--resolution}'[After URL download: compress to height]:height:(240 360 480 720 1080)'
                     ;;
             esac
             ;;

@@ -125,8 +125,9 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 ### 🎬 Multimedia
 | Command | Description |
 | :--- | :--- |
+| `amir video <URL> [opts]` | **Unified Download + Process**: Download from YouTube & 1000+ sites. URL auto-detected — no subcommand needed. Key flags: `--subtitle -t en fa` (Whisper AI), `--yt-subs --translate -t en fa` (platform subs → LLM translate), `--resolution 720 60` (compress after download), `--no-render` (SRT only), `--only-subs`, `--cookies`. |
 | `amir video <file/dir>` | Advanced video processing (compress, cut, batch). Features AI Learning and hardware acceleration. |
-| `amir video cut <file> [opts]` | **NEW:** Cut video segments without re-encoding (instant) or with rendering. |
+| `amir video cut <file> [opts]` | Cut video segments without re-encoding (instant) or with rendering. |
 | `amir video stats` | View AI learning statistics & compression history. |
 | `amir mp3 <file>` | Extract high-quality MP3 audio from a video file. |
 | `amir img upscale <file> [scale] [model]` | AI-Upscale or quality enhancement (1x mode). |
@@ -143,7 +144,7 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir img <file> <size> [g]` | Legacy mode (detects resize vs crop). |
 | `amir pdf [files] [opts]` | **Multi-Engine A4 PDF Generator**: Render Markdown/Text/Images to PDF. Supports piping (e.g., `amir clip | amir pdf`), Puppeteer (Default), WeasyPrint, PIL (Robust Fallback). Features: High-fidelity Persian RTL (B Nazanin), auto-pagination, and ExFAT compatibility. |
 | `amir watermark <file> [text]` | Add watermark to image (auto-saved or `-o output`). |
-| `amir subtitle <file> [options]` | **AI-Powered Multilingual Subtitles**: Transcribe, translate (32 languages), and render with automatic validation. Features: size-aware hardware encoding (1:1 parity), technical term preservation, and Whisper Turbo default. See [SUBTITLE.md](docs/SUBTITLE.md). |
+| `amir subtitle <file/URL> [options]` | **AI-Powered Multilingual Subtitles**: Transcribe, translate (32 languages), and render. Accepts a **local file or a direct URL** (auto-downloads). Key flags: `-s en -t fa` (source/target lang), `-l 120` (test first 120 sec), `--llm gemini`, `--no-render` (SRT only), `--whisper-model large-v3`. See [SUBTITLE.md](docs/SUBTITLE.md). |
 | `amir info <file>` | Show detailed technical metadata for any file. |
 
 ### 🧠 AI & Productivity

@@ -106,4 +106,42 @@ Processing specific frequency ranges (Low, Mid, High) independently to fix tonal
 *   **THD+N:** Targeted to remain below 0.005% throughout the signal chain.
 
 ---
+
+## 11. MP3 Bitrate Standards & Practical File-Size Reference
+
+### 11.1 Bitrate Selection Protocol
+For audio extraction from video, bitrate selection depends on use case:
+
+| Bitrate | Use Case | Size/hour | Size/2.5h |
+|---------|----------|-----------|-----------|
+| 320 kbps | Studio music master | ~144 MB | ~360 MB |
+| 256 kbps | High-fidelity music | ~112 MB | ~280 MB |
+| 192 kbps | Balanced music/podcast | ~84 MB | ~210 MB |
+| **128 kbps** | **Conversation / podcast (recommended default)** | **~56 MB** | **~140 MB** |
+| 96 kbps | Voice-only, low-bandwidth | ~42 MB | ~105 MB |
+
+**Rule:** For spoken-word content, 128 kbps is perceptually indistinguishable from 320 kbps. Reserve 320 kbps for music.
+
+### 11.2 Anti-Upscale Rule (Critical)
+Never re-encode audio **above** the source bitrate. If the YouTube source stream is 48 kbps, encoding to 128 kbps produces a larger file with **no quality gain**:
+```bash
+# Correct: cap encode_abr at the source bitrate
+encode_abr=$(( actual_abr < target ? actual_abr : target ))
+ffmpeg -i source.m4a -c:a libmp3lame -b:a "${encode_abr}k" output.mp3
+```
+
+### 11.3 YouTube Audio Stream Reference (2026)
+YouTube exposes 4 audio-only streams per video:
+| format_id | abr | ext | codec | Best for target |
+|-----------|-----|-----|-------|-----------------|
+| 249 | ~46 kbps | webm | opus | target ≤ 48k |
+| 139 | ~49 kbps | m4a | aac-lc | target ≤ 48k (m4a preferred) |
+| 251 | ~129 kbps | webm | opus | target 128k (webm) |
+| **140** | **~130 kbps** | **m4a** | **aac-lc** | **target ≥ 128k (recommended)** |
+
+> See `.cursor/skills/yt-dlp-web-download.md` for the complete smart stream selection implementation.
+
+---
 [Back to README](../../README.md)
+
+*Updated: 2026-02-24 — Added Section 11: MP3 bitrate standards, anti-upscale rule, and YouTube stream reference.*
