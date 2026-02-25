@@ -10,25 +10,13 @@
 # Export formats: pdf, md, jpg (optional)
 
 llm_lists() {
-    # 1. Robust AMIR_ROOT detection
-    # If AMIR_ROOT is not set or doesn't look like this repo, try to detect it
-    if [[ -z "$AMIR_ROOT" || ! -f "$AMIR_ROOT/lib/amir_lib.sh" ]]; then
-        # Try finding it relative to this script's location
-        local script_path="${BASH_SOURCE[0]}" # Bash way (works in both bash and zsh)
-        [[ -z "$script_path" && -n "$ZSH_VERSION" ]] && script_path="${(%):-%N}" # Zsh-specific way
-
-        if [[ -n "$script_path" ]]; then
-            local cmd_dir="$(cd "$(dirname "$script_path")" && pwd)"
-            export AMIR_ROOT="$(cd "$cmd_dir/../.." && pwd)"
-        fi
-    fi
-
-    # Fallback if detection still fails
+    # 1. AMIR_ROOT is now exported by the 'amir' entry point
     [[ -z "$AMIR_ROOT" ]] && export AMIR_ROOT="$PWD"
-
+    
     if [[ -f "$AMIR_ROOT/lib/amir_lib.sh" ]]; then
         source "$AMIR_ROOT/lib/amir_lib.sh"
     fi
+
     local provider=""
     local export_format=""
     local python_script=""
@@ -67,12 +55,15 @@ llm_lists() {
         echo "   • gemini, openai, deepseek, groq, anthropic"
         echo ""
         echo "Usage: amir llm-lists <provider> [-e|--export pdf|md|jpg]"
-        echo "       amir llm-lists --providers  (to see full list)"
         return 1
     fi
     
     # Create Python script
-    python_script=$(mktemp /tmp/llm_list_XXXXXX.py)
+    python_script=$(mktemp)
+    if [[ -z "$python_script" ]]; then
+        echo "❌ Error: Failed to create temporary Python script."
+        return 1
+    fi
     
     cat > "$python_script" << 'PYTHON_EOF'
 import os
@@ -81,7 +72,6 @@ import sys
 # 1. Safe dotenv loading
 try:
     from dotenv import load_dotenv
-    # Look for .env in current dir or AMIR_ROOT
     load_dotenv()
     amir_root = os.getenv("AMIR_ROOT")
     if amir_root and os.path.exists(os.path.join(amir_root, ".env")):
@@ -186,27 +176,36 @@ if __name__ == "__main__":
 PYTHON_EOF
     
     # Run Python script and capture output
-    local output_file=$(mktemp /tmp/llm_output_XXXXXX.txt)
+    local output_file=$(mktemp)
+    if [[ -z "$output_file" ]]; then
+        echo "❌ Error: Failed to create temporary output file."
+        rm -f "$python_script"
+        return 1
+    fi
     
     # Ensure .env file exists in AMIR_ROOT
     if [[ ! -f "$AMIR_ROOT/.env" ]]; then
         echo "⚠️  Warning: No .env file found at $AMIR_ROOT/.env"
-        echo "Create one with your API keys:"
-        echo "  GEMINI_API_KEY=your_key_here"
-        echo "  OPENAI_API_KEY=your_key_here"
-        echo "  DEEPSEEK_API_KEY=your_key_here"
-        echo "  GROQ_API_KEY=your_key_here"
-        echo "  ANTHROPIC_API_KEY=your_key_here"
     fi
     
-    # Run with Python from virtual environment if available
-    if [[ -f "$AMIR_ROOT/lib/python/subtitle/.venv/bin/python" ]]; then
-        AMIR_ROOT="$AMIR_ROOT" "$AMIR_ROOT/lib/python/subtitle/.venv/bin/python" "$python_script" "$provider" | tee "$output_file"
+    # Determine which python to use (Priority: Active Venv -> Root Venv -> System)
+    local python_bin="python3"
+    if [[ -n "$VIRTUAL_ENV" ]]; then
+        python_bin="$VIRTUAL_ENV/bin/python3"
+    elif [[ -f "$AMIR_ROOT/.venv/bin/python3" ]]; then
+        python_bin="$AMIR_ROOT/.venv/bin/python3"
+    fi
+
+    # Run and capture output (redirecting stderr to see errors in venv/packages)
+    AMIR_ROOT="$AMIR_ROOT" "$python_bin" "$python_script" "$provider" 2>&1 | tee "$output_file"
+    
+    # Capture exit code robustly
+    local exit_code
+    if [[ -n "$ZSH_VERSION" ]]; then
+        exit_code=$pipestatus[1]
     else
-        AMIR_ROOT="$AMIR_ROOT" python3 "$python_script" "$provider" | tee "$output_file"
+        exit_code=$PIPESTATUS[0]
     fi
-    
-    local exit_code=$?
     
     # Export if requested
     if [[ -n "$export_format" && $exit_code -eq 0 ]]; then
@@ -263,7 +262,7 @@ PYTHON_EOF
                 if command -v convert &> /dev/null; then
                     local jpg_file="${provider}_models_$(date +%Y%m%d).jpg"
                     # Create temporary HTML
-                    local html_file=$(mktemp /tmp/llm_XXXXXX.html)
+                    local html_file=$(mktemp)
                     {
                         echo "<html><body style='font-family: monospace; padding: 20px;'>"
                         echo "<h1>${provider^^} Models</h1>"

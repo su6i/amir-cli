@@ -17,6 +17,7 @@ while [ -h "$SOURCE" ]; do
 done
 SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
 LIB_DIR="$SCRIPT_DIR/lib"
+export AMIR_ROOT="$SCRIPT_DIR"
 
 # Allow `--no-venv` to skip auto-activation and optional install prompt
 NO_VENV=0
