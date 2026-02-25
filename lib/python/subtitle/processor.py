@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import gc
+import hashlib
 
 # Environment control for library verbosity
 # (Set to 0 if full debug needed, 1 hides progress bars)
@@ -311,8 +312,19 @@ class SubtitleProcessor:
         self.api_key = api_key or self.load_api_key()
         # Support both naming conventions
         self.google_api_key = os.environ.get('GOOGLE_API_KEY') or os.environ.get('GEMINI_API_KEY', '')
+        self.minimax_api_key = os.environ.get('MINIMAX_API_KEY', '')
+        self.grok_api_key = os.environ.get('GROK_API_KEY', '')
         self.llm_choice = llm.lower()
         self.custom_model = custom_model # For LiteLLM testing
+        
+        # LLM Model names (configurable, not hardcoded)
+        self.llm_models = {
+            "deepseek": os.environ.get("AMIR_MODEL_DEEPSEEK", "deepseek-chat"),
+            "minimax": os.environ.get("AMIR_MODEL_MINIMAX", "abab6.5s-chat"),
+            "gemini": os.environ.get("AMIR_MODEL_GEMINI", "gemini-2.5-flash"),
+            "grok": os.environ.get("AMIR_MODEL_GROK", "grok-4.1")
+        }
+        
         # BERT options (optional, lazy-loaded)
         self.use_bert = use_bert
         self.bert_model = bert_model or os.environ.get('AMIR_BERT_MODEL')
@@ -352,8 +364,24 @@ class SubtitleProcessor:
         self.cache_dir = Path(cache_dir or os.path.expanduser("~/.amir_cache"))
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         
+        # === COST SAVING INFRASTRUCTURE ===
+        # Local hash cache: avoids API calls for already-translated sentences
+        self._local_cache_path = self.cache_dir / "translation_cache.json"
+        self._local_cache: Dict[str, str] = {}
+        self._local_cache_dirty = False  # Track if we need to save
+        
+        # Gemini explicit CachedContent: stores the system prompt server-side (reused per session)
+        # key = target_lang, value = cache_name from Gemini API
+        self._gemini_content_cache: Dict[str, str] = {}
+        
+        # Cost tracking (accumulated per session)
+        self._cost_savings = {"local_cache_hits": 0, "deepseek_cache_hit_tokens": 0, "grok_cache_hit_tokens": 0, "gemini_cached_tokens": 0}
+        
         self.logger = logger or self._setup_logger()
         self._check_disk_space()
+        
+        # Load local translation cache (needs logger to be ready)
+        self._load_local_translation_cache()
         
         self.logger.info(f"Initialization complete (model={model_size}, style={style.value})")
 
@@ -564,7 +592,109 @@ class SubtitleProcessor:
 
     # Cache system removed - users manage their own SRT files
 
-    # ==================== TRANSCRIPTION ====================
+    # ==================== COST SAVING HELPERS ====================
+
+    def _local_cache_key(self, text: str, target_lang: str) -> str:
+        """Stable hash key for local translation cache"""
+        return hashlib.md5(f"{text}|||{target_lang}".encode("utf-8")).hexdigest()
+
+    def _load_local_translation_cache(self):
+        """Load persisted local translation cache from disk"""
+        try:
+            if self._local_cache_path.exists():
+                with open(self._local_cache_path, 'r', encoding='utf-8') as f:
+                    self._local_cache = json.load(f)
+                self.logger.debug(f"💾 Local translation cache loaded: {len(self._local_cache)} entries")
+        except Exception as e:
+            self.logger.warning(f"Could not load local translation cache: {e}")
+            self._local_cache = {}
+
+    def _save_local_translation_cache(self):
+        """Persist local translation cache to disk"""
+        if not self._local_cache_dirty:
+            return
+        try:
+            self._local_cache_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self._local_cache_path, 'w', encoding='utf-8') as f:
+                json.dump(self._local_cache, f, ensure_ascii=False, indent=None)
+            self._local_cache_dirty = False
+        except Exception as e:
+            self.logger.warning(f"Could not save local translation cache: {e}")
+
+    def _lookup_local_cache(self, text: str, target_lang: str) -> Optional[str]:
+        """Return cached translation or None"""
+        return self._local_cache.get(self._local_cache_key(text, target_lang))
+
+    def _store_local_cache(self, text: str, target_lang: str, translation: str):
+        """Store a single translation in local cache"""
+        if translation and translation.strip():
+            key = self._local_cache_key(text, target_lang)
+            self._local_cache[key] = translation
+            self._local_cache_dirty = True
+
+    def _get_gemini_content_cache(self, target_lang: str) -> Optional[str]:
+        """
+        Get or create a Gemini server-side CachedContent for the system instruction.
+        This caches the system prompt on Gemini's servers (TTL=60min),
+        so all batch calls share the same cached system tokens = guaranteed cost savings.
+        
+        Returns the cache name (string) or None if unavailable.
+        """
+        if not HAS_GEMINI or not self.google_api_key:
+            return None
+        
+        # Return existing cache for this session
+        if target_lang in self._gemini_content_cache:
+            return self._gemini_content_cache[target_lang]
+        
+        try:
+            from google import genai
+            from google.genai import types as genai_types
+            client = genai.Client(api_key=self.google_api_key)
+            
+            system_instruction = self.get_translation_prompt(target_lang)
+            model = self.llm_models["gemini"]
+            
+            # Create a CachedContent with the system instruction, TTL=60min
+            cache = client.caches.create(
+                model=model,
+                config=genai_types.CreateCachedContentConfig(
+                    display_name=f"amir_translation_{target_lang}",
+                    system_instruction=system_instruction,
+                    ttl="3600s",
+                )
+            )
+            self._gemini_content_cache[target_lang] = cache.name
+            self.logger.info(f"✅ Gemini explicit cache created for {target_lang.upper()}: {cache.name}")
+            return cache.name
+        except Exception as e:
+            self.logger.debug(f"Gemini explicit cache unavailable (falling back to implicit): {e}")
+            return None
+
+    def _log_cost_savings(self):
+        """Print accumulated cost savings summary"""
+        s = self._cost_savings
+        total_local = s["local_cache_hits"]
+        ds_cached = s["deepseek_cache_hit_tokens"]
+        grok_cached = s["grok_cache_hit_tokens"]
+        gem_cached = s["gemini_cached_tokens"]
+        
+        if total_local + ds_cached + grok_cached + gem_cached == 0:
+            return
+        
+        self.logger.info("──────────────────────────────────────────")
+        self.logger.info("💰 Cost Savings Report:")
+        if total_local:
+            self.logger.info(f"   • Local cache hits: {total_local} lines (100% saved)")
+        if ds_cached:
+            self.logger.info(f"   • DeepSeek cached tokens: {ds_cached:,} (90% cheaper)")
+        if grok_cached:
+            self.logger.info(f"   • Grok cached tokens: {grok_cached:,} (discounted)")
+        if gem_cached:
+            self.logger.info(f"   • Gemini cached tokens: {gem_cached:,} (guaranteed discount)")
+        self.logger.info("──────────────────────────────────────────")
+
+
 
     def transcribe_video(
         self,
@@ -806,6 +936,16 @@ if __name__ == "__main__":
         self.logger.info(f"MLX asset preservation complete: {Path(srt_path).name}")
         return srt_path
 
+    def _remove_whisper_artifacts(self, text: str) -> str:
+        """Remove Whisper transcription artifacts like \\h (hard breaks)"""
+        if not text:
+            return text
+        # Remove \h (hard breaks) and replace with space
+        text = re.sub(r'\\h+', ' ', text)
+        # Clean up multiple spaces
+        text = re.sub(r'\s+', ' ', text)
+        return text.strip()
+
     def suppress_hallucinations(self, entries: List[Dict]) -> List[Dict]:
         """DeepSeek/Whisper hallucination suppressor"""
         if not entries: return []
@@ -814,6 +954,9 @@ if __name__ == "__main__":
         last_text = ""
         
         for e in entries:
+            # First, remove Whisper artifacts
+            e['text'] = self._remove_whisper_artifacts(e['text'])
+            
             current_text = e['text'].strip().lower()
             # 1. Exact repetition check
             if current_text == last_text:
@@ -1011,6 +1154,10 @@ if __name__ == "__main__":
         while i < len(cleaned):
             cur = cleaned[i]
             text = cur.get('text', '').strip()
+            # Remove Whisper artifacts first
+            text = self._remove_whisper_artifacts(text)
+            cur['text'] = text
+            
             # Use clean text for length/word logic
             ctext = self._clean_bidi(text)
 
@@ -1296,6 +1443,23 @@ if __name__ == "__main__":
         """Robustly parse model output into an ordered list of translated lines."""
         if not output:
             return []
+        
+        # CRITICAL: Detect LLM contamination (thinking/JSON injection)
+        if '</think>' in output or 'I\'m capturing' in output or 'I am capturing' in output:
+            self.logger.error(f"❌ LLM thinking detected in output! Model returned internal reasoning.")
+            # Try salvage: extract only the JSON/Persian part
+            match = re.search(r'\{\"1\".*?\}', output, re.DOTALL)
+            if match:
+                try:
+                    parsed_json = json.loads(match.group())
+                    items = [str(parsed_json.get(str(i+1), '')).strip() for i in range(expected_count)]
+                    if any(items):
+                        self.logger.warning(f"⚠️ Salvaged translation from corrupted output")
+                        return items
+                except:
+                    pass
+            # If can't salvage, reject entire batch
+            return []
 
         cleaned = output.strip()
         cleaned = re.sub(r'^```(?:json|text)?\s*', '', cleaned, flags=re.IGNORECASE)
@@ -1411,14 +1575,34 @@ if __name__ == "__main__":
         
         for i, batch_indices in enumerate(batch_indices_list):
             batch = [texts[idx] for idx in batch_indices]
+
+            # ── Context lines (3 before + 3 after, not translated) ──────────
+            first_abs = batch_indices[0]
+            last_abs  = batch_indices[-1]
+            ctx_before = texts[max(0, first_abs - 3): first_abs]
+            ctx_after  = texts[last_abs + 1: last_abs + 4]
+            ctx_section = ""
+            if ctx_before or ctx_after:
+                parts = []
+                if ctx_before:
+                    parts.append("Previous lines (context only, do NOT translate):\n" +
+                                 "\n".join(f"  • {t}" for t in ctx_before))
+                if ctx_after:
+                    parts.append("Following lines (context only, do NOT translate):\n" +
+                                 "\n".join(f"  • {t}" for t in ctx_after))
+                ctx_section = "\n".join(parts) + "\n\nLines to translate:\n"
+
             # Use indexed list for DeepSeek to ensure perfect alignment
-            batch_text = "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(batch)])
+            batch_text = ctx_section + "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(batch)])
             
             pbar.set_postfix({"batch": f"{i + 1}/{batch_count}"})
             
             # NUCLEAR PERSISTENCE: Retry until successful (Max 10 attempts)
             attempt = 0
             max_retries = 10
+            success_batch = False
+            ds_failed = False
+            last_error_msg = ""
             while attempt < max_retries:
                 try:
                     attempt += 1
@@ -1442,23 +1626,18 @@ if __name__ == "__main__":
                     if target_lang == 'fa':
                         processed_list = []
                         for idx_in_batch, t in enumerate(trans_list):
-                            # Skip if None or empty
                             if not t or not t.strip():
-                                processed_list.append(batch[idx_in_batch]) # Keep original with correct index
+                                processed_list.append(batch[idx_in_batch])
                                 continue
-                            # If it returned English (no Persian chars), keep original English
                             if not any('\u0600' <= c <= '\u06FF' for c in t):
-                                processed_list.append(batch[idx_in_batch]) # Use correct index
+                                processed_list.append(batch[idx_in_batch])
                             else:
-                                processed_list.append(self.fix_persian_text(t))
+                                processed_list.append(self.fix_persian_text(self.strip_english_echo(t)))
                         trans_list = processed_list
                     
                     if len(trans_list) >= len(batch):
                         result_batch = trans_list[:len(batch)]
-
-                        # Fill final result incrementally
                         for rel_idx, trans in enumerate(result_batch):
-                            # Map back to absolute index when batch_indices contains relative indices
                             abs_idx = batch_indices[rel_idx]
                             final_result[abs_idx] = trans
                             
@@ -1473,33 +1652,71 @@ if __name__ == "__main__":
                             except: pass
 
                         pbar.update(len(batch))
-                        # SUCCESS! Break the retry loop
                         success_batch = True
                         time.sleep(1)
-                        break 
+                        break
                     else:
-                        delay = min(3 + attempt, 10) # Progressive sleep 4s, 5s... max 10s
+                        delay = min(20 + attempt * 5, 120)
                         self.logger.warning(f"⚠️ Batch {i + 1} incomplete: expected {len(batch)}, got {len(trans_list)}. Retrying in {delay}s... (Attempt {attempt}/{max_retries})")
                         time.sleep(delay)
                         if attempt >= max_retries:
-                            # ZERO-SKIP POLICY: Raise error instead of skipping
-                            raise ValueError(f"CRITICAL: Batch {i//batch_size + 1} failed after {max_retries} attempts.")
+                            last_error_msg = f"incomplete response after {max_retries} attempts"
+                            ds_failed = True
+                            break
 
                 except Exception as e:
                     error_msg = f"{type(e).__name__}: {str(e)}"
+                    last_error_msg = error_msg
                     if "401" in error_msg or "Invalid API Key" in error_msg:
                         raise
-                    
                     if attempt >= max_retries:
-                        # ZERO-SKIP POLICY: Halt entire execution
-                        self.logger.error(f"❌ TERMINATING: Batch {i//batch_size + 1} failed after {max_retries} attempts.")
-                        raise RuntimeError(f"Translation halted to prevent data corruption/cost loss: {error_msg}")
-
-                    wait_time = min(60, (2 ** (attempt % 6)) * 5) 
+                        ds_failed = True
+                        break
+                    wait_time = min(60, (2 ** (attempt % 6)) * 5)
                     self.logger.warning(f"Batch {i//batch_size + 1} attempt {attempt}/{max_retries} failed: {error_msg}")
                     time.sleep(wait_time)
-                    self.logger.info(f"🛡️ Persistence mode: Waiting {wait_time}s before retry...")
-                    time.sleep(wait_time)
+
+            # ── Per-batch Gemini fallback when DeepSeek fails ────────────────
+            if not success_batch:
+                gemini_ok = False
+                if HAS_GEMINI and self.google_api_key:
+                    self.logger.warning(f"⚠️ DeepSeek batch {i+1} failed ({last_error_msg}). Switching to Gemini for this batch...")
+                    try:
+                        from google import genai as _genai
+                        _gclient = _genai.Client(api_key=self.google_api_key)
+                        _models = self._get_available_gemini_models(_gclient)
+                        _prompt = f"{self.get_translation_prompt(target_lang)}\n\nLines to translate:\n{batch_text}"
+                        for _model in _models[:3]:
+                            try:
+                                _resp = _gclient.models.generate_content(model=_model, contents=_prompt)
+                                _tlist = self._parse_translated_batch_output(_resp.text.strip(), len(batch))
+                                if None in _tlist:
+                                    _tlist = [_tlist[j] if _tlist[j] is not None else batch[j] for j in range(len(_tlist))]
+                                if target_lang == 'fa':
+                                    _tlist = [self.fix_persian_text(self.strip_english_echo(t)) if t and has_target_language_chars(t, target_lang) else batch[j]
+                                              for j, t in enumerate(_tlist)]
+                                if len(_tlist) >= len(batch):
+                                    for rel_idx, trans in enumerate(_tlist[:len(batch)]):
+                                        final_result[batch_indices[rel_idx]] = trans
+                                    if output_srt and original_entries:
+                                        try:
+                                            with open(output_srt, 'w', encoding='utf-8-sig') as f:
+                                                for _idx, _entry in enumerate(original_entries, 1):
+                                                    _tr = final_result[_idx-1]
+                                                    f.write(f"{_idx}\n{_entry['start']} --> {_entry['end']}\n{_tr if _tr else _entry['text']}\n\n")
+                                        except: pass
+                                    pbar.update(len(batch))
+                                    gemini_ok = True
+                                    self.logger.info(f"✅ Gemini saved batch {i+1} via {_model}")
+                                    break
+                            except Exception as _ge:
+                                self.logger.debug(f"Gemini model {_model} failed: {_ge}")
+                    except Exception as ge:
+                        self.logger.warning(f"Gemini fallback init failed: {ge}")
+                if not gemini_ok:
+                    self.logger.error(f"❌ TERMINATING: Batch {i+1} failed on both DeepSeek and Gemini.")
+                    pbar.close()
+                    raise RuntimeError(f"Translation halted: batch {i+1} failed — DeepSeek: {last_error_msg}")
         
         pbar.close()
         return final_result
@@ -1616,8 +1833,25 @@ if __name__ == "__main__":
 
         for i, batch_indices in enumerate(batch_indices_list):
             batch = [texts[idx] for idx in batch_indices]
+
+            # ── Context lines (3 before + 3 after, not translated) ──────────
+            first_abs = batch_indices[0]
+            last_abs  = batch_indices[-1]
+            ctx_before = texts[max(0, first_abs - 3): first_abs]
+            ctx_after  = texts[last_abs + 1: last_abs + 4]
+            ctx_section = ""
+            if ctx_before or ctx_after:
+                parts = []
+                if ctx_before:
+                    parts.append("Previous lines (context only, do NOT translate):\n" +
+                                 "\n".join(f"  • {t}" for t in ctx_before))
+                if ctx_after:
+                    parts.append("Following lines (context only, do NOT translate):\n" +
+                                 "\n".join(f"  • {t}" for t in ctx_after))
+                ctx_section = "\n".join(parts) + "\n\nLines to translate:\n"
+
             # Use indexed list for perfect alignment across all models
-            batch_text = "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(batch)])
+            batch_text = ctx_section + "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(batch)])
             
             pbar.set_postfix({"batch": f"{i + 1}/{batch_count}"})
             
@@ -1644,7 +1878,7 @@ if __name__ == "__main__":
                             processed = []
                             for idx, t in enumerate(trans_list):
                                 if t and has_target_language_chars(t, target_lang):
-                                    processed.append(self.fix_persian_text(t))
+                                    processed.append(self.fix_persian_text(self.strip_english_echo(t)))
                                 else:
                                     # Keep original English if no Persian detected
                                     processed.append(batch[idx] if idx < len(batch) else t)
@@ -1778,7 +2012,7 @@ if __name__ == "__main__":
                         processed = []
                         for idx, t in enumerate(trans_list):
                             if t and has_target_language_chars(t, target_lang):
-                                processed.append(self.fix_persian_text(t))
+                                processed.append(self.fix_persian_text(self.strip_english_echo(t)))
                             else:
                                 # Keep original English if no Persian detected
                                 processed.append(batch[idx] if idx < len(batch) else t)
@@ -1813,6 +2047,229 @@ if __name__ == "__main__":
         pbar.close()
         return final_result
 
+    # ==================== MINIMAX TRANSLATION ====================
+
+    def translate_with_minimax(self, texts: List[str], target_lang: str, source_lang: str = 'en',
+                                batch_size: int = 15, original_entries: List[Dict] = None,
+                                output_srt: str = None, existing_translations: Dict[int, str] = None) -> List[str]:
+        """Translate subtitle texts using MiniMax LLM (OpenAI-compatible API)."""
+        if not self.minimax_api_key:
+            raise RuntimeError("MINIMAX_API_KEY not set. Export it before running.")
+
+        from openai import OpenAI as _OAI
+        # platform.minimax.io (international) → api.minimax.io/v1
+        # platform.minimax.chat (China)        → api.minimax.chat/v1
+        client = _OAI(api_key=self.minimax_api_key, base_url="https://api.minimax.io/v1")
+
+        indices = list(range(len(texts)))
+        final_result: List[Optional[str]] = [None] * len(texts)
+
+        if existing_translations:
+            for idx, trans in existing_translations.items():
+                if 0 <= idx < len(texts):
+                    final_result[idx] = trans
+
+        indices_to_translate = [i for i in indices if final_result[i] is None]
+        if not indices_to_translate:
+            return [final_result[i] if final_result[i] is not None else texts[i] for i in range(len(texts))]
+
+        batch_indices_list = self._create_balanced_batches(indices_to_translate, texts, batch_size)
+        batch_count = len(batch_indices_list)
+        pbar = tqdm(total=len(indices_to_translate), unit="item", desc=f"  MiniMax-Translating ({target_lang.upper()})")
+
+        for i, batch_indices in enumerate(batch_indices_list):
+            batch = [texts[idx] for idx in batch_indices]
+            # Skip context lines for MiniMax (performance optimization)
+            batch_text = "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(batch)])
+            pbar.set_postfix({"batch": f"{i + 1}/{batch_count}"})
+
+            attempt = 0
+            max_retries = 6
+            success_batch = False
+            last_error_msg = ""
+            while attempt < max_retries:
+                try:
+                    attempt += 1
+                    response = client.chat.completions.create(
+                        model="MiniMax-M2.5",
+                        messages=[
+                            {"role": "system", "content": self.get_translation_prompt(target_lang)},
+                            {"role": "user", "content": batch_text}
+                        ],
+                        temperature=1.0,  # MiniMax default & optimal for translation
+                        max_tokens=1500
+                    )
+                    output = response.choices[0].message.content.strip()
+                    trans_list = self._parse_translated_batch_output(output, len(batch))
+                    if None in trans_list:
+                        trans_list = [trans_list[j] if trans_list[j] is not None else batch[j] for j in range(len(trans_list))]
+                    if target_lang == 'fa':
+                        trans_list = [self.fix_persian_text(self.strip_english_echo(t)) if t and has_target_language_chars(t, target_lang)
+                                      else batch[j] for j, t in enumerate(trans_list)]
+                    if len(trans_list) >= len(batch):
+                        for rel_idx, trans in enumerate(trans_list[:len(batch)]):
+                            final_result[batch_indices[rel_idx]] = trans
+                        if output_srt and original_entries:
+                            try:
+                                with open(output_srt, 'w', encoding='utf-8-sig') as f:
+                                    for _idx, _entry in enumerate(original_entries, 1):
+                                        _tr = final_result[_idx - 1]
+                                        f.write(f"{_idx}\n{_entry['start']} --> {_entry['end']}\n{_tr if _tr else _entry['text']}\n\n")
+                            except: pass
+                        pbar.update(len(batch))
+                        success_batch = True
+                        time.sleep(0.1)
+                        break
+                    else:
+                        delay = min(20 + attempt * 5, 120)
+                        self.logger.warning(f"⚠️ MiniMax batch {i+1} incomplete: got {len(trans_list)}/{len(batch)}. Retry {attempt}/{max_retries} in {delay}s...")
+                        time.sleep(delay)
+                        if attempt >= max_retries:
+                            last_error_msg = f"incomplete after {max_retries} attempts"
+                            break
+                except Exception as e:
+                    last_error_msg = f"{type(e).__name__}: {e}"
+                    if "401" in str(e) or "Invalid API Key" in str(e):
+                        raise
+                    if attempt >= max_retries:
+                        break
+                    time.sleep(min(60, (2 ** (attempt % 6)) * 5))
+
+            if not success_batch:
+                self.logger.error(f"❌ MiniMax batch {i+1} failed after {max_retries} attempts: {last_error_msg}")
+                pbar.close()
+                raise RuntimeError(f"MiniMax translation halted at batch {i+1}: {last_error_msg}")
+
+        pbar.close()
+        return final_result
+
+    # ==================== GROK TRANSLATION ====================
+
+    def translate_with_grok(self, texts: List[str], target_lang: str, source_lang: str = 'en',
+                             batch_size: int = 20, original_entries: List[Dict] = None,
+                             output_srt: str = None, existing_translations: Dict[int, str] = None) -> List[str]:
+        """Translation via Grok API (xAI - grok-4-1-fast-reasoning) with DeepSeek fallback"""
+        if not self.grok_api_key:
+            self.logger.warning("GROK_API_KEY not found. Falling back to DeepSeek.")
+            return self.translate_with_deepseek(texts, target_lang, source_lang, 25, original_entries, output_srt, existing_translations)
+
+        client = OpenAI(api_key=self.grok_api_key, base_url="https://api.x.ai/v1")
+        model_name = "grok-4-1-fast-reasoning"
+
+        indices = list(range(len(texts)))
+        final_result = [None] * len(texts)
+
+        if existing_translations:
+            for idx, txt in existing_translations.items():
+                if 0 <= idx < len(final_result) and txt and txt.strip():
+                    final_result[idx] = txt
+
+        indices_to_translate = [i for i in indices if final_result[i] is None]
+        if not indices_to_translate:
+            return [final_result[i] if final_result[i] is not None else texts[i] for i in range(len(texts))]
+
+        batch_indices_list = self._create_balanced_batches(indices_to_translate, texts, batch_size)
+        batch_count = len(batch_indices_list)
+        pbar = tqdm(total=len(indices_to_translate), unit="item", desc=f"  Groq-Translating ({target_lang.upper()})")
+
+        for i, batch_indices in enumerate(batch_indices_list):
+            batch = [texts[idx] for idx in batch_indices]
+
+            first_abs = batch_indices[0]
+            last_abs  = batch_indices[-1]
+            ctx_before = texts[max(0, first_abs - 3): first_abs]
+            ctx_after  = texts[last_abs + 1: last_abs + 4]
+            ctx_section = ""
+            if ctx_before or ctx_after:
+                parts = []
+                if ctx_before:
+                    parts.append("Previous lines (context only, do NOT translate):\n" +
+                                 "\n".join(f"  • {t}" for t in ctx_before))
+                if ctx_after:
+                    parts.append("Following lines (context only, do NOT translate):\n" +
+                                 "\n".join(f"  • {t}" for t in ctx_after))
+                ctx_section = "\n".join(parts) + "\n\nLines to translate:\n"
+
+            batch_text = ctx_section + "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(batch)])
+            pbar.set_postfix({"batch": f"{i + 1}/{batch_count}"})
+
+            max_retries = 5
+            success_batch = False
+            last_error_msg = ""
+
+            for attempt in range(1, max_retries + 1):
+                try:
+                    response = client.chat.completions.create(
+                        model=model_name,
+                        messages=[
+                            {"role": "system", "content": self.get_translation_prompt(target_lang)},
+                            {"role": "user", "content": batch_text}
+                        ],
+                        temperature=self.temperature,
+                        max_tokens=2000
+                    )
+                    output = response.choices[0].message.content.strip()
+                    trans_list = self._parse_translated_batch_output(output, len(batch))
+
+                    if None in trans_list:
+                        trans_list = [trans_list[j] if trans_list[j] is not None else batch[j] for j in range(len(trans_list))]
+
+                    if target_lang == 'fa':
+                        processed_list = []
+                        for t in trans_list:
+                            if not t or not t.strip():
+                                processed_list.append(t)
+                            elif not any('\u0600' <= c <= '\u06FF' for c in t):
+                                processed_list.append(t)
+                            else:
+                                processed_list.append(self.fix_persian_text(self.strip_english_echo(t)))
+                        trans_list = processed_list
+
+                    if len(trans_list) >= len(batch):
+                        for rel_idx, trans in enumerate(trans_list[:len(batch)]):
+                            final_result[batch_indices[rel_idx]] = trans
+
+                        if output_srt and original_entries:
+                            tgt_entries_live = original_entries[:]
+                            for k, v in enumerate(final_result):
+                                if v is not None and k < len(tgt_entries_live):
+                                    tgt_entries_live[k] = {**tgt_entries_live[k], 'text': v}
+                            with open(output_srt, 'w', encoding='utf-8-sig') as f:
+                                for idx2, entry in enumerate(tgt_entries_live, 1):
+                                    f.write(f"{idx2}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
+
+                        pbar.update(len(batch))
+                        success_batch = True
+                        time.sleep(0.2)
+                        break
+                    else:
+                        delay = min(20 + attempt * 5, 120)
+                        self.logger.warning(f"⚠️ Grok batch {i+1} incomplete: got {len(trans_list)}/{len(batch)}. Retrying in {delay}s...")
+                        time.sleep(delay)
+
+                except Exception as e:
+                    last_error_msg = f"{type(e).__name__}: {str(e)}"
+                    if "401" in last_error_msg or "Invalid API Key" in last_error_msg:
+                        raise
+                    delay = min(20 + attempt * 5, 120)
+                    self.logger.warning(f"Grok batch {i+1} attempt {attempt}/{max_retries} failed: {last_error_msg}")
+                    time.sleep(delay)
+
+            if not success_batch:
+                self.logger.warning(f"⚠️ Grok batch {i+1} failed ({last_error_msg}). Falling back to DeepSeek...")
+                try:
+                    ds_texts = batch
+                    ds_result = self.translate_with_deepseek(ds_texts, target_lang, source_lang, len(ds_texts))
+                    for rel_idx, trans in enumerate(ds_result[:len(batch)]):
+                        final_result[batch_indices[rel_idx]] = trans
+                    pbar.update(len(batch))
+                except Exception as de:
+                    pbar.close()
+                    raise RuntimeError(f"Grok+DeepSeek both failed on batch {i+1}: {de}")
+
+        pbar.close()
+        return final_result
+
     def get_translation_prompt(self, target_lang: str) -> str:
         """Universal translation prompt with structural constraints"""
         lang_config = get_language_config(target_lang)
@@ -1826,6 +2283,7 @@ if __name__ == "__main__":
                 "FORMAT: Return ONLY a valid JSON object where keys are the input line numbers and values are the translations.\n"
                 "EXAMPLE: {\"1\": \"سلام\", \"2\": \"چطوری؟\"}\n"
                 f"RULE: For technical terms (API, AGI, etc.), write the {lang_name} translation first, then the English in parentheses (e.g. 'هزینه‌ها (CapEx)').\n"
+                "CRITICAL: NEVER echo or repeat the original English source text in your output. Each value must contain ONLY the Persian translation.\n"
                 "NO commentary, NO extra text."
             )
         
@@ -1845,40 +2303,102 @@ if __name__ == "__main__":
         # 0. Cleanup spaces before punctuation (LLM artifact)
         text = re.sub(r'\s+([\.!؟،؛])', r'\1', text)
         
-        # 1. Informal & ZWNJ fixes
+        # 1. Informal verb normalization + ZWNJ insertion for correct letterform shaping.
+        # Vazirmatn renders ZWNJ (\u200C) as an invisible zero-width glyph, so we CAN use it.
         informal = {
             r'\bمی‌باشند\b': 'هستن',
             r'\bمی‌باشد\b': 'هست',
         }
         for p, r in informal.items():
             text = re.sub(p, r, text)
-        
-        patterns = [
-            (r'(\w)(ها)(\s|$)', r'\1‌\2\3'),
-            (r'می(\s)', r'می‌\1'),
+
+        # Add ZWNJ where needed for correct Persian word shapes:
+        #   می‌کنیم  — prevents ی+ک joining across morpheme boundary
+        #   کتاب‌ها  — prevents ب+ه joining in plural suffix
+        zwnj_patterns = [
+            (r'(\w)(ها)(\s|$)', '\\1\u200c\\2\\3'),
+            (r'می(\s)', 'می\u200c\\1'),
         ]
-        for p, r in patterns:
-            text = re.sub(p, r, text)
-            
-        # 2. FORCE RTL Direction for Punctuation & Parentheses (The Magic Fix)
-        # Protocol: Encapsulate string with RLM and wrap tech terms on both sides
-        rlm = "\u200F"
-        
-        # Wrap English terms in parentheses with RLM on both sides
-        text = re.sub(r'(\s?)\(([a-zA-Z0-9\s/_\-\.]+)\)', rf'\1{rlm}(\2){rlm}', text)
-        
-        # Anchor the whole string to RTL (Leading + Trailing)
-        if not text.startswith(rlm):
-            text = rlm + text
-        if not text.endswith(rlm):
-            text = text + rlm
-            
+        for pat, repl in zwnj_patterns:
+            text = re.sub(pat, repl, text)
+
+        # 2. Strip directional control characters — both old embeddings AND any previously
+        # applied isolates (so this function is always idempotent: safe to call repeatedly).
+        # Kept: ZWNJ (\u200c) — Vazirmatn renders it as invisible zero-width glyph; needed
+        # for correct Persian word-boundary shaping.
+        # Stripped embeddings : RLM \u200f, LRM \u200e, ZWJ \u200d, RLE \u202b, LRE \u202a,
+        #                        PDF \u202c, RLO \u202e, LRO \u202d
+        # Stripped isolates   : RLI \u2067, LRI \u2066, PDI \u2069  (re-applied fresh below)
+        for _cp in ('\u200f', '\u200e', '\u200d',
+                    '\u202b', '\u202a', '\u202c', '\u202e', '\u202d',
+                    '\u2067', '\u2066', '\u2069'):
+            text = text.replace(_cp, '')
+
+        # 3. Migration: undo the old "move-to-front" punct transform.
+        # Previous versions of fix_persian_text moved trailing punctuation to logical-START
+        # to compensate for LTR paragraph rendering. With RLI (step 5), the paragraph is
+        # now RTL: logical-START = visual-RIGHT = beginning of sentence = WRONG position
+        # for punctuation. Detect the old pattern (string starts with punct cluster) and
+        # move it back to logical-END where it belongs in an RTL paragraph.
+        text = text.strip()
+        text = re.sub(r'^([.!:،؛؟]+)(.+)$', r'\2\1', text)
+
+        # 4. Isolate English parenthetical terms as LTR runs within the RTL paragraph.
+        # Unicode TR9 §6.3: "use directional isolates instead of embeddings in
+        # programmatically generated text."
+        # LRI (\u2066) ... PDI (\u2069) → equivalent to dir="ltr" unicode-bidi:isolate
+        _LRI = '\u2066'  # LEFT-TO-RIGHT ISOLATE
+        _PDI = '\u2069'  # POP DIRECTIONAL ISOLATE
+        _RLI = '\u2067'  # RIGHT-TO-LEFT ISOLATE
+        text = re.sub(r'(\([A-Za-z][^)]*\))', _LRI + r'\1' + _PDI, text)
+
+        # 5. Wrap the entire string as an RTL isolate paragraph.
+        # This forces libass BiDi P2/P3 "first strong character" resolution to RTL,
+        # isolated from any surrounding LTR context (e.g. the English top line).
+        # RLI (\u2067) ... PDI (\u2069) → equivalent to dir="rtl" unicode-bidi:isolate
+        text = _RLI + text + _PDI
+
+        return text
+
+    @staticmethod
+    def strip_english_echo(text: str) -> str:
+        """Strip echoed English prefix from a Persian translation.
+
+        When an LLM returns 'original sentence. ترجمه فارسی' instead of just
+        the Persian part, this strips everything before the first Persian char.
+        It is safe: if the text already starts with Persian (the normal case)
+        the string is returned unchanged.
+        """
+        if not text:
+            return text
+        # Find the position of the first Persian/Arabic character
+        persian_start = -1
+        for i, c in enumerate(text):
+            if '\u0600' <= c <= '\u06FF':
+                persian_start = i
+                break
+        # Text has no Persian at all – nothing to strip (caller handles fallback)
+        if persian_start < 0:
+            return text
+        # Text already starts with Persian (most common case) – leave untouched
+        if persian_start == 0:
+            return text
+        # There are non-Persian characters before the first Persian character.
+        # Only strip them when the prefix looks like real English words (2+ consecutive
+        # ASCII letters), to avoid trimming legitimate leading punctuation.
+        prefix = text[:persian_start]
+        if re.search(r'[a-zA-Z]{2,}', prefix):
+            return text[persian_start:].strip()
         return text
 
     @staticmethod
     def _clean_bidi(t: str) -> str:
+        """Strip BiDi directional control chars. Preserves ZWNJ (\u200C) — Vazirmatn renders it invisibly."""
         if not t: return ""
-        return t.replace('\u202B', '').replace('\u202C', '').replace('\u200F', '').strip()
+        for cp in ('\u200f', '\u200e', '\u200d',
+                   '\u202b', '\u202a', '\u202c', '\u202e', '\u202d'):
+            t = t.replace(cp, '')
+        return t.strip()
 
     def translate_single_with_context(self, text: str, prev_lines: List[str], next_lines: List[str], target_lang: str, source_lang: str) -> str:
         """Translate a single line with context context to avoid literal translation issues"""
@@ -1960,7 +2480,7 @@ if __name__ == "__main__":
 
     # ==================== ASS CREATION ====================
 
-    def create_ass_with_font(self, srt_path: str, ass_path: str, lang: str, secondary_srt: Optional[str] = None):
+    def create_ass_with_font(self, srt_path: str, ass_path: str, lang: str, secondary_srt: Optional[str] = None, time_offset: float = 0.0):
         """Generate ASS file"""
         title = f"{get_language_config(lang).name} + {get_language_config('fa').name}" if secondary_srt else get_language_config(lang).name
         self.logger.info(f"Generating ASS asset ({title})...")
@@ -1971,7 +2491,7 @@ if __name__ == "__main__":
             # Sync FA font size with English to avoid visual jump
             fa_font_size = style.font_size
             fa_style = (
-                f"Style: FaDefault,B Nazanin,{fa_font_size},&H00FFFFFF,&H000000FF,&H00000000,{style.back_color},"
+                f"Style: FaDefault,Vazirmatn,{fa_font_size},&H00FFFFFF,&H000000FF,&H00000000,{style.back_color},"
                 f"-1,0,0,0,100,100,0,0,{style.border_style},{style.outline},{style.shadow},"
                 f"{style.alignment},10,10,10,1"
             )
@@ -2013,18 +2533,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         events = []
         
         def wrap_parentheses_with_smaller_font(text: str) -> str:
-            """Wrap content inside parentheses with smaller font and fix BiDi"""
-            rlm = "\u200F"
-            base_fs = style.font_size
-            # Protocol: Secondary font should be 75% of primary
-            small_fs = max(14, int(base_fs * 0.75))
-            
-            # Pattern: matches (English Words) with possible pre-existing markers
-            pattern = rf'[\u200F]?\(([a-zA-Z0-9\s/_\-\.]+)\)[\u200F]?'
-            
-            # The replacement: RLM + {Scale + (EnglishText)} + {Resume} + RLM
-            # Using fscx/fscy for scaling is safer than font switching inside brackets for BiDi
-            replacement = r'%s{\fscx75\fscy75}(\1){\fscx100\fscy100}%s' % (rlm, rlm)
+            """Wrap English terms in parentheses with a smaller ASS font scale."""
+            # Strip any pre-existing RLM markers around parentheses (from fix_persian_text)
+            pattern = r'[\u200F]?\(([a-zA-Z0-9\s/_\-\.]+)\)[\u200F]?'
+            # Scale down to 75% — no RLM needed; Vazirmatn handles RTL direction natively
+            replacement = r'{\fscx75\fscy75}(\1){\fscx100\fscy100}'
             return re.sub(pattern, replacement, text)
         
         for idx, e in enumerate(entries):
@@ -2056,30 +2569,47 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     sec_text_fixed = self.fix_persian_text(sec_text)
                     # Wrap English terms in parentheses with smaller font
                     sec_text_formatted = wrap_parentheses_with_smaller_font(sec_text_fixed)
-                    # EN small gray top, FA white bottom
-                    # Protocol: Secondary language (EN) should be 75% of primary (FA)
-                    en_fs = max(16, int(style.font_size * 0.75))
-                    fa_fs = style.font_size
-                    # Add \u200f (RLM) at the very start of the Persian line to anchor direction
-                    # Use explicit font/size settings to avoid picking up 'Default' blue style
-                    final_text = f"{{\\fs{en_fs}}}{{\\c&H808080}}{text}\\N{{\\rFaDefault}}{{\\fs{fa_fs}}}{{\\b1}}\u200f{sec_text_formatted}"
+                    # Top row (primary/source): smaller gray — fixed at 75%, never dynamic.
+                    # Bottom row (secondary/FA): full size white bold — never changes.
+                    # Font size MUST be constant per video; dynamic sizing causes jarring jumps.
+                    top_fs = max(16, int(style.font_size * 0.75))
+                    bot_fs = style.font_size
+                    # RTL direction handled by FaDefault style (Vazirmatn is inherently RTL).
+                    # Do NOT insert RLM here — libass renders it as a visible rectangle.
+                    final_text = f"{{\\fs{top_fs}}}{{\\c&H808080}}{text}\\N{{\\rFaDefault}}{{\\fs{bot_fs}}}{{\\b1}}{sec_text_formatted}"
                 else:
                     final_text = text
             
             # ASS requires 1-digit hour (usually) and 2-digit centiseconds
             # We must convert 00:00:00,000 (SRT) to 0:00:00.00 (ASS)
             def srt_to_ass_time(t_str):
-                # t_str is HH:MM:SS,mmm
+                # t_str is HH:MM:SS,mmm — work in whole milliseconds to avoid float errors
                 h, m, s_ms = t_str.replace(',', '.').split(':')
                 s, ms = s_ms.split('.')
-                # Convert milliseconds (3 digits) to centiseconds (2 digits)
-                cs = int(ms) // 10 
-                return f"{int(h)}:{m}:{s}.{cs:02d}"
+                total_ms = int(h)*3600000 + int(m)*60000 + int(s)*1000 + int(ms)
+                # Apply time offset (e.g. when video was trimmed with --limit)
+                offset_ms = int(time_offset * 1000)
+                total_ms = max(0, total_ms - offset_ms)
+                out_h  = total_ms // 3600000
+                out_m  = (total_ms % 3600000) // 60000
+                out_s  = (total_ms % 60000) // 1000
+                out_cs = (total_ms % 1000) // 10
+                return f"{out_h}:{out_m:02d}:{out_s:02d}.{out_cs:02d}"
 
             ass_start = srt_to_ass_time(e['start'])
             ass_end = srt_to_ass_time(e['end'])
-            
-            events.append(f"Dialogue: 0,{ass_start},{ass_end},Default,,0,0,0,,{final_text}")
+
+            # Strip BiDi directional control chars. Keep ZWNJ (\u200C) — Vazirmatn renders it
+            # as a true invisible zero-width glyph, needed for correct Persian letterform shaping.
+            for _cp in ('\u200f', '\u200e', '\u200d',
+                        '\u202b', '\u202a', '\u202c', '\u202e', '\u202d'):
+                final_text = final_text.replace(_cp, '')
+
+            # Use FaDefault style when primary lang is FA (RTL) and no secondary row.
+            # In bilingual mode, Default is used for the top row and FaDefault is applied
+            # inline (via {\rFaDefault}) for the bottom row.
+            event_style = "FaDefault" if (lang == 'fa' and not secondary_map) else "Default"
+            events.append(f"Dialogue: 0,{ass_start},{ass_end},{event_style},,0,0,0,,{final_text}")
         
         with open(ass_path, 'w', encoding='utf-8') as f:
             # Add BOM for good measure
@@ -2237,7 +2767,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         force: bool = False,
         correct: bool = False,
         detect_speakers: bool = False,
-        limit: Optional[float] = None
+        limit_start: Optional[float] = None,
+        limit_end: Optional[float] = None,
+        gen_post: bool = False,
+        post_only: bool = False,
     ) -> Dict[str, Any]:
         """Complete workflow with fixed path handling and memory management"""
         
@@ -2256,22 +2789,49 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # If input is already a temp/safe file (e.g. from a previous step), try to clean it
         if "safe_input" in original_stem or "temp_" in original_stem:
             original_stem = re.sub(r'^(temp_\d+_|safe_)', '', original_stem)
-            
+
+        # Detect SRT-as-input: user passed a pre-existing transcript file directly.
+        # Convention: file is named <base>_<lang>.srt — strip the `_<lang>` suffix so
+        # that original_base points at the real base name (same as if the video was given).
+        _is_srt_input = video_path.lower().endswith('.srt')
+        if _is_srt_input:
+            _srt_lang_suffix = f'_{source_lang}'
+            if original_stem.endswith(_srt_lang_suffix):
+                original_stem = original_stem[:-len(_srt_lang_suffix)]
+
         original_base = os.path.join(original_dir, original_stem)
         
         try:
+            # Post-only mode: skip all processing and generate Telegram post from existing SRTs.
+            if post_only:
+                self.generate_posts(original_base, source_lang, {}, platforms=['telegram'])
+                return {}
+
             # SAFETY: Check disk space before starting
             self._check_disk_space(min_gb=1)
             
-            # Limit handling (creates a temp input file)
+            # Limit handling (creates a temp input file for time range)
             current_video_input = video_path
-            if limit:
-                self.logger.info(f"Duration restriction applied: {limit}s")
-                temp_vid = os.path.join(tempfile.gettempdir(), f"temp_{int(time.time())}_{original_stem}.mp4")
-                cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-                       "-i", video_path, "-t", str(limit), "-c", "copy", temp_vid]
-                subprocess.run(cmd, check=True)
-                current_video_input = temp_vid
+            _limit_start = limit_start or 0.0
+            _has_limit = _limit_start > 0 or limit_end is not None
+            if _has_limit:
+                _info = f"{_limit_start}s → {'end' if limit_end is None else f'{limit_end}s'}"
+                self.logger.info(f"⏱️  Time range restriction: {_info}")
+                if _is_srt_input:
+                    # SRT input: no video to clip with ffmpeg.
+                    # Time-range filtering is applied after the SRT is parsed (see below).
+                    self.logger.info("⏱️  SRT input detected — time-range filter will be applied to entries.")
+                else:
+                    temp_vid = os.path.join(tempfile.gettempdir(), f"temp_{int(time.time())}_{original_stem}.mp4")
+                    cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error"]
+                    if _limit_start > 0:
+                        cmd += ["-ss", str(_limit_start)]
+                    cmd += ["-i", video_path]
+                    if limit_end is not None:
+                        cmd += ["-t", str(limit_end - _limit_start)]
+                    cmd += ["-c", "copy", temp_vid]
+                    subprocess.run(cmd, check=True)
+                    current_video_input = temp_vid
             
             # 1. Transcription
             # Force SRT path to be at ORIGINAL location
@@ -2300,7 +2860,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 # The transcribe_video method currently saves based on input name.
                 # Let's rename it after generation if needed.
                 
-                generated_srt = self.transcribe_video(current_video_input, source_lang, correct, detect_speakers, dur=limit or 0)
+                _actual_dur = (limit_end - _limit_start) if limit_end is not None else 0
+                generated_srt = self.transcribe_video(current_video_input, source_lang, correct, detect_speakers, dur=_actual_dur)
                 
                 # CRITICAL: Unload model immediately after heavy transcription to free RAM for rendering/translation
                 self.cleanup()
@@ -2313,6 +2874,22 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # MASTER TIMELINE LOCK: Establish the structural anchor once.
             # All downstream translations MUST follow this structure.
             src_entries = self.parse_srt(src_srt)
+
+            # For SRT-as-input with --limit: filter entries to desired time window.
+            if _has_limit and _is_srt_input:
+                def _ts_to_sec(ts: str) -> float:
+                    """Parse SRT timestamp '00:04:09,430' → seconds as float."""
+                    ts = ts.replace(',', '.')
+                    parts = ts.split(':')
+                    return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+                before = len(src_entries)
+                src_entries = [
+                    e for e in src_entries
+                    if _ts_to_sec(e['start']) >= _limit_start
+                    and (limit_end is None or _ts_to_sec(e['start']) < limit_end)
+                ]
+                self.logger.info(f"⏱️  Filtered {before} → {len(src_entries)} entries within [{_limit_start}s, {'end' if limit_end is None else str(limit_end) + 's'}]")
+
             src_entries = self.sanitize_entries(src_entries)
             
             # Smart Merge: Fix split numbers (e.g. "1" + ",000") before saving
@@ -2349,21 +2926,38 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     entries = self.parse_srt(src_srt)
                     
                     # 💰 SMART RESUME: Ingest partial work before calling LLM (returns recovered mappings)
+                    # Skip SRT-based recovery when force=True (still uses local hash cache + provider KV caches)
                     recovered_map = {}
-                    recovered_map.update(self._ingest_partial_srt(entries, tgt_srt.replace('.srt', '_partial.srt'), tgt) or {})
-                    recovered_map.update(self._ingest_partial_srt(entries, tgt_srt, tgt) or {})
+                    if not force:
+                        recovered_map.update(self._ingest_partial_srt(entries, tgt_srt.replace('.srt', '_partial.srt'), tgt) or {})
+                        recovered_map.update(self._ingest_partial_srt(entries, tgt_srt, tgt) or {})
                     
                     texts = [e['text'] for e in entries]
                     
-                    # Choose LLM Bridge
+                    # Choose translation strategy based on llm_choice
                     translated = []
+                    
+                    # If user specified a particular LLM via --llm flag, respect that choice
                     if self.llm_choice == "gemini":
                         translated = self.translate_with_gemini(texts, tgt, source_lang, original_entries=entries, output_srt=tgt_srt, existing_translations=recovered_map)
                     elif self.llm_choice == "litellm":
                         translated = self.translate_with_litellm(texts, tgt, source_lang, original_entries=entries, output_srt=tgt_srt, existing_translations=recovered_map)
+                    elif self.llm_choice == "minimax":
+                        translated = self.translate_with_minimax(texts, tgt, source_lang, original_entries=entries, output_srt=tgt_srt, existing_translations=recovered_map)
+                    elif self.llm_choice == "grok":
+                        translated = self.translate_with_grok(texts, tgt, source_lang, original_entries=entries, output_srt=tgt_srt, existing_translations=recovered_map)
                     else:
-                        # Default is DeepSeek (Native)
-                        translated = self.translate_with_deepseek(texts, tgt, source_lang, original_entries=entries, output_srt=tgt_srt, existing_translations=recovered_map)
+                        # Default: Use per-batch fallback chain for optimal rate limit distribution
+                        # Each batch tries models in sequence: deepseek -> minimax -> gemini -> grok
+                        translated = self.translate_with_batch_fallback_chain(
+                            texts,
+                            tgt,
+                            source_lang,
+                            original_entries=entries,
+                            output_srt=tgt_srt,
+                            existing_translations=recovered_map
+                        )
+
                     
                     # FINAL VERIFICATION: Ensure we actually got some Persian if tgt is FA
                     if tgt == 'fa' and translated:
@@ -2509,10 +3103,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         # Extract only untranslated lines
                         texts_to_retry = [src_entries[i]['text'] for i in untranslated_indices]
                         
-                        # Apply Smart Merging for Split Numbers (Fix e.g. "1" + ",000")
-                        # This is applied to the source texts before sending for retry translation
-                        texts_to_retry = self._merge_split_numbers(texts_to_retry)
-                        
                         # Translate only these lines with CONTEXT
                         retried_translations = []
                         
@@ -2600,8 +3190,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if render:
                 self.logger.info("Rendering sequence initiated.")
                 
-                primary = source_lang
-                secondary = 'fa' if 'fa' in target_langs and 'fa' != source_lang else None
+                # Render order = sub_langs order (first = top, second = bottom).
+                # target_langs[0] is always the first -sub lang; source is also in result.
+                primary = target_langs[0]
+                secondary = target_langs[1] if len(target_langs) >= 2 else None
+                # If primary == source, it's the transcription SRT (already in result).
+                # If primary != source, it was translated and is also in result.
+                # If secondary == source, it's the transcription SRT too.
+                if secondary == source_lang and secondary not in result:
+                    result[secondary] = src_srt
                 
                 # ASS Path -> Original Base
                 ass_path = f"{original_base}_{primary}"
@@ -2613,7 +3210,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     result[primary],
                     ass_path,
                     primary,
-                    result.get(secondary) if secondary else None
+                    result.get(secondary) if secondary else None,
+                    time_offset=_limit_start
                 )
                 
                 # Output Video -> Original Base
@@ -2660,11 +3258,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     
                     for p in font_paths:
                         if os.path.exists(p):
-                            # Case-insensitive search
+                            # Case-insensitive search for Vazirmatn (primary font in ASS styles)
                             found_font = None
                             try:
                                 for f in os.listdir(p):
-                                    if "nazanin" in f.lower() and f.lower().endswith(".ttf"):
+                                    fl = f.lower()
+                                    if "vazirmatn" in fl and (fl.endswith(".ttf") or fl.endswith(".otf")):
                                         found_font = os.path.join(p, f)
                                         break
                             except OSError:
@@ -2698,7 +3297,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         current_env["FFMPEG_EXEC"] = ffmpeg_bin
                         self.logger.info(f"🔧 Forcing FFmpeg binary: {ffmpeg_bin}")
 
+                    # Get video duration for progress percentage
+                    render_total_duration = 0.0
+                    try:
+                        dur_result = subprocess.run(
+                            ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                             '-of', 'default=noprint_wrappers=1:nokey=1', safe_video_path],
+                            capture_output=True, text=True, timeout=10
+                        )
+                        render_total_duration = float(dur_result.stdout.strip())
+                    except Exception:
+                        pass
+
                     # Execute and stream output
+                    render_start_wall = time.time()
                     process = subprocess.Popen(
                         render_cmd,
                         env=current_env,
@@ -2709,22 +3321,49 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         universal_newlines=True
                     )
                     
+                    def _ffmpeg_time_to_seconds(t: str) -> float:
+                        """Parse ffmpeg time string HH:MM:SS.xx to seconds"""
+                        try:
+                            parts = t.strip().split(':')
+                            return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+                        except Exception:
+                            return 0.0
+
                     for line in process.stdout:
                         # Forward the progress from video.sh
                         line_stripped = line.strip()
                         if not line_stripped:
                             continue
+                        
+                        # Filter out noisy logs (SVT, FFmpeg config, etc.)
+                        if re.match(r'^Svt\[', line_stripped):
+                            continue
+                        if re.match(r'^ffmpeg version|^input #|^output #|^stream mapping', line_stripped, re.IGNORECASE):
+                            continue
+                        if 'bitrate=' not in line_stripped and line_stripped.startswith(('frame=', 'size=')):
+                            continue
 
                         # Output progress in one line (\r for progress stats)
-                        # Check for typical ffmpeg progress markers
-                        if line_stripped.startswith("frame=") or line_stripped.startswith("size=") or \
+                        if line_stripped.startswith("frame=") or \
                            ("time=" in line_stripped and "bitrate=" in line_stripped):
-                            # Overwrite line with progress
-                            print(f"\r{line_stripped.ljust(100)}", end="", flush=True)
+                            # Parse time= field for progress display
+                            time_match = re.search(r'time=(\S+)', line_stripped)
+                            elapsed_wall = time.time() - render_start_wall
+                            progress_str = ""
+                            if time_match and render_total_duration > 0:
+                                encoded_secs = _ffmpeg_time_to_seconds(time_match.group(1))
+                                pct = min(encoded_secs / render_total_duration * 100, 100)
+                                remaining = (render_total_duration - encoded_secs) / max(encoded_secs / elapsed_wall, 0.001) if encoded_secs > 0 else 0
+                                elapsed_str = time.strftime('%M:%S', time.gmtime(elapsed_wall))
+                                remain_str  = time.strftime('%M:%S', time.gmtime(remaining))
+                                progress_str = f" | {pct:5.1f}% | elapsed: {elapsed_str} | remaining: {remain_str}"
+                            elif time_match:
+                                elapsed_str = time.strftime('%M:%S', time.gmtime(elapsed_wall))
+                                progress_str = f" | elapsed: {elapsed_str}"
+                            print(f"\r{line_stripped}{progress_str}".ljust(120), end="", flush=True)
                         else:
-                            # Print newlines for non-progress messages (errors, headers, etc)
-                            # First force a newline to clear any pending \r line
-                            print(f"\n{line_stripped}", flush=True)
+                            if any(keyword in line_stripped.lower() for keyword in ['error', 'warning', 'failed', 'complete', 'finished', 'rendered']):
+                                print(f"\n{line_stripped}", flush=True)
                         
                     process.wait()
                     print() # Final newline after loop finishes
@@ -2743,6 +3382,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     result['rendered_video'] = output_video
                     self.logger.info(f"Rendering process finalized: {Path(output_video).name}")
 
+            # Telegram post generation (auto-triggered after main workflow)
+            if gen_post:
+                self.generate_posts(original_base, source_lang, result, platforms=['telegram'])
+
             self.logger.info("Execution sequence finalized.")
             return result
         
@@ -2756,6 +3399,600 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     os.remove(temp_vid)
                 except:
                     pass
+
+
+    # ==================== SOCIAL MEDIA POST GENERATION ====================
+    # To add a new platform (YouTube, LinkedIn, Instagram, …):
+    #   1. Add a new branch in _get_post_prompt() with the platform key.
+    #   2. Pass that key in the `platforms` list when calling generate_posts().
+    #   That's it — no other changes needed.
+
+    _SOCIAL_LANG_NAMES: Dict[str, str] = {
+        'fa': 'فارسی', 'en': 'انگلیسی', 'de': 'آلمانی',
+        'fr': 'فرانسوی', 'ar': 'عربی', 'es': 'اسپانیایی',
+        'zh': 'چینی', 'ru': 'روسی', 'ja': 'ژاپنی',
+        'tr': 'ترکی', 'it': 'ایتالیایی', 'pt': 'پرتغالی',
+    }
+
+    def _get_post_prompt(self, platform: str, title: str, srt_lang_name: str, full_text: str):
+        """Return (system_prompt, user_prompt) tuple for the given platform.
+
+        ADD NEW PLATFORMS HERE — one branch per platform.
+        Each branch returns two strings: system instruction + user request.
+        """
+        if platform == 'telegram':
+            system = (
+                "You are a creative social media writer for a Persian-language technology "
+                "and AI Telegram channel. Write engaging, concise posts in fluent Persian. "
+                "Do NOT translate word-for-word — use the content as inspiration. "
+                "Use relevant emojis. Target length: 80–200 words."
+            )
+            user = (
+                f"یک پست معرفی جذاب برای کانال تلگرام بنویس.\n\n"
+                f"عنوان ویدیو: {title}\n\n"
+                f"محتوای زیرنویس (زبان: {srt_lang_name}):\n{full_text}\n\n"
+                f"پست باید:\n"
+                f"- با یک جمله کوتاه و جذاب شروع شود\n"
+                f"- در ۲−۳ جمله خلاصه موضوع و نکات مهم را بگوید\n"
+                f"- در انتها ۳ تا ۵ هشتگ مرتبط داشته باشد\n"
+                f"- کاملاً به فارسی نوشته شود"
+            )
+            return system, user
+
+        # ── Future platforms ──────────────────────────────────────────────
+        # elif platform == 'youtube':
+        #     system = "You are an SEO expert writing YouTube video descriptions..."
+        #     user   = f"Write a YouTube description for: {title}\n\n{full_text}"
+        #     return system, user
+        #
+        # elif platform == 'linkedin':
+        #     system = "You write professional LinkedIn posts for a tech audience..."
+        #     user   = f"Write a LinkedIn post for: {title}\n\n{full_text}"
+        #     return system, user
+        #
+        # elif platform == 'instagram':
+        #     system = "You write punchy Instagram captions with hashtags..."
+        #     user   = f"Write an Instagram caption for: {title}\n\n{full_text}"
+        #     return system, user
+        # ─────────────────────────────────────────────────────────────────
+
+        else:
+            raise ValueError(
+                f"Unknown platform: {platform!r}. "
+                f"Add its prompt branch inside _get_post_prompt()."
+            )
+
+    def _call_llm_for_post(self, system: str, user: str) -> Optional[str]:
+        """Call LLM with DeepSeek → Gemini fallback. Returns generated text or None."""
+        try:
+            _ds = OpenAI(api_key=self.api_key, base_url="https://api.deepseek.com/v1")
+            _resp = _ds.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                temperature=0.7,
+                max_tokens=600,
+            )
+            return _resp.choices[0].message.content.strip()
+        except Exception as _e1:
+            self.logger.warning(f"⚠️ DeepSeek unavailable for post: {_e1} — trying Gemini…")
+            try:
+                _gc = genai.Client(api_key=self.google_api_key)
+                _gresp = _gc.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=[f"{system}\n\n{user}"],
+                )
+                return _gresp.text.strip()
+            except Exception as _e2:
+                self.logger.error(f"❌ Post generation failed: {_e2}")
+                return None
+
+    def generate_posts(
+        self,
+        original_base: str,
+        source_lang: str,
+        result: Dict[str, Any],
+        platforms: Optional[List[str]] = None,
+    ) -> Dict[str, str]:
+        """Generate social media posts for every available SRT × every platform.
+
+        When two subtitle languages are produced (e.g. ``de`` + ``fa``) a post
+        is created for **each** language on **each** platform, giving two output
+        files per platform.
+
+        Output filenames:  ``{original_base}_{srt_lang}_{platform}.txt``
+        Example:           ``KI_video_fa_telegram.txt``, ``KI_video_de_telegram.txt``
+
+        Args:
+            original_base: Dir + stem without language suffix.
+            source_lang:   Audio language code.
+            result:        Dict[lang → srt_path] from run_workflow.  May be empty
+                           when called in ``--post-only`` mode (paths discovered
+                           from disk in that case).
+            platforms:     Platform keys to generate for. Default: ``['telegram']``.
+                           Extend by implementing the key in ``_get_post_prompt()``.
+
+        Returns:
+            Dict mapping ``'{lang}_{platform}'`` → saved ``.txt`` path.
+        """
+        if platforms is None:
+            platforms = ['telegram']
+
+        # Title: clean up stem for human readability
+        stem = Path(original_base).name
+        stem = re.sub(r'_(subbed|[a-z]{2,3})$', '', stem, flags=re.IGNORECASE)
+        stem = re.sub(r'_\d{2}\.\d{2}\.\d{4}$', '', stem)   # strip date suffix
+        title = re.sub(r'[_\-]+', ' ', stem).strip()
+
+        _bidi = '\u200f\u200e\u200d\u202b\u202a\u202c\u202e\u202d\u2067\u2066\u2069'
+
+        # Collect all SRT languages present in result
+        srt_langs = [
+            lang for lang, path in result.items()
+            if isinstance(path, str) and path.endswith('.srt') and os.path.exists(path)
+        ]
+
+        # post-only / empty result: discover existing SRTs on disk
+        if not srt_langs:
+            for _l in ['fa', 'en', source_lang]:
+                _c = f"{original_base}_{_l}.srt"
+                if os.path.exists(_c) and _l not in srt_langs:
+                    srt_langs.append(_l)
+
+        if not srt_langs:
+            self.logger.warning("⚠️ No SRT files found — skipping post generation.")
+            return {}
+
+        saved: Dict[str, str] = {}
+
+        for srt_lang in srt_langs:
+            srt_path = result.get(srt_lang) or f"{original_base}_{srt_lang}.srt"
+            if not os.path.exists(srt_path):
+                continue
+
+            # Extract clean subtitle text
+            entries = self.parse_srt(srt_path)
+            lines = []
+            for e in entries:
+                t = e['text']
+                for c in _bidi:
+                    t = t.replace(c, '')
+                lines.append(t.strip())
+            full_text = '\n'.join(lines[:150]) + ('\n...' if len(lines) > 150 else '')
+
+            srt_lang_name = self._SOCIAL_LANG_NAMES.get(srt_lang, srt_lang)
+
+            for platform in platforms:
+                try:
+                    system, user = self._get_post_prompt(platform, title, srt_lang_name, full_text)
+                except ValueError as ve:
+                    self.logger.warning(str(ve))
+                    continue
+
+                post_text = self._call_llm_for_post(system, user)
+                if not post_text:
+                    continue
+
+                post_path = f"{original_base}_{srt_lang}_{platform}.txt"
+                with open(post_path, 'w', encoding='utf-8') as f:
+                    f.write(post_text)
+
+                saved[f"{srt_lang}_{platform}"] = post_path
+                label = f"پست {platform} ({srt_lang.upper()})"
+                self.logger.info(f"📝 {label} saved: {Path(post_path).name}")
+                print(f"\n{'━'*60}\n📝  {label}:\n{'━'*60}\n{post_text}\n{'━'*60}\n")
+
+        return saved
+
+    def generate_telegram_post(self, original_base, source_lang, result):
+        """Deprecated — use generate_posts() directly. Kept for backward compatibility."""
+        return self.generate_posts(original_base, source_lang, result, platforms=['telegram'])
+
+    # ==================== BATCH FALLBACK CHAIN ====================
+
+    def translate_batch_single_attempt(
+        self,
+        batch: List[str],
+        target_lang: str,
+        source_lang: str = 'en',
+        model_name: str = "deepseek",
+        batch_size: int = 25,
+        max_retries: int = 2
+    ) -> List[str]:
+        """
+        Single model translation with minimal retries (1-2 attempts only).
+        Raises exception immediately if it fails so fallback chain can try next model.
+        
+        Args:
+            batch: Texts to translate
+            target_lang: Target language
+            source_lang: Source language
+            model_name: Model to use (deepseek, minimax, gemini, grok)
+            batch_size: Batch size for this model
+            max_retries: Max retry attempts (default 2)
+        
+        Returns:
+            Translated texts or raises exception
+        """
+        if model_name == "deepseek":
+            client = OpenAI(api_key=self.api_key, base_url="https://api.deepseek.com/v1")
+            
+            for attempt in range(1, max_retries + 1):
+                try:
+                    # Context lines (3 before + 3 after)
+                    ctx_section = ""
+                    batch_text = "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(batch)])
+                    
+                    response = client.chat.completions.create(
+                        model=self.llm_models["deepseek"],
+                        messages=[
+                            {"role": "system", "content": self.get_translation_prompt(target_lang)},
+                            {"role": "user", "content": batch_text}
+                        ],
+                        temperature=self.temperature,
+                        max_tokens=4000
+                    )
+                    
+                    output = response.choices[0].message.content.strip()
+                    
+                    # Log DeepSeek KV cache hit tokens (automatically cached at 10x discount)
+                    if hasattr(response, 'usage') and response.usage:
+                        cached_tokens = getattr(response.usage, 'prompt_cache_hit_tokens', 0) or 0
+                        if cached_tokens:
+                            self._cost_savings["deepseek_cache_hit_tokens"] += cached_tokens
+                    
+                    trans_list = self._parse_translated_batch_output(output, len(batch))
+                    
+                    if trans_list and len(trans_list) >= len(batch):
+                        result_batch = trans_list[:len(batch)]
+                        # Apply Persian fixes if needed
+                        if target_lang == 'fa':
+                            processed_list = []
+                            for idx_in_batch, t in enumerate(trans_list):
+                                if not t or not t.strip():
+                                    processed_list.append(batch[idx_in_batch])
+                                    continue
+                                if not any('\u0600' <= c <= '\u06FF' for c in t):
+                                    processed_list.append(batch[idx_in_batch])
+                                else:
+                                    processed_list.append(self.fix_persian_text(self.strip_english_echo(t)))
+                            trans_list = processed_list
+                        return trans_list[:len(batch)]
+                    else:
+                        raise ValueError(f"Incomplete response: expected {len(batch)}, got {len(trans_list) if trans_list else 0}")
+                
+                except Exception as e:
+                    if attempt >= max_retries:
+                        raise
+                    wait_time = 5 * attempt
+                    self.logger.debug(f"DeepSeek attempt {attempt} failed, retrying in {wait_time}s: {str(e)[:50]}")
+                    time.sleep(wait_time)
+        
+        elif model_name == "minimax":
+            for attempt in range(1, max_retries + 1):
+                try:
+                    import requests
+                    api_key = self.minimax_api_key
+                    if not api_key:
+                        raise ValueError("MINIMAX_API_KEY not set")
+                    
+                    batch_text = "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(batch)])
+                    
+                    # Minimax API call (simplified)
+                    headers = {"Authorization": f"Bearer {api_key}"}
+                    data = {
+                        "model": self.llm_models["minimax"],
+                        "messages": [
+                            {"role": "system", "content": self.get_translation_prompt(target_lang)},
+                            {"role": "user", "content": batch_text}
+                        ]
+                    }
+                    
+                    response = requests.post("https://api.minimaxi.com/v1/text/chatcompletion_pro", json=data, headers=headers, timeout=30)
+                    response.raise_for_status()
+                    result = response.json()
+                    output = result.get("reply", "")
+                    trans_list = self._parse_translated_batch_output(output, len(batch))
+                    
+                    if trans_list and len(trans_list) >= len(batch):
+                        return trans_list[:len(batch)]
+                    else:
+                        raise ValueError(f"Incomplete response: expected {len(batch)}, got {len(trans_list) if trans_list else 0}")
+                
+                except Exception as e:
+                    if attempt >= max_retries:
+                        raise
+                    wait_time = 5 * attempt
+                    self.logger.debug(f"MiniMax attempt {attempt} failed, retrying in {wait_time}s: {str(e)[:50]}")
+                    time.sleep(wait_time)
+        
+        elif model_name == "gemini":
+            # Try to get/create server-side CachedContent for system instruction
+            gemini_cache_name = self._get_gemini_content_cache(target_lang)
+            
+            for attempt in range(1, max_retries + 1):
+                try:
+                    if not HAS_GEMINI or not self.google_api_key:
+                        raise ValueError("Gemini SDK not available or API key not set")
+                    
+                    from google import genai
+                    from google.genai import types as genai_types
+                    client = genai.Client(api_key=self.google_api_key)
+                    
+                    batch_text = "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(batch)])
+                    
+                    model = self.llm_models["gemini"]
+                    
+                    if gemini_cache_name:
+                        # USE EXPLICIT CACHE: system instruction is already cached on Gemini's servers
+                        # Only pay for user message tokens, not system instruction tokens (guaranteed savings)
+                        response = client.models.generate_content(
+                            model=model,
+                            contents=batch_text,
+                            config=genai_types.GenerateContentConfig(
+                                cached_content=gemini_cache_name
+                            )
+                        )
+                    else:
+                        # Fallback: implicit caching (system prompt embedded, may or may not cache)
+                        response = client.models.generate_content(
+                            model=model,
+                            contents=f"{self.get_translation_prompt(target_lang)}\n\n{batch_text}"
+                        )
+                    
+                    output = response.text.strip() if response else ""
+                    if not output:
+                        raise ValueError(f"Empty response from {model}")
+                    
+                    # Log cached tokens if available
+                    if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                        cached = getattr(response.usage_metadata, 'cached_content_token_count', 0) or 0
+                        if cached:
+                            self._cost_savings["gemini_cached_tokens"] += cached
+                    
+                    trans_list = self._parse_translated_batch_output(output, len(batch))
+                    
+                    if trans_list and len(trans_list) >= len(batch):
+                        return trans_list[:len(batch)]
+                    else:
+                        raise ValueError(f"Incomplete response: expected {len(batch)}, got {len(trans_list) if trans_list else 0}")
+                
+                except Exception as e:
+                    if attempt >= max_retries:
+                        raise
+                    wait_time = 5 * attempt
+                    self.logger.debug(f"Gemini attempt {attempt} failed, retrying in {wait_time}s: {str(e)[:50]}")
+                    time.sleep(wait_time)
+        
+        elif model_name == "grok":
+            for attempt in range(1, max_retries + 1):
+                try:
+                    from openai import OpenAI as XAI_Client
+                    if not self.grok_api_key:
+                        raise ValueError("GROK_API_KEY not set")
+                    
+                    client = XAI_Client(api_key=self.grok_api_key, base_url="https://api.x.ai/v1")
+                    
+                    batch_text = "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(batch)])
+                    
+                    response = client.chat.completions.create(
+                        model=self.llm_models["grok"],
+                        messages=[
+                            {"role": "system", "content": self.get_translation_prompt(target_lang)},
+                            {"role": "user", "content": batch_text}
+                        ],
+                        temperature=0.7,
+                        max_tokens=4000
+                    )
+                    
+                    output = (response.choices[0].message.content or "").strip()
+                    if not output:
+                        raise ValueError("Empty response from Grok")
+                    
+                    # Log Grok cached prompt tokens (auto-cached, discounted)
+                    if hasattr(response, 'usage') and response.usage:
+                        cached_tokens = getattr(response.usage, 'prompt_cache_hit_tokens', 0) or 0
+                        if cached_tokens:
+                            self._cost_savings["grok_cache_hit_tokens"] += cached_tokens
+                    
+                    trans_list = self._parse_translated_batch_output(output, len(batch))
+                    
+                    if trans_list and len(trans_list) >= len(batch):
+                        return trans_list[:len(batch)]
+                    else:
+                        raise ValueError(f"Incomplete response: expected {len(batch)}, got {len(trans_list) if trans_list else 0}")
+                
+                except Exception as e:
+                    if attempt >= max_retries:
+                        raise
+                    wait_time = 5 * attempt
+                    self.logger.debug(f"Grok attempt {attempt} failed, retrying in {wait_time}s: {str(e)[:50]}")
+                    time.sleep(wait_time)
+        
+        raise ValueError(f"Unknown model: {model_name}")
+
+    def translate_with_batch_fallback_chain(
+        self,
+        texts: List[str],
+        target_lang: str,
+        source_lang: str = 'en',
+        original_entries: List[Dict] = None,
+        output_srt: str = None,
+        existing_translations: Dict[int, str] = None
+    ) -> List[str]:
+        """
+        Translate texts with per-batch model fallback chain.
+        
+        Each batch tries models in sequence (deepseek -> minimax -> gemini -> grok).
+        Each model gets only 1-2 attempts per batch before trying the next model.
+        When a batch succeeds, the next batch starts fresh with the first model.
+        This maximizes rate limit tolerance and distribution.
+        
+        Args:
+            texts: Texts to translate
+            target_lang: Target language code
+            source_lang: Source language code (default: 'en')
+            original_entries: Original SRT entries for incremental save
+            output_srt: Output SRT file path for incremental saves
+            existing_translations: Pre-existing translations to skip (from recovery)
+        
+        Returns:
+            List of translated texts
+        """
+        if not texts or target_lang == source_lang:
+            return texts
+        
+        # Model chain for fallback (resets per batch)
+        MODEL_CHAIN = ["deepseek", "minimax", "gemini", "grok"]
+        
+        # Get batch sizes for each model
+        BATCH_SIZES = {
+            "deepseek": 25,
+            "minimax": 20,
+            "gemini": 40,
+            "grok": 25,
+        }
+        
+        # Initialize result list
+        final_result = [None] * len(texts)
+        
+        # Prefill with existing translations (Smart Resume)
+        if existing_translations:
+            for idx, txt in existing_translations.items():
+                if 0 <= idx < len(final_result) and txt and txt.strip():
+                    final_result[idx] = txt
+        
+        # ── Pass 1: LOCAL CACHE LOOKUP (100% cost saving) ────────────────
+        local_hits = 0
+        for i, text in enumerate(texts):
+            if final_result[i] is None:
+                cached = self._lookup_local_cache(text, target_lang)
+                if cached:
+                    final_result[i] = cached
+                    local_hits += 1
+        if local_hits:
+            self._cost_savings["local_cache_hits"] += local_hits
+            self.logger.info(f"💾 Local cache: {local_hits} translations reused (100% cost saved)")
+
+        # ── Pass 2: DEDUPLICATION ─────────────────────────────────────────
+        # Many subtitles repeat the same sentence multiple times.
+        # Translate each unique text once and fill in all duplicates.
+        indices_to_translate = [i for i in range(len(texts)) if final_result[i] is None]
+        if not indices_to_translate:
+            self._save_local_translation_cache()
+            return [final_result[i] if final_result[i] is not None else texts[i] for i in range(len(texts))]
+        
+        # Build unique text → list of original indices
+        unique_text_map: Dict[str, List[int]] = {}
+        for i in indices_to_translate:
+            t = texts[i]
+            unique_text_map.setdefault(t, []).append(i)
+        
+        unique_texts = list(unique_text_map.keys())
+        dedup_count = len(indices_to_translate) - len(unique_texts)
+        if dedup_count > 0:
+            self.logger.info(f"🔁 Deduplication: {len(unique_texts)} unique → saves {dedup_count} redundant API calls")
+        
+        # Create balanced batches over unique texts only
+        unique_indices = list(range(len(unique_texts)))  # virtual indices into unique_texts
+        
+        # We need to batch unique_texts. Build a fake texts array just for batching.
+        batch_indices_list = self._create_balanced_batches(unique_indices, unique_texts, max(BATCH_SIZES.values()))
+        batch_count = len(batch_indices_list)
+        
+        pbar = tqdm(total=len(unique_texts), unit="item", desc=f"  Translating ({target_lang.upper()}) [Fallback Chain]")
+
+        
+        # Process each batch with fallback chain
+        for batch_num, batch_indices in enumerate(batch_indices_list):
+            # batch_indices are virtual indices into unique_texts
+            batch = [unique_texts[idx] for idx in batch_indices]
+            success_batch = False
+            last_error = None
+            
+            # Try each model in chain for this batch (reset per batch)
+            for model_idx, model_name in enumerate(MODEL_CHAIN):
+                if success_batch:
+                    break
+                
+                try:
+                    batch_size = BATCH_SIZES[model_name]
+                    
+                    self.logger.info(f"Batch {batch_num + 1}/{batch_count}: Trying {model_name.upper()} (Model {model_idx + 1}/{len(MODEL_CHAIN)})")
+                    
+                    # Call translation with minimal retries
+                    trans_list = self.translate_batch_single_attempt(
+                        batch,
+                        target_lang,
+                        source_lang,
+                        model_name,
+                        batch_size,
+                        max_retries=2  # Only 2 attempts per model
+                    )
+                    
+                    # Fill ALL duplicates and store in local cache
+                    for rel_idx, trans in enumerate(trans_list):
+                        unique_text = batch[rel_idx]
+                        # Store in local cache
+                        self._store_local_cache(unique_text, target_lang, trans)
+                        # Fill all original indices that had this text
+                        for abs_idx in unique_text_map.get(unique_text, []):
+                            final_result[abs_idx] = trans
+                    
+                    # Live save to SRT file
+                    if output_srt and original_entries:
+                        try:
+                            with open(output_srt, 'w', encoding='utf-8-sig') as f:
+                                for idx, entry in enumerate(original_entries, 1):
+                                    trans = final_result[idx - 1]
+                                    t_text = trans if trans is not None else entry['text']
+                                    f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{t_text}\n\n")
+                        except Exception as e:
+                            self.logger.warning(f"Could not save intermediate SRT: {e}")
+                    
+                    # Update progress
+                    pbar.update(len(batch))
+                    success_batch = True
+                    self.logger.info(f"✓ Batch {batch_num + 1} succeeded with {model_name.upper()}")
+                    
+                    # Wait to avoid rate limit issues
+                    time.sleep(1)
+                
+                except Exception as e:
+                    error_msg = f"{type(e).__name__}: {str(e)}"
+                    last_error = error_msg
+                    is_api_key = "401" in error_msg or "401 Unauthorized" in error_msg or "Invalid API Key" in error_msg
+                    
+                    if is_api_key:
+                        self.logger.warning(f"⚠️ Batch {batch_num + 1}: {model_name.upper()} - Invalid API Key, skipping...")
+                    else:
+                        self.logger.warning(f"⚠️ Batch {batch_num + 1}: {model_name.upper()} failed - {error_msg[:80]}, trying next model...")
+            
+            # Check if batch succeeded
+            if not success_batch:
+                self.logger.error(f"❌ Batch {batch_num + 1} FAILED: All models exhausted. Using original text.")
+                # Fallback: use original text for all duplicates in failed batch
+                for unique_text in batch:
+                    for abs_idx in unique_text_map.get(unique_text, []):
+                        if final_result[abs_idx] is None:
+                            final_result[abs_idx] = unique_text
+                pbar.update(len(batch))
+        
+        pbar.close()
+        
+        # Persist local cache to disk
+        self._save_local_translation_cache()
+        
+        # Print cost savings report
+        self._log_cost_savings()
+        
+        # Ensure no None values
+        final_result = [final_result[i] if final_result[i] is not None else texts[i] for i in range(len(texts))]
+        
+        return final_result
+
 
 
 # ==================== HELPER ====================
