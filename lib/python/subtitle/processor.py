@@ -3503,17 +3503,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     f"🔹 [موضوع پنجم]: [توضیح کوتاه]\n\n"
                     f"✨ [یک پاراگراف جمع‌بندی و نظر شخصی — چرا این محتوا مهمه]\n\n"
                     f"📌 [یک جمله call-to-action — دعوت به تماشا]\n\n"
-                    f"⏱️ مدت: [مدت تقریبی بر اساس محتوا]\n\n"
+                    f"⏱️ مدت: {duration if duration else '[از تایم‌استمپ محاسبه کن]'}\n\n"
                     f"#[هشتگ۱] #[هشتگ۲] #[هشتگ۳] #[هشتگ۴] #[هشتگ۵]\n"
                     f"---\n\n"
                     f"اطلاعات ویدیو:\n"
-                    f"عنوان: {title}\n\n"
+                    f"عنوان: {title}\n"
+                    f"مدت: {duration if duration else '(از تایم‌استمپ زیرنویس محاسبه کن)'}\n\n"
                     f"محتوای زیرنویس:\n{full_text}\n\n"
                     f"قوانین:\n"
                     f"- کل پست کاملاً به فارسی (هشتگ‌ها می‌توانند انگلیسی باشند)\n"
                     f"- نقل‌قول داخل « » باشد\n"
                     f"- بین هر بخش یک خط خالی\n"
-                    f"- هیچ بخشی را حذف نکن"
+                    f"- همه بخش‌های قالب رو کامل بنویس — هیچ بخشی را حذف نکن\n"
+                    f"- MAX 850 کاراکتر"
                 )
             else:
                 _lang_en = get_language_config(srt_lang).name
@@ -3637,7 +3639,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     {"role": "user", "content": user},
                 ],
                 temperature=0.7,
-                max_tokens=400,
+                max_tokens=700,
             )
             return _resp.choices[0].message.content.strip()
         except Exception as _e1:
