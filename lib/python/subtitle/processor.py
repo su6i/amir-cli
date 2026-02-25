@@ -3416,9 +3416,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         'zh': 'چینی', 'ru': 'روسی', 'ja': 'ژاپنی',
         'tr': 'ترکی', 'it': 'ایتالیایی', 'pt': 'پرتغالی',
     }
+    _SOCIAL_LANG_NAMES_EN: Dict[str, str] = {
+        'fa': 'Persian', 'en': 'English', 'de': 'German',
+        'fr': 'French', 'ar': 'Arabic', 'es': 'Spanish',
+        'zh': 'Chinese', 'ru': 'Russian', 'ja': 'Japanese',
+        'tr': 'Turkish', 'it': 'Italian', 'pt': 'Portuguese',
+    }
 
     def _get_post_prompt(self, platform: str, title: str, srt_lang_name: str, full_text: str,
-                          prompt_file: Optional[str] = None):
+                          prompt_file: Optional[str] = None, srt_lang: str = 'fa'):
         """Return (system_prompt, user_prompt) tuple for the given platform.
 
         Prompt resolution priority:
@@ -3457,22 +3463,58 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         # ── 2. Built-in system + user prompts per platform ──
         if platform == 'telegram':
-            system = (
-                "You are a creative social media writer for a Persian-language technology "
-                "and AI Telegram channel. Write engaging, concise posts in fluent Persian. "
-                "Do NOT translate word-for-word — use the content as inspiration. "
-                "Use relevant emojis. Target length: 80–200 words."
-            )
-            user = _file_user_prompt or (
-                f"یک پست معرفی جذاب برای کانال تلگرام بنویس.\n\n"
-                f"عنوان ویدیو: {title}\n\n"
-                f"محتوای زیرنویس (زبان: {srt_lang_name}):\n{full_text}\n\n"
-                f"پست باید:\n"
-                f"- با یک جمله کوتاه و جذاب شروع شود\n"
-                f"- در ۲−۳ جمله خلاصه موضوع و نکات مهم را بگوید\n"
-                f"- در انتها ۳ تا ۵ هشتگ مرتبط داشته باشد\n"
-                f"- کاملاً به فارسی نوشته شود"
-            )
+            if srt_lang == 'fa':
+                system = (
+                    "You are a creative Telegram channel writer for a Persian-language technology and AI channel. "
+                    "You write structured, engaging posts in fluent Persian. "
+                    "Do NOT translate word-for-word — extract key insights and write naturally. "
+                    "STRICTLY follow the exact format template provided."
+                )
+                user = _file_user_prompt or (
+                    f"یک پست تلگرام کامل و حرفه‌ای بنویس. دقیقاً این قالب رو دنبال کن:\n\n"
+                    f"---\n"
+                    f"📽️ [عنوان کامل ویدیو به فارسی]\n"
+                    f"با زیرنویس فارسی\n\n"
+                    f"🔴 «[یک جمله کوتاه و جذاب از محتوا — ترجیحاً نقل‌قول یا ادعای جالب]»\n\n"
+                    f"[یک پاراگراف ۲−۳ جمله‌ای درباره محتوا، مهمان یا زمینه — بدون ساختار لیستی]\n\n"
+                    f"🚨 نکات مهم:\n\n"
+                    f"🔹 [موضوع اول]: [توضیح کوتاه]\n\n"
+                    f"🔹 [موضوع دوم]: [توضیح کوتاه]\n\n"
+                    f"🔹 [موضوع سوم]: [توضیح کوتاه]\n\n"
+                    f"🔹 [موضوع چهارم]: [توضیح کوتاه]\n\n"
+                    f"🔹 [موضوع پنجم]: [توضیح کوتاه]\n\n"
+                    f"✨ [یک پاراگراف جمع‌بندی و نظر شخصی — چرا این محتوا مهمه]\n\n"
+                    f"📌 [یک جمله call-to-action — دعوت به تماشا]\n\n"
+                    f"⏱️ مدت: [مدت تقریبی بر اساس محتوا]\n\n"
+                    f"#[هشتگ۱] #[هشتگ۲] #[هشتگ۳] #[هشتگ۴] #[هشتگ۵]\n"
+                    f"---\n\n"
+                    f"اطلاعات ویدیو:\n"
+                    f"عنوان: {title}\n\n"
+                    f"محتوای زیرنویس:\n{full_text}\n\n"
+                    f"قوانین:\n"
+                    f"- کل پست کاملاً به فارسی (هشتگ‌ها می‌توانند انگلیسی باشند)\n"
+                    f"- نقل‌قول داخل « » باشد\n"
+                    f"- بین هر بخش یک خط خالی\n"
+                    f"- هیچ بخشی را حذف نکن"
+                )
+            else:
+                _lang_en = self._SOCIAL_LANG_NAMES_EN.get(srt_lang, srt_lang.upper())
+                system = (
+                    f"You are a creative social media writer for a {_lang_en}-language technology "
+                    f"and AI Telegram channel. Write engaging, concise posts in fluent {_lang_en}. "
+                    "Do NOT translate word-for-word — use the content as inspiration. "
+                    "Use relevant emojis. Target length: 80–200 words."
+                )
+                user = _file_user_prompt or (
+                    f"Write an engaging Telegram channel post in {_lang_en}.\n\n"
+                    f"Video title: {title}\n\n"
+                    f"Subtitle content (language: {_lang_en}):\n{full_text}\n\n"
+                    f"The post must:\n"
+                    f"- Start with a short, catchy sentence\n"
+                    f"- Summarize the topic and key points in 2–3 sentences\n"
+                    f"- End with 3–5 relevant hashtags\n"
+                    f"- Be written entirely in {_lang_en}"
+                )
             return system, user
 
         elif platform == 'youtube':
@@ -3646,7 +3688,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             for platform in platforms:
                 try:
                     system, user = self._get_post_prompt(platform, title, srt_lang_name, full_text,
-                                                         prompt_file=prompt_file)
+                                                         prompt_file=prompt_file, srt_lang=srt_lang)
                 except ValueError as ve:
                     self.logger.warning(str(ve))
                     continue
