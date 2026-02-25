@@ -3410,18 +3410,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     #   2. Pass that key in the `platforms` list when calling generate_posts().
     #   That's it — no other changes needed.
 
-    _SOCIAL_LANG_NAMES: Dict[str, str] = {
-        'fa': 'فارسی', 'en': 'انگلیسی', 'de': 'آلمانی',
-        'fr': 'فرانسوی', 'ar': 'عربی', 'es': 'اسپانیایی',
-        'zh': 'چینی', 'ru': 'روسی', 'ja': 'ژاپنی',
-        'tr': 'ترکی', 'it': 'ایتالیایی', 'pt': 'پرتغالی',
-    }
-    _SOCIAL_LANG_NAMES_EN: Dict[str, str] = {
-        'fa': 'Persian', 'en': 'English', 'de': 'German',
-        'fr': 'French', 'ar': 'Arabic', 'es': 'Spanish',
-        'zh': 'Chinese', 'ru': 'Russian', 'ja': 'Japanese',
-        'tr': 'Turkish', 'it': 'Italian', 'pt': 'Portuguese',
-    }
+    # Language names are resolved via get_language_config(lang).name — no hardcoded dicts needed.
 
     def _get_post_prompt(self, platform: str, title: str, srt_lang_name: str, full_text: str,
                           prompt_file: Optional[str] = None, srt_lang: str = 'fa'):
@@ -3498,7 +3487,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     f"- هیچ بخشی را حذف نکن"
                 )
             else:
-                _lang_en = self._SOCIAL_LANG_NAMES_EN.get(srt_lang, srt_lang.upper())
+                _lang_en = get_language_config(srt_lang).name
                 system = (
                     f"You are a creative social media writer for a {_lang_en}-language technology "
                     f"and AI Telegram channel. Write engaging, concise posts in fluent {_lang_en}. "
@@ -3683,7 +3672,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 lines.append(t.strip())
             full_text = '\n'.join(lines[:150]) + ('\n...' if len(lines) > 150 else '')
 
-            srt_lang_name = self._SOCIAL_LANG_NAMES.get(srt_lang, srt_lang)
+            srt_lang_name = get_language_config(srt_lang).name
 
             for platform in platforms:
                 try:
