@@ -110,6 +110,31 @@ amir subtitle video.mp4 -s en -t fa -f
 amir subtitle -l
 ```
 
+### 📥 YouTube Download + Auto-Translate Integration
+
+`amir video download` uses this module as a downstream step. The complete one-command workflow:
+
+```bash
+# Download video, translate YouTube's EN subtitles to FA, burn into video
+amir video download "https://youtube.com/watch?v=XYZ" --yt-subs --translate -t en fa
+
+# Same but output SRT only (no burning)
+amir video download "https://youtube.com/watch?v=XYZ" --yt-subs --translate -t en fa --no-render
+
+# Download video + transcribe with Whisper instead of YT subs (burn by default)
+amir video download "https://youtube.com/watch?v=XYZ" --subtitle -t fa
+```
+
+**Pipeline when `--translate` is used:**
+1. `yt-dlp` downloads the video (progress bar visible; filepath captured via `--print after_move:filepath`)
+2. `yt-dlp --skip-download` fetches YT's built-in subtitles (prefers `*.en.srt` over `*.en-orig.srt`)
+3. The chosen SRT is copied to `<title>_en.srt` → signals this module to **skip Whisper transcription**
+4. This module performs LLM translation → validates 100% coverage → burns if `DO_RENDER=true`
+
+**`DO_RENDER` defaults:**
+- `--translate` → render ON (burn translated sub into video)
+- `--translate --no-render` → render OFF (SRT file only)
+
 ## 📖 Usage Guide
 
 ### Command Line Options

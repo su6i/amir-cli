@@ -74,7 +74,11 @@ Use space-separated globs for maximum stability:
 *   **Colon Confusion (CRITICAL):** Colons (`:`) in help strings within `_arguments` specifications MUST be escaped with a backslash (`\:`). Zsh completion specs use colons as separators; unescaped colons will cause the shell to interpret the help text as a new command part, leading to `zsh: command not found` errors. 
     *   **Bad Example:** `[HH:MM:SS]` (Crashes)
     *   **Good Example:** `[HH\:MM\:SS]` (Works)
-*   **Explicit Positional Indices:** When using `_arguments` for complex commands with subcommands, use explicit numeric indices (e.g., `'1: : '`, `'2: : '`) to align the argument mapping. This ensures Zsh knows which words have already been provided as commands and which are flags/files.
+*   **Explicit Positional Indices (MANDATORY):** When using `_arguments` for complex commands with subcommands (e.g., `amir video cut <file>`), use explicit numeric indices (e.g., `'1: : '`, `'2: : '`) to align the argument mapping.
+    *   **Logic:** Since `compdef` starts from the first word after the command, `1:` matches the first subcommand. Accounting for every word in the sequence is the ONLY way to ensure the file appears at the correct index (e.g., index 3 for `video cut`).
+*   **Tab-Completion Continuity (CRITICAL):** If a file is defined at a specific index (e.g., `'3:video file:_files'`), all subsequent flags MUST be defined within the SAME `_arguments` call. If you separate them or use a restricted index without allowing for flags, Zsh will stop suggesting options after the file is selected.
+*   **Multi-Format Parameter Documentation:** When a flag supports multiple formats (e.g., HH\:MM\:SS or seconds), always provide a concrete example in the help string to direct user input.
+    *   **Example:** `'(-s --start)'{-s,--start}'[Start time]:format HH\:MM\:SS or seconds (e.g. 00\:10\:30 or 630): '`
 
 ---
 ---

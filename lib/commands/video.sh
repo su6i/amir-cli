@@ -105,16 +105,30 @@ stats() {
         "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
 }
 
-reset() {
+reset_learning_data() {
     local config_dir="${AMIR_CONFIG_DIR:-$HOME/.amir}"
     local learning_file="$config_dir/learning_data"
-    
+
     if [[ -f "$learning_file" ]]; then
         rm "$learning_file"
         echo "✅ Advanced learning data reset to defaults."
     else
         echo "ℹ️  No learning data found."
     fi
+}
+
+check_hevc_support() {
+    echo "🎥 HEVC Encoder Support:"
+    local found=0
+    for enc in hevc_videotoolbox hevc_nvenc hevc_amf hevc_qsv libx265; do
+        if ffmpeg -encoders 2>/dev/null | grep -q "$enc"; then
+            echo "  ✅ $enc"
+            found=1
+        else
+            echo "  ❌ $enc"
+        fi
+    done
+    [[ $found -eq 0 ]] && echo "  ⚠️  No hardware HEVC encoders found; falling back to libx265 (CPU)"
 }
 
 calculate_column_width() {
@@ -411,33 +425,43 @@ process_video() {
     # Windows/Linux fix for audio filters
     local audio_filter="aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo"
     
-    local input_bitrate=$(ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
+    # bitrate_flags only for software encoder (hevc_videotoolbox/nvenc/etc don't support
+    # -maxrate/-bufsize combined with -q:v quality mode — causes immediate failure)
     local bitrate_flags=()
-    if [[ -n "$input_bitrate" && "$input_bitrate" =~ ^[0-9]+$ ]]; then
-        # Apply 15% safety overhead to the ceiling
-        local max_bitrate=$(echo "$input_bitrate * 1.15 / 1" | bc)
-        # Standard bufsize is usually 2x maxrate for VBR stability
-        local buf_size=$((max_bitrate * 2))
-        bitrate_flags=("-maxrate" "${max_bitrate}" "-bufsize" "${buf_size}")
+    if [[ "$encoder" == "libx265" ]]; then
+        local input_bitrate=$(ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
+        if [[ -n "$input_bitrate" && "$input_bitrate" =~ ^[0-9]+$ ]]; then
+            local max_bitrate=$(echo "$input_bitrate * 1.15 / 1" | bc)
+            local buf_size=$((max_bitrate * 2))
+            bitrate_flags=("-maxrate" "${max_bitrate}" "-bufsize" "${buf_size}")
+        fi
     fi
 
     # Execute ffmpeg with a single-line progress filter
     local filter_cmd="fps=25,scale=${target_w}:${target_h_final}:force_original_aspect_ratio=decrease,pad=${target_w}:${target_h_final}:(ow-iw)/2:(oh-ih)/2,setsar=1"
-    
+
+    local ffmpeg_error_log=$(mktemp)
     ffmpeg -hide_banner -loglevel info -stats -nostdin -y -i "$input_file" \
     -vf "$filter_cmd" -sws_flags bilinear \
     -c:v "$encoder" -q:v $quality $tag_opt \
     "${bitrate_flags[@]}" \
     -af "$audio_filter" \
-    -c:a aac -pix_fmt yuv420p -movflags +faststart "$output" 2>&1 | while read -d $'\r' -r line; do
+    -c:a aac -pix_fmt yuv420p -movflags +faststart "$output" 2> >(tee "$ffmpeg_error_log" >&2) | while read -d $'\r' -r line; do
         printf "\r⏳ Processing... %s" "$line"
     done
+    local ffmpeg_exit=${PIPESTATUS[0]:-$?}
     printf "\r⏳ Processing... Done!                                        \n"
-    
-    if [[ ! -f "$output" ]]; then
-        echo "❌ Compression failed!"
-        return
+
+    local output_bytes_check=0
+    [[ -f "$output" ]] && output_bytes_check=$(ls -l "$output" | awk '{print $5}')
+    if [[ ! -f "$output" || "$output_bytes_check" -lt 1000 ]]; then
+        echo "❌ Compression failed! (output: ${output_bytes_check} bytes)"
+        echo "── ffmpeg error ──"
+        cat "$ffmpeg_error_log" | grep -i 'error\|invalid\|failed\|cannot' | tail -20
+        rm -f "$ffmpeg_error_log" "$output"
+        return 1
     fi
+    rm -f "$ffmpeg_error_log"
     
     local end_time=$(date +%s)
     local total_elapsed=$((end_time - start_time))
@@ -912,20 +936,38 @@ pad_to_width() {
 video_download() {
     local URL=""
     local LANG="fa"
+    local LANG_SRC="en"
     local DO_SUBTITLE=false
-    local DO_RENDER=false
+    local YT_SUBS=false           # download YouTube's own subtitles instead of Whisper
+    local DO_RENDER=false         # burn subtitles into video
     local ONLY_SUBS=false
+    local SUB_FORMAT="srt"        # srt | ass | all
+    local AUTO_YES=false
+    local GET_LINK=false
+    local YT_TRANSLATE=false       # translate downloaded YT subs via amir subtitle (skips Whisper)
     local BROWSER="chrome"
     local COOKIES_FILE=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --subtitle|-s)   DO_SUBTITLE=true; shift ;;
-            --render|-r)     DO_SUBTITLE=true; DO_RENDER=true; shift ;;
-            --only-subs)     DO_SUBTITLE=true; ONLY_SUBS=true; shift ;;
-            --target|-t)     LANG="$2"; shift 2 ;;
+            --subtitle|-s)   DO_SUBTITLE=true; DO_RENDER=true; shift ;;  # whisper+burn
+            --yt-subs)       YT_SUBS=true; shift ;;              # youtube built-in subs
+            --translate)     YT_TRANSLATE=true; YT_SUBS=true; shift ;; # download YT subs + translate
+            --render|-r)     DO_RENDER=true; shift ;;
+            --no-render)     DO_RENDER=false; shift ;;
+            --only-subs)     ONLY_SUBS=true; shift ;;
+            --sub-format)    SUB_FORMAT="$2"; shift 2 ;;
+            --target|-t)
+                # accept: -t <target>  OR  -t <src> <target>
+                if [[ -n "${3:-}" && "${3:-}" != -* && ! "${3:-}" =~ ^https?:// && ${#3} -le 10 ]]; then
+                    LANG_SRC="$2"; LANG="$3"; shift 3
+                else
+                    LANG="$2"; shift 2
+                fi ;;
             --browser|-b)    BROWSER="$2"; shift 2 ;;
             --cookies)       COOKIES_FILE="$2"; shift 2 ;;
+            -y|--yes)        AUTO_YES=true; shift ;;
+            --get-link|-l)   GET_LINK=true; shift ;;
             -*)
                 log_error "Unknown option: $1" >&2
                 echo "Usage: amir video download <url> [options]" >&2
@@ -935,16 +977,34 @@ video_download() {
         esac
     done
 
+    # Strip shell-escaped backslashes (e.g. \? \= that zsh adds when URL is unquoted)
+    URL="${URL//\\/}"
+
+    # When --translate is set, source and target must differ
+    if $YT_TRANSLATE && [[ "$LANG" == "$LANG_SRC" ]]; then
+        log_error "Source and target language are the same (${LANG})." >&2
+        echo "" >&2
+        echo "  Translate TO a language: --translate -t fa" >&2
+        echo "  Specify src AND target:  --translate -t en fa" >&2
+        echo "  (default source: en, default target: fa)" >&2
+        return 1
+    fi
+
     if [[ -z "$URL" ]]; then
         log_error "URL is required." >&2
         echo "" >&2
         echo "Usage: amir video download <url> [options]" >&2
         echo "" >&2
         echo "Options:" >&2
-        echo "  --subtitle, -s        Generate subtitles (default lang: fa)" >&2
-        echo "  --target, -t <lang>   Subtitle language (e.g. fa, en, ar)" >&2
-        echo "  --render, -r          Burn subtitles into video" >&2
-        echo "  --only-subs           Keep only subtitle files, delete raw video" >&2
+        echo "  --subtitle, -s        Transcribe + burn subtitles via Whisper AI (default lang: fa)" >&2
+        echo "  --yt-subs             Download YouTube's own subtitles (human first, auto-gen fallback)" >&2
+        echo "  --target, -t [src] <target>  Subtitle language; optionally specify source then target (e.g. -t en fa)" >&2
+        echo "  --render, -r          Burn subtitle into video (use with --yt-subs)" >&2
+        echo "  --no-render           Generate subtitle files only, no burning (use with --subtitle)" >&2
+        echo "  --only-subs           Keep subtitle files; prompt to delete raw video" >&2
+        echo "  --sub-format <fmt>    Subtitle format: srt | ass | all (default: srt)" >&2
+        echo "  -y, --yes             Auto-confirm deletion prompt (use with --only-subs)" >&2
+        echo "  -l, --get-link        Print direct stream URL(s) — for use in a download manager" >&2
         echo "  --browser <name>      Browser for cookies (default: chrome)" >&2
         echo "  --cookies <file>      Path to Netscape cookies.txt file" >&2
         return 1
@@ -963,59 +1023,244 @@ video_download() {
         COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
     fi
 
-    log_info "⬇️  Downloading: $URL" >&2
-    log_info "   Auth via: ${COOKIES_FILE:-browser:$BROWSER}" >&2
-
-    # Download and capture the final file path via --print after_move:filepath
-    local VIDEO_FILE
-    VIDEO_FILE=$(yt-dlp \
-        "${COOKIE_ARGS[@]}" \
-        --extractor-args "generic:impersonate" \
-        -f "bestvideo+bestaudio/best" \
-        --merge-output-format mp4 \
-        --print "after_move:filepath" \
-        -o "%(title)s.%(ext)s" \
-        "$URL" 2>/dev/null)
-
-    # Verify the file actually exists
-    if [[ -z "$VIDEO_FILE" || ! -f "$VIDEO_FILE" ]]; then
-        # Fallback: re-run with visible stderr so user sees error
+    # ── Get-link mode ──────────────────────────────────────────────────────
+    if $GET_LINK; then
+        log_info "🔗 Fetching direct download URL(s) from: $URL" >&2
+        log_info "   Auth via: ${COOKIES_FILE:-browser:$BROWSER}" >&2
         yt-dlp \
             "${COOKIE_ARGS[@]}" \
             --extractor-args "generic:impersonate" \
-            -f "bestvideo+bestaudio/best" \
-            --merge-output-format mp4 \
-            -o "%(title)s.%(ext)s" \
-            "$URL" >&2
+            --remote-components "ejs:github" \
+            --newline \
+            -g \
+            "$URL"
+        return $?
+    fi
+
+    # Use absolute output path so --print returns absolute path regardless of cwd changes
+    local OUT_DIR
+    OUT_DIR="$(pwd)"
+    local OUT_TEMPLATE="${OUT_DIR}/%(title)s.%(ext)s"
+
+    log_info "⬇️  Starting download..." >&2
+
+    # Download:
+    #   stdout  → temp file  (line1 = title via before_dl, line2 = final filepath via after_move)
+    #   stderr  → filtered:  only [download] progress lines + ERROR/WARNING lines reach the terminal
+    #             everything else ([youtube], [info], [generic], …) is hidden
+    local _PATHFILE
+    _PATHFILE=$(mktemp /tmp/amir_dl_path.XXXXXX)
+    local VIDEO_FILE
+    yt-dlp \
+        "${COOKIE_ARGS[@]}" \
+        --extractor-args "generic:impersonate" \
+        --remote-components "ejs:github" \
+        --newline \
+        --continue \
+        -f "bestvideo+bestaudio/best" \
+        --merge-output-format mp4 \
+        --print "before_dl:%(title)s" \
+        --print "after_move:filepath" \
+        -o "$OUT_TEMPLATE" \
+        "$URL" > "$_PATHFILE" \
+        2> >(grep --line-buffered -E '^\[download\]|^ERROR|^WARNING:' >&2)
+    local _DL_EXIT=$?
+
+    local _VID_TITLE
+    _VID_TITLE=$(sed -n '1p' "$_PATHFILE" 2>/dev/null | tr -d '\r')
+    VIDEO_FILE=$(sed -n '2p' "$_PATHFILE" 2>/dev/null | tr -d '\r')
+    rm -f "$_PATHFILE"
+
+    if [[ $_DL_EXIT -ne 0 && -z "$VIDEO_FILE" ]]; then
+        log_error "Download failed (yt-dlp exit $_DL_EXIT)." >&2
+        return 1
+    fi
+
+    # Show title after the progress bar
+    [[ -n "$_VID_TITLE" ]] && log_info "📹 $_VID_TITLE" >&2
+
+    # Resolve relative path (some yt-dlp versions omit leading dir)
+    if [[ -n "$VIDEO_FILE" && ! "$VIDEO_FILE" = /* ]]; then
+        VIDEO_FILE="${OUT_DIR}/${VIDEO_FILE}"
+    fi
+
+    # Verify the file actually exists
+    if [[ -z "$VIDEO_FILE" || ! -f "$VIDEO_FILE" ]]; then
         log_error "Download failed or output path could not be determined." >&2
         return 1
     fi
 
-    log_success "Downloaded: $VIDEO_FILE" >&2
+    log_success "Saved → $(basename "$VIDEO_FILE")" >&2
+
+    # ── YouTube built-in subtitles ──────────────────────────────────────────
+    if $YT_SUBS; then
+        local BASE_YT="${VIDEO_FILE%.*}"
+        log_info "📥 Fetching subtitles  ${LANG_SRC} → ${LANG}..." >&2
+        # --write-subs      : human-curated subs (preferred)
+        # --write-auto-subs : auto-generated, only downloaded when human subs absent for the lang
+        yt-dlp \
+            "${COOKIE_ARGS[@]}" \
+            --extractor-args "generic:impersonate" \
+            --remote-components "ejs:github" \
+            --quiet \
+            --skip-download \
+            --write-subs \
+            --write-auto-subs \
+            --sub-langs "${LANG_SRC},${LANG_SRC}-orig,${LANG},${LANG}-orig" \
+            --convert-subs srt \
+            --sleep-subtitles 3 \
+            -o "${BASE_YT}.%(ext)s" \
+            "$URL" >&2
+
+        # Collect downloaded SRT files
+        local -a YT_SUB_FILES=()
+        for f in "${BASE_YT}"*.srt; do
+            [[ -f "$f" ]] && YT_SUB_FILES+=("$f")
+        done
+
+        if [[ ${#YT_SUB_FILES[@]} -eq 0 ]]; then
+            log_error "No subtitles found on YouTube for lang: $LANG" >&2
+        else
+            for f in "${YT_SUB_FILES[@]}"; do
+                log_success "📄 $(basename "$f")" >&2
+            done
+        fi
+
+        # ── --translate: use downloaded EN srt → amir subtitle (skips Whisper) ──
+        if $YT_TRANSLATE && [[ ${#YT_SUB_FILES[@]} -gt 0 ]]; then
+            # Pick human-curated source SRT (e.g. title.en.srt) over auto-generated (-orig)
+            local SRC_SRT=""
+            for f in "${YT_SUB_FILES[@]}"; do
+                [[ "$f" == *".${LANG_SRC}.srt" && "$f" != *"-orig.srt" ]] && SRC_SRT="$f" && break
+            done
+            # fallback: any -orig variant of source lang
+            if [[ -z "$SRC_SRT" ]]; then
+                for f in "${YT_SUB_FILES[@]}"; do
+                    [[ "$f" == *"${LANG_SRC}"* ]] && SRC_SRT="$f" && break
+                done
+            fi
+            # final fallback: first available SRT
+            [[ -z "$SRC_SRT" ]] && SRC_SRT="${YT_SUB_FILES[0]}"
+
+            # Rename to _<src>.srt so amir subtitle detects it and skips transcription
+            local SRC_SRT_RENAMED="${BASE_YT}_${LANG_SRC}.srt"
+            cp "$SRC_SRT" "$SRC_SRT_RENAMED"
+            log_info "📋 Using $(basename "$SRC_SRT") → $(basename "$SRC_SRT_RENAMED") (Whisper skipped)" >&2
+
+            local AMIR_BIN
+            AMIR_BIN="$(dirname "$LIB_DIR")/amir"
+            local -a SUB_FLAGS=("-s" "$LANG_SRC" "-t" "$LANG")
+            $ONLY_SUBS && SUB_FLAGS+=("--no-render")
+            ! $DO_RENDER && SUB_FLAGS+=("--no-render")
+
+            log_info "🌐 Translating ${LANG_SRC}→${LANG} via LLM (no Whisper)..." >&2
+            "$AMIR_BIN" subtitle "$VIDEO_FILE" "${SUB_FLAGS[@]}"
+            return $?
+        fi
+
+        # ── --render without --translate: burn existing LANG or EN srt directly ──
+        if $DO_RENDER && [[ ${#YT_SUB_FILES[@]} -gt 0 ]]; then
+            # Prefer target-lang SRT, fallback to first available
+            local SRT_TO_BURN=""
+            for f in "${YT_SUB_FILES[@]}"; do
+                [[ "$f" == *"${LANG}"* ]] && SRT_TO_BURN="$f" && break
+            done
+            [[ -z "$SRT_TO_BURN" ]] && SRT_TO_BURN="${YT_SUB_FILES[1]}"
+
+            log_info "🎬 Burning subtitle: $(basename "$SRT_TO_BURN")" >&2
+            local AMIR_BIN
+            AMIR_BIN="$(dirname "$LIB_DIR")/amir"
+            "$AMIR_BIN" video cut "$VIDEO_FILE" \
+                --subtitles "$SRT_TO_BURN" \
+                --output "${VIDEO_FILE%.*}_subbed.mp4" \
+                --render >&2
+        fi
+
+        # --only-subs: prompt to delete raw video
+        if $ONLY_SUBS; then
+            local DELETE_VIDEO=false
+            if $AUTO_YES; then
+                DELETE_VIDEO=true
+            else
+                printf "\n❓ Delete raw video file '%s'? [y/N] " "$(basename "$VIDEO_FILE")" >&2
+                read -r REPLY </dev/tty
+                [[ "$REPLY" =~ ^[Yy]$ ]] && DELETE_VIDEO=true
+            fi
+            if $DELETE_VIDEO; then
+                rm -f "$VIDEO_FILE"
+                log_info "🗑️  Deleted: $VIDEO_FILE" >&2
+            fi
+            return 0
+        fi
+
+        log_success "✅ Final file: $VIDEO_FILE" >&2
+        echo "$VIDEO_FILE"
+        return 0
+    fi
 
     # ── Subtitle generation ─────────────────────────────────────────────────
     if $DO_SUBTITLE; then
         local AMIR_BIN
         AMIR_BIN="$(dirname "$LIB_DIR")/amir"
         local -a SUB_FLAGS=("-t" "$LANG")
-        $DO_RENDER && SUB_FLAGS+=("-r")
+        # Never burn when --only-subs is set (no point burning a video we're about to delete)
+        ($DO_RENDER && ! $ONLY_SUBS) || SUB_FLAGS+=("--no-render")
 
-        log_info "🎙️  Generating subtitles (lang: $LANG)..." >&2
+        log_info "🎙️  Generating subtitles (lang: $LANG, render: $DO_RENDER)..." >&2
         "$AMIR_BIN" subtitle "$VIDEO_FILE" "${SUB_FLAGS[@]}" >&2
 
+        local BASE="${VIDEO_FILE%.*}"
+
         if $ONLY_SUBS; then
-            log_info "🗑️  Removing raw video (--only-subs)..." >&2
-            rm -f "$VIDEO_FILE"
-            local BASE="${VIDEO_FILE%.*}"
-            for f in "${BASE}"*.srt "${BASE}"*.ass; do
-                [[ -f "$f" ]] && echo "$f"
-            done
+            # Collect generated subtitle files filtered by requested format
+            local -a SUB_FILES=()
+            case "$SUB_FORMAT" in
+                srt)
+                    for f in "${BASE}"*_${LANG}.srt "${BASE}"*.srt; do
+                        [[ -f "$f" ]] && SUB_FILES+=("$f")
+                    done ;;
+                ass)
+                    for f in "${BASE}"*_${LANG}.ass "${BASE}"*.ass; do
+                        [[ -f "$f" ]] && SUB_FILES+=("$f")
+                    done ;;
+                all|*)
+                    for f in "${BASE}"*.srt "${BASE}"*.ass; do
+                        [[ -f "$f" ]] && SUB_FILES+=("$f")
+                    done ;;
+            esac
+
+            if [[ ${#SUB_FILES[@]} -eq 0 ]]; then
+                log_error "No subtitle files found after generation." >&2
+            else
+                log_success "Subtitle files (format: $SUB_FORMAT):" >&2
+                for f in "${SUB_FILES[@]}"; do
+                    log_info "   📄 $f" >&2
+                    echo "$f"
+                done
+            fi
+
+            # Ask whether to delete the raw video
+            local DELETE_VIDEO=false
+            if $AUTO_YES; then
+                DELETE_VIDEO=true
+            else
+                printf "\n❓ Delete raw video file '%s'? [y/N] " "$(basename "$VIDEO_FILE")" >&2
+                read -r REPLY </dev/tty
+                [[ "$REPLY" =~ ^[Yy]$ ]] && DELETE_VIDEO=true
+            fi
+
+            if $DELETE_VIDEO; then
+                rm -f "$VIDEO_FILE"
+                log_info "🗑️  Deleted: $VIDEO_FILE" >&2
+            else
+                log_info "📁 Kept: $VIDEO_FILE" >&2
+            fi
             return 0
         fi
 
         # If rendered, subtitle command produces a new file with lang suffix
         if $DO_RENDER; then
-            local RENDERED="${VIDEO_FILE%.*}_${LANG}.mp4"
+            local RENDERED="${BASE}_${LANG}.mp4"
             [[ -f "$RENDERED" ]] && VIDEO_FILE="$RENDERED"
         fi
     fi
@@ -1026,20 +1271,25 @@ video_download() {
 
 run_video() {
     if [[ "$1" == "stats" ]]; then
-        print_compression_stats
+        load_learning_data
+        stats
     elif [[ "$1" == "reset" ]]; then
-        reset_compression_history
+        reset_learning_data
     elif [[ "$1" == "codecs" ]]; then
         check_hevc_support
     elif [[ "$1" == "batch" ]]; then
         shift
-        run_video_batch "$@"
+        video "$@"          # video() already handles directories natively
     elif [[ "$1" == "cut" || "$1" == "trim" ]]; then
         shift
         run_video_cut "$@"
     elif [[ "$1" == "compress" ]]; then
         shift
         video "$@"
+    elif [[ "$1" == "subtitle" ]]; then
+        shift
+        source "$LIB_DIR/commands/subtitle.sh"
+        run_subtitle "$@"
     elif [[ "$1" == "download" || "$1" == "dl" ]]; then
         shift
         video_download "$@"
