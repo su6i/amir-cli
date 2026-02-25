@@ -113,15 +113,36 @@ Note:
     # Logic Overrides (Pro)
     parser.add_argument("--min-duration", type=float, default=1.0, help="Minimum subtitle duration (seconds)")
 
-    # Telegram post generation
-    parser.add_argument("--post", action="store_true", default=False,
-                        help="Generate a Telegram channel intro post after subtitle workflow")
-    parser.add_argument("--post-only", action="store_true", dest="post_only", default=False,
-                        help="Generate Telegram post only from existing SRTs (skip transcription/translation/rendering)")
+    # Social media post generation
+    _post_platforms = ['telegram', 'youtube', 'linkedin']
+    parser.add_argument("--post", nargs='*', dest="post_platforms", default=None,
+                        metavar='PLATFORM',
+                        help=("Generate social media post(s). "
+                              "No value → telegram only. "
+                              f"Choices: {', '.join(_post_platforms)}. "
+                              "Example: --post telegram youtube linkedin"))
+    parser.add_argument("--post-only", nargs='*', dest="post_only_platforms", default=None,
+                        metavar='PLATFORM',
+                        help="Generate post(s) from existing SRTs only (skip subtitle processing). "
+                             "Same platform choices as --post.")
+    parser.add_argument("--prompt-file", dest="prompt_file", default=None, metavar='FILE',
+                        help=("Override LLM user prompt from a .txt file for this run. "
+                              "Supports variables: {title}, {srt_lang_name}, {full_text}. "
+                              "Persistent per-platform override: ~/.amir/prompts/{platform}.txt"))
 
     args = parser.parse_args()
-    
-    if not os.path.exists(args.video) and not args.post_only:
+
+    # Resolve platform lists
+    # --post with no value → ['telegram'], --post telegram youtube → ['telegram', 'youtube']
+    _platforms = None
+    _post_only = False
+    if args.post_only_platforms is not None:
+        _post_only = True
+        _platforms = args.post_only_platforms or ['telegram']
+    elif args.post_platforms is not None:
+        _platforms = args.post_platforms or ['telegram']
+
+    if not os.path.exists(args.video) and not _post_only:
         print(f"Error: {args.video} not found")
         sys.exit(1)
         
@@ -159,8 +180,9 @@ Note:
         limit_start=limit_start,
         limit_end=limit_end,
         detect_speakers=args.speaker,
-        gen_post=args.post,
-        post_only=args.post_only,
+        platforms=_platforms,
+        post_only=_post_only,
+        prompt_file=args.prompt_file,
     )
 
 if __name__ == "__main__":
