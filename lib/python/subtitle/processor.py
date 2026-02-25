@@ -2769,8 +2769,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         detect_speakers: bool = False,
         limit_start: Optional[float] = None,
         limit_end: Optional[float] = None,
-        gen_post: bool = False,
+        platforms: Optional[List[str]] = None,
         post_only: bool = False,
+        prompt_file: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Complete workflow with fixed path handling and memory management"""
         
@@ -2802,9 +2803,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         original_base = os.path.join(original_dir, original_stem)
         
         try:
-            # Post-only mode: skip all processing and generate Telegram post from existing SRTs.
+            # Post-only mode: skip all processing and generate post from existing SRTs.
             if post_only:
-                self.generate_posts(original_base, source_lang, {}, platforms=['telegram'])
+                self.generate_posts(original_base, source_lang, {}, platforms=platforms or ['telegram'],
+                                    prompt_file=prompt_file)
                 return {}
 
             # SAFETY: Check disk space before starting
@@ -3382,9 +3384,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     result['rendered_video'] = output_video
                     self.logger.info(f"Rendering process finalized: {Path(output_video).name}")
 
-            # Telegram post generation (auto-triggered after main workflow)
-            if gen_post:
-                self.generate_posts(original_base, source_lang, result, platforms=['telegram'])
+            # Social post generation (auto-triggered when platforms list is given)
+            if platforms:
+                self.generate_posts(original_base, source_lang, result, platforms=platforms,
+                                    prompt_file=prompt_file)
 
             self.logger.info("Execution sequence finalized.")
             return result
@@ -3414,12 +3417,45 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         'tr': 'ترکی', 'it': 'ایتالیایی', 'pt': 'پرتغالی',
     }
 
-    def _get_post_prompt(self, platform: str, title: str, srt_lang_name: str, full_text: str):
+    def _get_post_prompt(self, platform: str, title: str, srt_lang_name: str, full_text: str,
+                          prompt_file: Optional[str] = None):
         """Return (system_prompt, user_prompt) tuple for the given platform.
 
+        Prompt resolution priority:
+          1. ``prompt_file`` argument — a .txt file given via --prompt-file CLI flag
+          2. ``~/.amir/prompts/{platform}.txt`` — persistent per-platform override
+          3. Built-in default below
+
+        Template variables supported in prompt files:
+          {title}, {srt_lang_name}, {full_text}
+
         ADD NEW PLATFORMS HERE — one branch per platform.
-        Each branch returns two strings: system instruction + user request.
         """
+        # ── 1. Resolve user_prompt from file (CLI flag or persistent override) ──
+        _file_user_prompt: Optional[str] = None
+
+        _candidates = []
+        if prompt_file:
+            _candidates.append(os.path.expandvars(os.path.expanduser(prompt_file)))
+        _candidates.append(os.path.expanduser(f'~/.amir/prompts/{platform}.txt'))
+
+        for _p in _candidates:
+            if os.path.isfile(_p):
+                try:
+                    with open(_p, 'r', encoding='utf-8') as _f:
+                        _file_user_prompt = _f.read().format(
+                            title=title,
+                            srt_lang_name=srt_lang_name,
+                            full_text=full_text,
+                        )
+                    self.logger.info(f"📄 Using custom prompt file for {platform}: {_p}")
+                    break
+                except KeyError as _ke:
+                    self.logger.warning(f"⚠️ Prompt file {_p} has unknown variable {_ke} — using built-in.")
+                except Exception as _pe:
+                    self.logger.warning(f"⚠️ Could not read prompt file {_p}: {_pe} — using built-in.")
+
+        # ── 2. Built-in system + user prompts per platform ──
         if platform == 'telegram':
             system = (
                 "You are a creative social media writer for a Persian-language technology "
@@ -3427,7 +3463,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 "Do NOT translate word-for-word — use the content as inspiration. "
                 "Use relevant emojis. Target length: 80–200 words."
             )
-            user = (
+            user = _file_user_prompt or (
                 f"یک پست معرفی جذاب برای کانال تلگرام بنویس.\n\n"
                 f"عنوان ویدیو: {title}\n\n"
                 f"محتوای زیرنویس (زبان: {srt_lang_name}):\n{full_text}\n\n"
@@ -3439,27 +3475,69 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             )
             return system, user
 
+        elif platform == 'youtube':
+            system = (
+                "You are an expert YouTube SEO specialist and video description writer. "
+                "Write an optimized YouTube video description that maximizes search visibility. "
+                "Use natural language rich with relevant keywords. "
+                "Write in the same language as the subtitle content provided."
+            )
+            user = _file_user_prompt or (
+                f"Write an SEO-optimized YouTube video description.\n\n"
+                f"Video title: {title}\n\n"
+                f"Subtitle content (language: {srt_lang_name}):\n{full_text}\n\n"
+                f"The description must:\n"
+                f"- Start with a strong 1-2 sentence hook summarizing the video\n"
+                f"- Have 3-5 bullet points of key takeaways\n"
+                f"- Include a short paragraph with natural SEO keywords\n"
+                f"- End with 5-10 relevant hashtags\n"
+                f"- Be 150-350 words total\n"
+                f"- Be written in the same language as the subtitle content"
+            )
+            return system, user
+
+        elif platform == 'linkedin':
+            system = (
+                "You are a professional LinkedIn content writer for a senior tech/AI expert. "
+                "Write thought-leadership posts that drive engagement from engineers, managers, and founders. "
+                "Tone: authoritative but approachable. No fluff. "
+                "Write in the same language as the subtitle content provided."
+            )
+            user = _file_user_prompt or (
+                f"Write a professional LinkedIn post about this video.\n\n"
+                f"Video title: {title}\n\n"
+                f"Subtitle content (language: {srt_lang_name}):\n{full_text}\n\n"
+                f"The post must:\n"
+                f"- Open with a bold insight or surprising fact from the video\n"
+                f"- Share 2-3 key learnings in short punchy sentences\n"
+                f"- End with a question to drive comments\n"
+                f"- Include 3-5 professional hashtags\n"
+                f"- Be 100-200 words"
+            )
+            return system, user
+
         # ── Future platforms ──────────────────────────────────────────────
-        # elif platform == 'youtube':
-        #     system = "You are an SEO expert writing YouTube video descriptions..."
-        #     user   = f"Write a YouTube description for: {title}\n\n{full_text}"
-        #     return system, user
-        #
-        # elif platform == 'linkedin':
-        #     system = "You write professional LinkedIn posts for a tech audience..."
-        #     user   = f"Write a LinkedIn post for: {title}\n\n{full_text}"
-        #     return system, user
-        #
         # elif platform == 'instagram':
-        #     system = "You write punchy Instagram captions with hashtags..."
+        #     system = "You write punchy Instagram captions with lots of hashtags..."
         #     user   = f"Write an Instagram caption for: {title}\n\n{full_text}"
+        #     return system, user
+        #
+        # elif platform == 'twitter':
+        #     system = "You write Twitter/X threads (max 280 chars per tweet)..."
+        #     user   = f"Write a thread about: {title}\n\n{full_text}"
+        #     return system, user
+        #
+        # elif platform == 'aparat':
+        #     system = "You write Aparat video descriptions in Persian..."
+        #     user   = f"Write Aparat description for: {title}\n\n{full_text}"
         #     return system, user
         # ─────────────────────────────────────────────────────────────────
 
         else:
             raise ValueError(
                 f"Unknown platform: {platform!r}. "
-                f"Add its prompt branch inside _get_post_prompt()."
+                f"Supported: telegram, youtube, linkedin. "
+                f"Add new ones inside _get_post_prompt()."
             )
 
     def _call_llm_for_post(self, system: str, user: str) -> Optional[str]:
@@ -3495,6 +3573,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         source_lang: str,
         result: Dict[str, Any],
         platforms: Optional[List[str]] = None,
+        prompt_file: Optional[str] = None,
     ) -> Dict[str, str]:
         """Generate social media posts for every available SRT × every platform.
 
@@ -3566,7 +3645,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             for platform in platforms:
                 try:
-                    system, user = self._get_post_prompt(platform, title, srt_lang_name, full_text)
+                    system, user = self._get_post_prompt(platform, title, srt_lang_name, full_text,
+                                                         prompt_file=prompt_file)
                 except ValueError as ve:
                     self.logger.warning(str(ve))
                     continue
