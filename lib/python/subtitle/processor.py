@@ -3512,20 +3512,43 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             else:
                 _lang_en = get_language_config(srt_lang).name
                 system = (
-                    f"You are a creative social media writer for a {_lang_en}-language technology "
-                    f"and AI Telegram channel. Write engaging, concise posts in fluent {_lang_en}. "
-                    "Do NOT translate word-for-word — use the content as inspiration. "
-                    "Use relevant emojis. Target length: 80–200 words."
+                    f"You are a creative Telegram channel writer for a {_lang_en}-language technology and AI channel. "
+                    f"You write structured, engaging posts in fluent {_lang_en}. "
+                    "Do NOT translate word-for-word — extract key insights and write naturally. "
+                    "STRICTLY follow the exact format template provided. "
+                    "NEVER use markdown syntax like ** or __ — Telegram does not render them."
                 )
+                _duration_line = f"⏱️ Duration: {duration}" if duration else "⏱️ Duration: [read from SRT timestamps]"
                 user = _file_user_prompt or (
-                    f"Write an engaging Telegram channel post in {_lang_en}.\n\n"
-                    f"Video title: {title}\n\n"
-                    f"Subtitle content (language: {_lang_en}):\n{full_text}\n\n"
-                    f"The post must:\n"
-                    f"- Start with a short, catchy sentence\n"
-                    f"- Summarize the topic and key points in 2–3 sentences\n"
-                    f"- End with 3–5 relevant hashtags\n"
-                    f"- Be written entirely in {_lang_en}"
+                    f"Write a complete, professional Telegram channel post. Follow this EXACT format:\n\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"🎥 [Full video title in {_lang_en}]\n"
+                    f"With {_lang_en} subtitles\n\n"
+                    f"🔴 \u00ab[One short, catchy sentence — preferably a quote or bold claim from the content]\u00bb\n\n"
+                    f"[1 paragraph of 2–3 sentences about the content, guest or context — no bullet structure]\n\n"
+                    f"🚨 Key points:\n\n"
+                    f"🔹 [Topic 1]: [brief explanation]\n\n"
+                    f"🔹 [Topic 2]: [brief explanation]\n\n"
+                    f"🔹 [Topic 3]: [brief explanation]\n\n"
+                    f"🔹 [Topic 4]: [brief explanation]\n\n"
+                    f"🔹 [Topic 5]: [brief explanation]\n\n"
+                    f"\u2728 [1 summary paragraph — why this content matters]\n\n"
+                    f"\ud83d\udccc [1 call-to-action sentence — invite to watch]\n\n"
+                    f"{_duration_line}\n\n"
+                    f"#[hashtag1] #[hashtag2] #[hashtag3] #[hashtag4] #[hashtag5]\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"Video info:\n"
+                    f"Title: {title}\n"
+                    f"Duration: {duration if duration else '(calculate from SRT)'}\n\n"
+                    f"Subtitle content:\n{full_text}\n\n"
+                    f"STRICT RULES:\n"
+                    f"- Total post length: MAX 850 characters (Telegram caption limit is 1024 — keep well under)\n"
+                    f"- Each bullet point: 1 line only, no sub-items\n"
+                    f"- NO markdown: no ** or __ or * — Telegram shows them as raw characters\n"
+                    f"- Duration must be written exactly as provided — do not guess\n"
+                    f"- Quote inside \u00ab \u00bb\n"
+                    f"- One blank line between each section\n"
+                    f"- Entire post in {_lang_en}"
                 )
             return system, user
 
@@ -3605,7 +3628,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     {"role": "user", "content": user},
                 ],
                 temperature=0.7,
-                max_tokens=600,
+                max_tokens=400,
             )
             return _resp.choices[0].message.content.strip()
         except Exception as _e1:
@@ -3634,6 +3657,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             text = re.sub(r'^-{3,}\s*\n?', '', text)
             text = re.sub(r'\n?-{3,}\s*$', '', text)
             text = text.strip()
+            # Hard cap: Telegram caption limit is 1024; keep under 950 to be safe
+            if len(text) > 950:
+                cut = text[:950].rfind('\n')
+                text = text[:cut if cut > 800 else 950].rstrip()
         return text
 
     def generate_posts(
