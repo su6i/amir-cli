@@ -83,31 +83,107 @@ The module requires a `.config` file in its directory (created automatically by 
 DEEPSEEK_API = sk-your-key
 ```
 
-### ⚡ Basic Usage
-
-You can run these commands via `amir subtitle` (production) or `uv run python -m subtitle` (dev).
+### ⚡ Quick Start
 
 ```bash
-# Transcribe English video and translate to Persian
-amir subtitle video.mp4 -s en -t fa
+# Transcribe & translate to Persian (default)
+amir subtitle video.mp4
 
-# Resume incomplete translation (e.g., after interruption)
-amir subtitle video.mp4 -t en fa -rc
+# Specify source language + target language
+amir subtitle video.mp4 -s de --sub fa
 
-# Pro Customization: Top Alignment
-amir subtitle video.mp4 -t fa --alignment 8
+# Transcribe from SRT file (skip Whisper)
+amir subtitle video_en.srt -s en --sub fa
 
-# Translate to multiple languages
-amir subtitle video.mp4 -s en -t fa ar es zh
+# Generate Telegram channel intro post
+amir subtitle video.mp4 --post
 
-# Render video with embedded subtitles (smart bitrate adaptation)
-amir subtitle video.mp4 -s en -t fa -r
+# Only generate posts from existing SRTs (faster)
+amir subtitle video.mp4 --post-only
+```
 
-# Force re-transcription (ignore cache)
-amir subtitle video.mp4 -s en -t fa -f
+### 📋 Full Usage Guide
 
-# List all 32 supported languages
-amir subtitle -l
+**Basic commands:**
+
+```bash
+# Single language (default: Persian output)
+amir subtitle video.mp4
+
+# Specify source & output language
+amir subtitle video.mp4 -s en --sub de
+
+# Multiple output languages (stacked: first=top, second=bottom)
+amir subtitle video.mp4 --sub fa en          # Persian top, English bottom
+amir subtitle video.mp4 --sub en fa de       # EN top, FA middle, DE bottom
+
+# Force fresh transcription (ignore cache)
+amir subtitle video.mp4 -f
+
+# AI-correct transcription before translation
+amir subtitle video.mp4 -c
+
+# Render without burning into video (SRT/ASS files only)
+amir subtitle video.mp4 --no-render
+```
+
+**Time range & testing:**
+
+```bash
+# Transcribe first 120 seconds (quick testing)
+amir subtitle video.mp4 --limit 120
+
+# Transcribe from 45s to 200s
+amir subtitle video.mp4 --limit 45 200
+
+# Transcribe from keyword markers
+amir subtitle video.mp4 --limit start       # from beginning
+amir subtitle video.mp4 --limit 30 end      # from 30s to end
+```
+
+**Advanced options:**
+
+```bash
+# Custom subtitle styling
+amir subtitle video.mp4 --alignment 8 --font-size 28 --shadow 3
+
+# Keep English terms in ParenthesES (technical terms)
+amir subtitle video.mp4 --sub fa            # (CapEx) stays as-is
+
+# Enable speaker diarization
+amir subtitle video.mp4 --speaker
+
+# Force video resolution (after URL download)
+amir subtitle https://youtube.com/watch?v=... -R 720
+
+# Custom LLM provider
+amir subtitle video.mp4 --llm gemini --model gemini-2.0-flash
+```
+
+**Social media posts (new):**
+
+```bash
+# Generate Telegram intro post alongside subtitles
+amir subtitle video.mp4 --post
+
+# Create posts for multiple output languages (separate file per language)
+amir subtitle video.mp4 --sub fa en de --post    # → fa_telegram.txt, en_telegram.txt, de_telegram.txt
+
+# Only generate posts from already-existing SRT files (no transcription)
+amir subtitle video.mp4 --post-only              # super fast
+```
+
+**SRT input (skip Whisper, go straight to translation):**
+
+```bash
+# Use existing SRT as source (named: video_en.srt)
+amir subtitle video_en.srt -s en --sub fa de
+
+# Apply --limit to SRT: keep entries within time window
+amir subtitle video_en.srt -s en --limit 30 200
+
+# Translate SRT + generate posts
+amir subtitle video_en.srt -s en --sub fa --post
 ```
 
 ### 📥 YouTube Download + Auto-Translate Integration
@@ -135,107 +211,104 @@ amir video download "https://youtube.com/watch?v=XYZ" --subtitle -t fa
 - `--translate` → render ON (burn translated sub into video)
 - `--translate --no-render` → render OFF (SRT file only)
 
-## 📖 Usage Guide
+## 📖 Command Line Reference
 
-### Command Line Options
+### Positional Arguments
 
-```
-usage: video_multilang_translate.py [-h] [-s SOURCE] [-t TARGET [TARGET ...]] 
-                                     [-m {tiny,base,small,medium,large}] 
-                                     [-r] [-f] [-l] 
-                                     [--alignment ALIGNMENT] [--font-size FONT_SIZE]
-                                     [--sec-font-size SEC_FONT_SIZE] [--style STYLE]
-                                     [video]
+| Argument | Type | Description |
+|----------|------|-------------|
+| `video` | file/URL/SRT | Video file (`.mp4`, `.mov`, `.mkv`), YouTube URL, or existing SRT file |
 
-positional arguments:
-  video                 Video file path
+### Core Flags
 
-optional arguments:
-  -h, --help            Show this help message and exit
-  -s, --source SOURCE   Source language code (default: en)
-  -t, --target TARGET   Target language code(s) - can specify multiple
-  -m, --model MODEL     Whisper model size (default: base)
-                        Options: tiny, base, small, medium, large
-  -r, --render          Render video with embedded subtitles
-  -f, --force-transcribe  Force re-transcription even if subtitle exists
-  -l, --list-languages  List all supported languages
-  --alignment           ASS alignment (2=Bottom, 8=Top, 5=Center)
-  --font-size           Primary font size override
-  --sec-font-size       Secondary font size override (for bilingual)
-  --style               Style template (lecture, vlog, movie, news)
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--source` | `-s` | code | `en` | Source language (audio language for Whisper) |
+| `--sub` | `-t` | codes | `fa` | Display languages (repeatable, first=top row, second=bottom) |
+| `--render` | `-r` | bool | `true` | Burn subtitles into video |
+| `--no-render` | — | bool | — | Generate SRT/ASS files only, skip video rendering |
+| `--force` | `-f` | bool | — | Always re-transcribe (ignore cache) |
+| `--correct` | `-c` | bool | — | AI-correct transcription before translation |
 
-  # Pro Visual Overrides (New in 2026)
-  --shadow              Shadow depth (default: 0)
-  --outline             Outline width (default: 2)
-  --back-color          Background color (ASS hex, e.g., &H80000000)
-  --primary-color       Primary color (ASS hex, e.g., &H00FFFFFF)
+### Time & Input Handling
 
-  # Pro AI Tuning (New in 2026)
-  --initial-prompt      Whisper initial prompt (context injection)
-  --temperature         Model temperature (0.0-1.0)
-  --openai-fallback     Use OpenAI if DeepSeek fails
+| Flag | Type | Options | Description |
+|------|------|---------|-------------|
+| `--limit` | args | `N` \| `start` `end` | Transcribe time range: `--limit 120` first 2min, `--limit 30 200` start-end |
+| `--post` | bool | — | Generate Telegram intro post alongside subtitles |
+| `--post-only` | bool | — | Generate posts from existing SRTs (skip processing) |
 
-  # Pro Logic Overrides
-  --min-duration        Minimum subtitle duration (seconds)
-```
+### Visual & Styling
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--style` | choice | `lecture` | Template: `lecture`, `vlog`, `game`, `cinematic`, `minimalist` |
+| `--alignment` | int | `2` | ASS alignment: `8`=Top, `2`=Bottom, `5`=Center |
+| `--font-size` | int | `25` | Primary subtitle size (% of video height) |
+| `--sec-font-size` | int | `19` | Secondary subtitle size (bilingual mode) |
+| `--max-lines` | int | `1` | Max lines per subtitle: `1` or `2` |
+| `--shadow` | int | `0` | Shadow depth (pixels) |
+| `--outline` | int | `2` | Outline width (pixels) |
+| `--back-color` | hex | — | Background color (ASS format, e.g. `&H80000000`) |
+| `--primary-color` | hex | — | Text color (ASS format, e.g. `&H00FFFFFF`) |
+
+### Transcription & AI
+
+| Flag | Type | Options | Default | Description |
+|------|------|---------|---------|-------------|
+| `--whisper-model` | choice | `turbo`, `large-v3`, `medium`, `base`, `tiny` | `turbo` | Whisper model (turbo=fastest, large=accurate) |
+| `--llm` | choice | `deepseek`, `gemini`, `litellm`, `minimax`, `grok` | `deepseek` | LLM provider for translation |
+| `--model` | string | — | — | Custom model (e.g. `gpt-4o` for LiteLLM) |
+| `--initial-prompt` | string | — | — | Whisper context injection (e.g. "This is about AI") |
+| `--temperature` | float | `0.0–1.0` | `0.0` | LLM creativity (0=deterministic, 1=creative) |
+| `--openai-fallback` | bool | — | — | Use OpenAI if DeepSeek fails |
+| `--use-bert` | bool | — | — | Enable BERT collocation scoring (slower) |
+| `--bert-model` | string | — | — | Custom BERT model (e.g. `bert-base-uncased`) |
+| `--speaker` | bool | — | — | Enable speaker diarization |
+| `--min-duration` | float | `1.0` | — | Minimum subtitle duration (seconds) |
+
+### Download Integration
+
+| Flag | Short | Type | Description |
+|------|-------|------|-------------|
+| `--resolution` | `-R` | int | Compress downloaded video to height (e.g. `720`) |
+
+---
 
 ### Examples (Pro Scenarios)
 
-#### 1. Cinematic Bilingual Layout
+#### 1. Bilingual Layout
 ```bash
-# Top English (Gray/Small) + Bottom Persian (White/Bold)
-# Enforced by 2026 Pro Protocol
-amir subtitle video.mp4 -t en fa -r
+# Korean (top, small gray) + Persian (bottom, large white)
+amir subtitle video.mp4 -s ko --sub ko fa --render
+# Output: video_ko_fa.ass + video_ko_fa_subbed.mp4
 ```
 
-#### 2. Top-Aligned Commentary (Vlog Style)
+#### 2. Vlog-Style (Top Aligned)
 ```bash
-# Push subtitles to the TOP of the screen
-amir subtitle video.mp4 -t fa -r --alignment 8 --style vlog
+amir subtitle podcast.mp4 --alignment 8 --style vlog --post
+# Subtitles at TOP + auto-generated Telegram post
 ```
 
-#### 3. Custom Sizing for High-Res (4K)
+#### 3. Test Quick (30s window)
 ```bash
-# Larger fonts for high-resolution displays
-amir subtitle video.mp4 -t fa -r --font-size 45
+amir subtitle long_video.mp4 --limit 30
+# Only transcribe first 30 seconds
 ```
 
-#### 4. Sentence-Aware Splitting (2 Lines)
+#### 4. Batch Process SRT Files
 ```bash
-# Allow long sentences to break into two clean lines
-amir subtitle video.mp4 -t fa -r --max-lines 2
+# Skip Whisper, straight to translation
+amir subtitle source_en.srt -s en --sub fa de --post-only
+# Output: source_fa_telegram.txt, source_de_telegram.txt
 ```
 
-**Output:**
-- `tutorial_fa_subtitled.mp4` - Video with Persian subtitles
-- Real-time encoding progress: `Encoding: 47%`
-
-#### 3b. Multiple Language Subtitles
+#### 5. High-Quality German Video
 ```bash
-# Create video with both English and Persian subtitles
-python video_multilang_translate.py tutorial.mp4 -s en -t en fa -r
+amir subtitle german_doc.mp4 -s de --sub en fa --whisper-model large-v3
 ```
 
-**Output:**
-- `tutorial_en_fa_subtitled.mp4` - Video with both languages stacked
-
-#### 4. Different Source Language
-```bash
-# Transcribe French video and translate to English
-python video_multilang_translate.py french_film.mp4 -s fr -t en
-```
-
-#### 5. Force Re-transcription
-```bash
-# Re-process even if subtitle files exist
-python video_multilang_translate.py video.mp4 -s en -t fa -f
-```
-
-#### 6. High-Quality Transcription
-```bash
-# Use larger Whisper model for better accuracy
-python video_multilang_translate.py podcast.mp4 -s en -t fa -m large
-```
+---
 
 ## 🌐 Supported Languages (30 Total)
 
