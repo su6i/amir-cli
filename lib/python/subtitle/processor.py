@@ -3621,6 +3621,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 self.logger.error(f"❌ Post generation failed: {_e2}")
                 return None
 
+    @staticmethod
+    def _sanitize_post(text: str, platform: str) -> str:
+        """Post-process LLM output to enforce platform-specific formatting rules."""
+        if platform == 'telegram':
+            # Strip bold/italic markdown that Telegram renders as literal asterisks
+            # **text** → text,  __text__ → text,  *text* → text
+            text = re.sub(r'\*\*(.+?)\*\*', r'\1', text, flags=re.DOTALL)
+            text = re.sub(r'__(.+?)__', r'\1', text, flags=re.DOTALL)
+            text = re.sub(r'\*(.+?)\*', r'\1', text, flags=re.DOTALL)
+            # Strip leading/trailing --- separator lines that may appear from template
+            text = re.sub(r'^-{3,}\s*\n?', '', text)
+            text = re.sub(r'\n?-{3,}\s*$', '', text)
+            text = text.strip()
+        return text
+
     def generate_posts(
         self,
         original_base: str,
@@ -3710,6 +3725,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 post_text = self._call_llm_for_post(system, user)
                 if not post_text:
                     continue
+
+                post_text = self._sanitize_post(post_text, platform)
 
                 post_path = f"{original_base}_{srt_lang}_{platform}.txt"
                 with open(post_path, 'w', encoding='utf-8') as f:
