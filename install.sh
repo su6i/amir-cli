@@ -223,6 +223,10 @@ fi
 echo "-------------------------------------"
 echo "🛠️  Setting up AI Background Tools..."
 mkdir -p "$HOME/.amir-cli/tools/realesrgan"
+# Backward-compat symlink: .amir → .amir-cli
+if [[ ! -e "$HOME/.amir" ]]; then
+    ln -s "$HOME/.amir-cli" "$HOME/.amir"
+fi
 if [[ ! -f "$HOME/.amir-cli/tools/realesrgan/realesrgan-cli" ]]; then
     echo "ℹ️  Real-ESRGAN binary is required for 'amir img upscale'."
     echo "   Please follow instructions in docs/TECHNICAL.md to install it."
@@ -294,6 +298,7 @@ if [[ $HAS_UV -eq 1 ]]; then
         echo "⚠️  'uv' installation failed. Falling back to native 'pip'..."
         install_via_pip
     }
+    unset VIRTUAL_ENV
 else
     install_via_pip
 fi
