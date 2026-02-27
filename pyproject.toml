@@ -20,7 +20,7 @@ dependencies = [
     "openai>=2.24.0",
     "pillow>=12.1.1",
     "protobuf>=6.33.5",
-    "pyannote-audio>=4.0.4",
+    "pyannote-audio>=4.0.4 ; sys_platform != 'linux' or platform_machine == 'x86_64'",
     "python-bidi>=0.6.7",
     "python-dotenv>=1.2.1",
     "sentencepiece>=0.2.1",
