@@ -238,7 +238,11 @@ VENV_DIR="$PROJECT_DIR/.venv"
 
 install_via_uv() {
     echo "📦 Using 'uv' to sync project environment..."
-    # uv sync handles venv creation and requirements installation efficiently
+    # uv sync --frozen: installs exactly what's in uv.lock, never modifies it
+    if uv sync --frozen 2>/dev/null; then
+        return 0
+    fi
+    # Fallback: uv pip install if sync fails (e.g. no pyproject.toml deps)
     if [[ -f "$PROJECT_DIR/requirements.txt" ]]; then
         uv pip install -r "$PROJECT_DIR/requirements.txt"
     fi
