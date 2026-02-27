@@ -75,9 +75,10 @@ install_deps() {
             ;;
         linux-gnu*)
             if check_dep apt; then
-                sudo add-apt-repository -y ppa:jonathonf/ffmpeg-4
-                sudo apt update
-                sudo apt install -y ffmpeg libx265-dev bc qrencode imagemagick
+                # Ubuntu Noble (24.04+) ships ffmpeg 6.x natively — no PPA needed
+                # (jonathonf/ffmpeg-4 PPA is dead on Noble, gives 404)
+                sudo apt-get update -qq
+                sudo apt-get install -y ffmpeg libx265-dev bc qrencode imagemagick
             elif check_dep yum; then
                 sudo yum install -y ffmpeg bc qrencode
             elif check_dep dnf; then
@@ -177,17 +178,44 @@ if [[ $AUTO_MODE -eq 0 ]]; then
     echo "Would you like to configure API keys now? (y/N)"
     read -r response
     if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
-        echo "Enter your GEMINI_API_KEY (Leave empty if none):"
-        read -r gemini_key
-        
-        if [[ -n "$gemini_key" ]]; then
-            echo "GEMINI_API_KEY=\"$gemini_key\"" > "$PROJECT_DIR/.env"
-            echo "✅ Saved to .env"
-        else
-            echo "ℹ️  Skipped."
-        fi
+        ENV_FILE="$PROJECT_DIR/.env"
+        [[ ! -f "$ENV_FILE" ]] && touch "$ENV_FILE"
+
+        # Helper: upsert a key in .env (never overwrites existing keys with empty)
+        _set_key() {
+            local k="$1" v="$2"
+            [[ -z "$v" ]] && return
+            if grep -q "^${k}=" "$ENV_FILE" 2>/dev/null; then
+                sed -i "s|^${k}=.*|${k}=\"${v}\"|" "$ENV_FILE"
+            else
+                echo "${k}=\"${v}\"" >> "$ENV_FILE"
+            fi
+        }
+
+        # Prompt for each key — silent input (no echo)
+        printf 'GEMINI_API_KEY (Enter to skip): '
+        read -rs gemini_key; echo
+        _set_key "GEMINI_API_KEY" "$gemini_key"
+
+        printf 'DEEPSEEK_API_KEY (Enter to skip): '
+        read -rs deepseek_key; echo
+        _set_key "DEEPSEEK_API_KEY" "$deepseek_key"
+
+        printf 'GROK_API_KEY (Enter to skip): '
+        read -rs grok_key; echo
+        _set_key "GROK_API_KEY" "$grok_key"
+
+        printf 'MINIMAX_API_KEY (Enter to skip): '
+        read -rs minimax_key; echo
+        _set_key "MINIMAX_API_KEY" "$minimax_key"
+
+        printf 'OPENAI_API_KEY (Enter to skip): '
+        read -rs openai_key; echo
+        _set_key "OPENAI_API_KEY" "$openai_key"
+
+        echo "✅ Keys saved to .env"
     else
-        echo "ℹ️  Skipped configuration. You can add .env manually later."
+        echo "ℹ️  Skipped configuration. You can edit .env manually later."
     fi
 fi
 
@@ -271,4 +299,15 @@ echo "🎉 Installation Complete! Run 'amir help' to start."
 if [[ $INSTALL_ML -eq 0 ]]; then
     echo "💡 Note: ML requirements (transformers, torch, whisper) were skipped."
     echo "   Run './install.sh --with-ml' if you need BERT scoring or local transcription."
+fi
+
+# Reload shell so 'amir' command and tab completions activate immediately
+echo ""
+echo "🔄 Reloading shell to activate 'amir' command and tab completions..."
+if [[ -n "$ZSH_VERSION" ]] || [[ "$(basename "$SHELL")" == "zsh" ]]; then
+    exec zsh
+elif [[ -n "$BASH_VERSION" ]]; then
+    exec bash
+else
+    echo "   ↳ Run: exec \$SHELL"
 fi
