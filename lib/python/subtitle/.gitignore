@@ -49,8 +49,10 @@ desktop.ini
 # Logs
 *.log
 
-# Test files
+# Test files (ad-hoc scripts only; proper test suite in tests/ is tracked)
 test*.py
+!tests/
+!tests/*.py
 temp/
 tmp/
 *.ass

@@ -2618,11 +2618,23 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         self.logger.info(f"ASS asset generation complete: {Path(ass_path).name}")
 
     @staticmethod
-    def _srt_duration_str(entries: List[Dict]) -> str:
-        """Return human-readable duration from the last SRT entry's end timestamp."""
+    @staticmethod
+    def _to_persian_digits(value) -> str:
+        """Convert Arabic/Latin digits to Persian-Indic numerals (۰–۹)."""
+        arabic_to_persian = str.maketrans('0123456789', '۰۱۲۳۴۵۶۷۸۹')
+        return str(value).translate(arabic_to_persian)
+
+    @staticmethod
+    def _srt_duration_str(entries: List[Dict], lang: str = 'fa') -> str:
+        """Return human-readable duration from the last SRT entry's end timestamp.
+
+        When ``lang == 'fa'`` numbers are Persian-Indic and words are Farsi
+        (e.g. ۲۴ دقیقه و ۵۰ ثانیه). All other language codes produce
+        Arabic numerals with English words (e.g. 24 min 50 sec).
+        """
         if not entries:
             return ''
-        last_end = entries[-1]['end']  # e.g. '24:50:03,120'
+        last_end = entries[-1]['end']  # e.g. '00:24:50,260'
         try:
             hms, ms = last_end.split(',')
             h, m, s = map(int, hms.split(':'))
@@ -2630,12 +2642,24 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             hours = total_sec // 3600
             mins  = (total_sec % 3600) // 60
             secs  = total_sec % 60
-            if hours > 0:
-                return f'{hours} ساعت و {mins} دقیقه'
-            elif secs >= 30:
-                return f'{mins} دقیقه و {secs} ثانیه'
+
+            def _fa(n: int) -> str:
+                return str(n).translate(str.maketrans('0123456789', '۰۱۲۳۴۵۶۷۸۹'))
+
+            if lang == 'fa':
+                if hours > 0:
+                    return f'{_fa(hours)} ساعت و {_fa(mins)} دقیقه'
+                elif secs >= 30:
+                    return f'{_fa(mins)} دقیقه و {_fa(secs)} ثانیه'
+                else:
+                    return f'{_fa(mins)} دقیقه'
             else:
-                return f'{mins} دقیقه'
+                if hours > 0:
+                    return f'{hours} hr {mins} min'
+                elif secs >= 30:
+                    return f'{mins} min {secs} sec'
+                else:
+                    return f'{mins} min'
         except Exception:
             return ''
 
@@ -2794,6 +2818,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         platforms: Optional[List[str]] = None,
         post_only: bool = False,
         prompt_file: Optional[str] = None,
+        post_langs: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Complete workflow with fixed path handling and memory management"""
         
@@ -2829,7 +2854,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if post_only:
                 try:
                     self.generate_posts(original_base, source_lang, {}, platforms=platforms or ['telegram'],
-                                        prompt_file=prompt_file)
+                                        prompt_file=prompt_file, post_langs=post_langs)
                 except Exception as _pe:
                     self.logger.warning(f"⚠️ Post generation skipped (post-only mode): {_pe}")
                 return {}
@@ -3413,7 +3438,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if platforms:
                 try:
                     self.generate_posts(original_base, source_lang, result, platforms=platforms,
-                                        prompt_file=prompt_file)
+                                        prompt_file=prompt_file, post_langs=post_langs)
                 except Exception as _pe:
                     self.logger.warning(f"⚠️ Post generation failed (workflow continues): {_pe}")
 
@@ -3442,7 +3467,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     def _get_post_prompt(self, platform: str, title: str, srt_lang_name: str, full_text: str,
                           prompt_file: Optional[str] = None, srt_lang: str = 'fa',
-                          duration: str = ''):
+                          duration: str = '', all_srt_langs: Optional[List[str]] = None,
+                          source_lang: str = ''):
         """Return (system_prompt, user_prompt) tuple for the given platform.
 
         Prompt resolution priority:
@@ -3479,84 +3505,115 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 except Exception as _pe:
                     self.logger.warning(f"⚠️ Could not read prompt file {_p}: {_pe} — using built-in.")
 
-        # ── 2. Built-in system + user prompts per platform ──
+        # ── 2. Build subtitle-languages line (e.g. "با زیرنویس فارسی و آلمانی") ──
+        _all_langs = all_srt_langs or [srt_lang]
+        def _lang_name_fa(code: str) -> str:
+            _fa_names = {
+                'fa': 'فارسی', 'en': 'انگلیسی', 'de': 'آلمانی', 'fr': 'فرانسوی',
+                'ar': 'عربی', 'es': 'اسپانیایی', 'it': 'ایتالیایی', 'ru': 'روسی',
+                'zh': 'چینی', 'ja': 'ژاپنی', 'ko': 'کره‌ای', 'tr': 'ترکی',
+                'pt': 'پرتغالی', 'nl': 'هلندی', 'pl': 'لهستانی', 'sv': 'سوئدی',
+            }
+            return _fa_names.get(code, get_language_config(code).name)
+        _subs_line_fa = 'با زیرنویس ' + ' و '.join(_lang_name_fa(l) for l in _all_langs)
+        _subs_line_en = 'With ' + ' & '.join(get_language_config(l).name for l in _all_langs) + ' subtitles'
+        _dur = duration if duration else '(از تایم‌استمپ محاسبه کن)'
+        _dur_en = duration if duration else '(calculate from SRT)'
+        # Source (audio) language name in Farsi, shown in the prompt for context
+        _src_lang_fa = _lang_name_fa(source_lang) if source_lang else ''
+        _src_info_fa = f'زبان ویدیو: {_src_lang_fa}' if _src_lang_fa else ''
+        _src_info_en = f'Video language: {get_language_config(source_lang).name}' if source_lang else ''
+
+        # ── 3. Built-in system + user prompts per platform ──
         if platform == 'telegram':
             if srt_lang == 'fa':
                 system = (
-                    "You are a creative Telegram channel writer for a Persian-language technology and AI channel. "
-                    "You write structured, engaging posts in fluent Persian. "
-                    "Do NOT translate word-for-word — extract key insights and write naturally. "
-                    "STRICTLY follow the exact format template provided."
+                    "You write structured Telegram posts in fluent Persian (Farsi) for a technology and AI channel. "
+                    "Your style is analytical and informative — no hype, no promotional language, no superlatives. "
+                    "Summarise facts and ideas from the content objectively, as a researcher or journalist would. "
+                    "Do NOT translate word-for-word — extract key insights and write concisely. "
+                    "STRICTLY follow the exact format template provided. "
+                    "NEVER use markdown syntax like ** or __ — Telegram does not render them."
                 )
                 user = _file_user_prompt or (
-                    f"یک پست تلگرام کامل و حرفه‌ای بنویس. دقیقاً این قالب رو دنبال کن:\n\n"
-                    f"---\n"
-                    f"📽️ [عنوان کامل ویدیو به فارسی]\n"
-                    f"با زیرنویس فارسی\n\n"
-                    f"🔴 «[یک جمله کوتاه و جذاب از محتوا — ترجیحاً نقل‌قول یا ادعای جالب]»\n\n"
-                    f"[یک پاراگراف ۲−۳ جمله‌ای درباره محتوا، مهمان یا زمینه — بدون ساختار لیستی]\n\n"
+                    f"یک پست تلگرام بنویس دقیقاً بر اساس این قالب:\n\n"
+                    f"📽️ [عنوان کامل ویدیو به فارسی — ترجمه طبیعی، نه تحت‌اللفظی]\n"
+                    f"{_subs_line_fa}\n\n"
+                    f"🔴 «[یک نقل‌قول مستقیم یا گزاره‌ی کلیدی از ویدیو — بدون تعریف و تمجید]»\n\n"
+                    f"[یک پاراگراف ۲ جمله‌ای توصیفی — چه کسی، درباره چه چیزی، در چه زمینه‌ای — بدون ارزش‌گذاری]\n\n"
                     f"🚨 نکات مهم:\n\n"
-                    f"🔹 [موضوع اول]: [توضیح کوتاه]\n\n"
-                    f"🔹 [موضوع دوم]: [توضیح کوتاه]\n\n"
-                    f"🔹 [موضوع سوم]: [توضیح کوتاه]\n\n"
-                    f"🔹 [موضوع چهارم]: [توضیح کوتاه]\n\n"
-                    f"🔹 [موضوع پنجم]: [توضیح کوتاه]\n\n"
-                    f"✨ [یک پاراگراف جمع‌بندی و نظر شخصی — چرا این محتوا مهمه]\n\n"
-                    f"📌 [یک جمله call-to-action — دعوت به تماشا]\n\n"
-                    f"⏱️ مدت: {duration if duration else '[از تایم‌استمپ محاسبه کن]'}\n\n"
-                    f"#[هشتگ۱] #[هشتگ۲] #[هشتگ۳] #[هشتگ۴] #[هشتگ۵]\n"
-                    f"---\n\n"
+                    f"🔹 [موضوع اول]: [یک جمله توصیفی ≤۱۲ کلمه]\n\n"
+                    f"🔹 [موضوع دوم]: [یک جمله توصیفی ≤۱۲ کلمه]\n\n"
+                    f"🔹 [موضوع سوم]: [یک جمله توصیفی ≤۱۲ کلمه]\n\n"
+                    f"🔹 [موضوع چهارم]: [یک جمله توصیفی ≤۱۲ کلمه]\n\n"
+                    f"🔹 [موضوع پنجم]: [یک جمله توصیفی ≤۱۲ کلمه]\n\n"
+                    f"✨ [یک جمله — موضوع اصلی این ویدیو در یک خط]\n\n"
+                    f"📌 [یک جمله — برای چه مخاطبی این ویدیو مفید است]\n\n"
+                    f"⏱️ مدت: {_dur}\n\n"
+                    f"#[هشتگ۱] #[هشتگ۲] #[هشتگ۳] #[هشتگ۴] #[هشتگ۵]\n\n"
                     f"اطلاعات ویدیو:\n"
-                    f"عنوان: {title}\n"
-                    f"مدت: {duration if duration else '(از تایم‌استمپ زیرنویس محاسبه کن)'}\n\n"
+                    f"عنوان اصلی: {title}\n"
+                    f"مدت: {_dur}\n"
+                    + (f"{_src_info_fa}\n" if _src_info_fa else "")
+                    + f"زبان‌های زیرنویس: {', '.join(_lang_name_fa(l) for l in _all_langs)}\n\n"
                     f"محتوای زیرنویس:\n{full_text}\n\n"
-                    f"قوانین:\n"
-                    f"- کل پست کاملاً به فارسی (هشتگ‌ها می‌توانند انگلیسی باشند)\n"
-                    f"- نقل‌قول داخل « » باشد\n"
-                    f"- بین هر بخش یک خط خالی\n"
-                    f"- همه بخش‌های قالب رو کامل بنویس — هیچ بخشی را حذف نکن\n"
-                    f"- MAX 850 کاراکتر"
+                    f"⛔ قوانین اجباری — تخطی از اینها مجاز نیست:\n"
+                    f"① همه بخش‌های قالب را بنویس: 🔴 + پاراگراف + 🚨 (۵ بخش 🔹) + ✨ + 📌 + ⏱️ + هشتگ‌ها\n"
+                    f"② هرگز بخشی را حذف نکن\n"
+                    f"③ دقیقاً ۵ بخش 🔹\n"
+                    f"④ ⏱️ مدت را دقیقاً همان‌طور که در اطلاعات ویدیو آمده بنویس\n"
+                    f"⑤ ۵ هشتگ مرتبط\n"
+                    f"⑥ نقل‌قول داخل « »\n"
+                    f"⑦ بین هر بخش یک خط خالی\n"
+                    f"⑧ بدون markdown (نه ** نه __ نه *)\n"
+                    f"⑨ کل پست فارسی (هشتگ‌ها می‌توانند انگلیسی باشند)\n"
+                    f"⑩ هر 🔹 باید کوتاه باشد — حداکثر ۱۲ کلمه\n"
+                    f"⑪ هدف ۸۵۰–۹۵۰ کاراکتر — با کوتاه کردن هر بخش به این محدوده برس"
                 )
             else:
                 _lang_en = get_language_config(srt_lang).name
                 system = (
-                    f"You are a creative Telegram channel writer for a {_lang_en}-language technology and AI channel. "
-                    f"You write structured, engaging posts in fluent {_lang_en}. "
-                    "Do NOT translate word-for-word — extract key insights and write naturally. "
+                    f"You write structured Telegram posts in fluent {_lang_en} for a technology and AI channel. "
+                    "Your style is analytical and factual — no hype, no promotional language, no superlatives. "
+                    "Summarise facts and ideas from the content objectively, as a researcher or journalist would. "
+                    "Do NOT translate word-for-word — extract key insights and write concisely. "
                     "STRICTLY follow the exact format template provided. "
                     "NEVER use markdown syntax like ** or __ — Telegram does not render them."
                 )
                 _duration_line = f"⏱️ Duration: {duration}" if duration else "⏱️ Duration: [read from SRT timestamps]"
                 user = _file_user_prompt or (
-                    f"Write a complete, professional Telegram channel post. Follow this EXACT format:\n\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"🎥 [Full video title in {_lang_en}]\n"
-                    f"With {_lang_en} subtitles\n\n"
-                    f"🔴 \u00ab[One short, catchy sentence — preferably a quote or bold claim from the content]\u00bb\n\n"
-                    f"[1 paragraph of 2–3 sentences about the content, guest or context — no bullet structure]\n\n"
+                    f"Write a Telegram post following this EXACT format:\n\n"
+                    f"📽️ [Full video title in {_lang_en} — natural translation, not literal]\n"
+                    f"{_subs_line_en}\n\n"
+                    f"🔴 \u00ab[A direct quote or key factual statement from the video — no praise or hype]\u00bb\n\n"
+                    f"[1–2 sentences: who, about what, in what context — descriptive, no value judgements]\n\n"
                     f"🚨 Key points:\n\n"
-                    f"🔹 [Topic 1]: [brief explanation]\n\n"
-                    f"🔹 [Topic 2]: [brief explanation]\n\n"
-                    f"🔹 [Topic 3]: [brief explanation]\n\n"
-                    f"🔹 [Topic 4]: [brief explanation]\n\n"
-                    f"🔹 [Topic 5]: [brief explanation]\n\n"
-                    f"\u2728 [1 summary paragraph — why this content matters]\n\n"
-                    f"\ud83d\udccc [1 call-to-action sentence — invite to watch]\n\n"
+                    f"🔹 [Topic 1]: [one descriptive sentence ≤12 words]\n\n"
+                    f"🔹 [Topic 2]: [one descriptive sentence ≤12 words]\n\n"
+                    f"🔹 [Topic 3]: [one descriptive sentence ≤12 words]\n\n"
+                    f"🔹 [Topic 4]: [one descriptive sentence ≤12 words]\n\n"
+                    f"🔹 [Topic 5]: [one descriptive sentence ≤12 words]\n\n"
+                    f"\u2728 [One sentence: what is the main subject of this video]\n\n"
+                    f"\U0001f4cc [One sentence: for which audience this video is relevant]\n\n"
                     f"{_duration_line}\n\n"
-                    f"#[hashtag1] #[hashtag2] #[hashtag3] #[hashtag4] #[hashtag5]\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"#[hashtag1] #[hashtag2] #[hashtag3] #[hashtag4] #[hashtag5]\n\n"
                     f"Video info:\n"
-                    f"Title: {title}\n"
-                    f"Duration: {duration if duration else '(calculate from SRT)'}\n\n"
+                    f"Original title: {title}\n"
+                    f"Duration: {_dur_en}\n"
+                    f"Subtitle languages: {', '.join(_all_langs)}\n\n"
                     f"Subtitle content:\n{full_text}\n\n"
-                    f"STRICT RULES:\n"
-                    f"- Total post length: MAX 850 characters (Telegram caption limit is 1024 — keep well under)\n"
-                    f"- Each bullet point: 1 line only, no sub-items\n"
-                    f"- NO markdown: no ** or __ or * — Telegram shows them as raw characters\n"
-                    f"- Duration must be written exactly as provided — do not guess\n"
-                    f"- Quote inside \u00ab \u00bb\n"
-                    f"- One blank line between each section\n"
-                    f"- Entire post in {_lang_en}"
+                    f"⛔ MANDATORY RULES — no exceptions:\n"
+                    f"① Write ALL sections: 📽️ title + subtitle line + 🔴 + paragraph + 🚨 (5× 🔹) + ✨ + 📌 + ⏱️ + hashtags\n"
+                    f"② NEVER drop a section to shorten the post\n"
+                    f"③ Exactly 5 bullet points (🔹) — not 3, not 4, exactly 5\n"
+                    f"④ ⏱️ Duration: copy it exactly from the video info above — do not omit\n"
+                    f"⑤ Exactly 5 relevant hashtags at the end\n"
+                    f"⑥ Quote inside « » — not inside \" \"\n"
+                    f"⑦ One blank line between every section\n"
+                    f"⑧ NO markdown — no ** no __ no * — Telegram renders them as literal characters\n"
+                    f"⑨ Entire post in {_lang_en}\n"
+                    f"⑩ Each 🔹 must be brief — max 12 words\n"
+                    f"⑪ Target 850–950 characters — shorten each section to fit, never drop sections"
                 )
             return system, user
 
@@ -3639,7 +3696,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     {"role": "user", "content": user},
                 ],
                 temperature=0.7,
-                max_tokens=700,
+                max_tokens=2000,
             )
             return _resp.choices[0].message.content.strip()
         except Exception as _e1:
@@ -3668,11 +3725,43 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             text = re.sub(r'^-{3,}\s*\n?', '', text)
             text = re.sub(r'\n?-{3,}\s*$', '', text)
             text = text.strip()
-            # Hard cap: Telegram caption limit is 1024; keep under 950 to be safe
-            if len(text) > 950:
-                cut = text[:950].rfind('\n')
-                text = text[:cut if cut > 800 else 950].rstrip()
+            # Hard cap: Telegram caption limit is 1024 characters; trim at last newline
+            if len(text) > 1024:
+                cut = text[:1024].rfind('\n')
+                text = text[:cut if cut > 900 else 1024].rstrip()
         return text
+
+    @staticmethod
+    def _telegram_sections_complete(text: str) -> tuple:
+        """Return (ok: bool, missing: list[str]) for required Telegram post sections.
+
+        Checks every mandatory visual marker that the format template requires:
+          📽️  title icon
+          🔴   pull-quote
+          🚨   key-points header
+          5×🔹 bullet points
+          ✨   summary paragraph
+          📌   call-to-action
+          ⏱️  duration line
+          #    at least one hashtag
+        """
+        missing = []
+        for marker, label in [
+            ('\U0001f4fd',   '📽️ title icon'),
+            ('\U0001f534',   '🔴 pull-quote'),
+            ('\U0001f6a8',   '🚨 key-points header'),
+            ('\u2728',       '✨ summary paragraph'),
+            ('\U0001f4cc',   '📌 call-to-action'),
+            ('\u23f1',       '⏱️ duration'),
+        ]:
+            if marker not in text:
+                missing.append(label)
+        bullet_count = text.count('\U0001f539')
+        if bullet_count < 5:
+            missing.append(f'🔹 bullet points (found {bullet_count}, need 5)')
+        if '#' not in text:
+            missing.append('hashtags (#)')
+        return (len(missing) == 0, missing)
 
     def generate_posts(
         self,
@@ -3681,12 +3770,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         result: Dict[str, Any],
         platforms: Optional[List[str]] = None,
         prompt_file: Optional[str] = None,
+        post_langs: Optional[List[str]] = None,
     ) -> Dict[str, str]:
-        """Generate social media posts for every available SRT × every platform.
+        """Generate social media posts for the requested SRT languages × every platform.
 
-        When two subtitle languages are produced (e.g. ``de`` + ``fa``) a post
-        is created for **each** language on **each** platform, giving two output
-        files per platform.
+        By default only a Persian (FA) post is generated.  Pass ``post_langs``
+        to include additional languages.
 
         Output filenames:  ``{original_base}_{srt_lang}_{platform}.txt``
         Example:           ``KI_video_fa_telegram.txt``, ``KI_video_de_telegram.txt``
@@ -3698,13 +3787,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                            when called in ``--post-only`` mode (paths discovered
                            from disk in that case).
             platforms:     Platform keys to generate for. Default: ``['telegram']``.
-                           Extend by implementing the key in ``_get_post_prompt()``.
+            post_langs:    SRT language codes to write posts for.
+                           Default ``None`` → only ``['fa']``.
+                           Pass e.g. ``['fa', 'de']`` to include German as well.
 
         Returns:
             Dict mapping ``'{lang}_{platform}'`` → saved ``.txt`` path.
         """
         if platforms is None:
             platforms = ['telegram']
+
+        # Languages for which a post will be written (default: FA only)
+        _wanted_langs: List[str] = post_langs if post_langs else ['fa']
 
         # Title: clean up stem for human readability
         stem = Path(original_base).name
@@ -3714,15 +3808,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         _bidi = '\u200f\u200e\u200d\u202b\u202a\u202c\u202e\u202d\u2067\u2066\u2069'
 
-        # Collect all SRT languages present in result
+        # Collect SRT languages present in result, restricted to _wanted_langs
         srt_langs = [
             lang for lang, path in result.items()
             if isinstance(path, str) and path.endswith('.srt') and os.path.exists(path)
+            and lang in _wanted_langs
         ]
 
-        # post-only / empty result: discover existing SRTs on disk
+        # post-only / empty result: discover existing SRTs on disk for _wanted_langs
         if not srt_langs:
-            for _l in ['fa', 'en', source_lang]:
+            for _l in _wanted_langs:
                 _c = f"{original_base}_{_l}.srt"
                 if os.path.exists(_c) and _l not in srt_langs:
                     srt_langs.append(_l)
@@ -3741,14 +3836,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
                 # Extract clean subtitle text + compute duration
                 entries = self.parse_srt(srt_path)
-                duration = self._srt_duration_str(entries)
+                duration = self._srt_duration_str(entries, lang=srt_lang)
                 lines = []
                 for e in entries:
                     t = e['text']
                     for c in _bidi:
                         t = t.replace(c, '')
                     lines.append(t.strip())
-                full_text = '\n'.join(lines[:150]) + ('\n...' if len(lines) > 150 else '')
+                full_text = '\n'.join(lines[:80]) + ('\n...' if len(lines) > 80 else '')
                 # Remove surrogate characters that break UTF-8 encoding when sent to APIs
                 full_text = full_text.encode('utf-8', errors='replace').decode('utf-8')
                 title_clean = title.encode('utf-8', errors='replace').decode('utf-8')
@@ -3759,7 +3854,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     try:
                         system, user = self._get_post_prompt(platform, title_clean, srt_lang_name, full_text,
                                                              prompt_file=prompt_file, srt_lang=srt_lang,
-                                                             duration=duration)
+                                                             duration=duration, all_srt_langs=srt_langs,
+                                                             source_lang=source_lang)
                     except ValueError as ve:
                         self.logger.warning(str(ve))
                         continue
@@ -3779,6 +3875,64 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
                     try:
                         post_text = self._sanitize_post(post_text, platform)
+
+                        # Validate completeness; retry once if sections are missing
+                        if platform == 'telegram':
+                            _ok, _missing = self._telegram_sections_complete(post_text)
+                            if not _ok:
+                                self.logger.warning(
+                                    f"⚠️ Post incomplete (missing: {', '.join(_missing)}) — retrying…"
+                                )
+                                # Trailing-only truncation: if every missing section comes after
+                                # what's already written, just ask the model to continue (append).
+                                # Full rewrite would hit the same token limit again.
+                                _tail_markers = {'\u2728', '\U0001f4cc', '\u23f1', 'hashtags (#)'}
+                                _is_tail_only = all(
+                                    any(m in label for m in _tail_markers)
+                                    for label in _missing
+                                )
+                                if _is_tail_only:
+                                    _retry_user = (
+                                        f"The post below was truncated — it is missing its final sections.\n"
+                                        f"Continue it from where it stopped; output ONLY the continuation "
+                                        f"(do not repeat what is already written).\n\n"
+                                        f"Missing sections to add in order:\n"
+                                        + ('\n'.join(f'  • {lbl}' for lbl in _missing)) +
+                                        f"\n\nThe full required tail is:\n"
+                                        f"✨ [one sentence — main subject of this video]\n\n"
+                                        f"📌 [one sentence — for which audience this is relevant]\n\n"
+                                        f"⏱️ Duration: {duration}\n\n"
+                                        f"#[tag1] #[tag2] #[tag3] #[tag4] #[tag5]\n\n"
+                                        f"TRUNCATED POST:\n{post_text}"
+                                    )
+                                else:
+                                    _retry_user = (
+                                        f"The post you wrote is INCOMPLETE. Missing: {', '.join(_missing)}\n\n"
+                                        f"Rewrite the COMPLETE post from scratch following the original instructions.\n\n"
+                                        f"ORIGINAL REQUEST:\n{user}"
+                                    )
+                                try:
+                                    _retry = self._call_llm_for_post(system, _retry_user)
+                                    if _retry:
+                                        _retry_sanitized = self._sanitize_post(_retry, platform)
+                                        if _is_tail_only:
+                                            # Merge: original truncated body + appended tail
+                                            _merged = post_text.rstrip() + '\n\n' + _retry_sanitized.strip()
+                                            _ok2, _still = self._telegram_sections_complete(_merged)
+                                            if _ok2 or len(_still) < len(_missing):
+                                                post_text = _merged
+                                        else:
+                                            _ok2, _still = self._telegram_sections_complete(_retry_sanitized)
+                                            if _ok2 or len(_still) < len(_missing):
+                                                post_text = _retry_sanitized
+                                        if not self._telegram_sections_complete(post_text)[0]:
+                                            _, _still = self._telegram_sections_complete(post_text)
+                                            self.logger.warning(
+                                                f"⚠️ Retry still incomplete (missing: {', '.join(_still)})"
+                                            )
+                                except Exception as _re:
+                                    self.logger.warning(f"⚠️ Retry failed: {_re}")
+
                         post_path = f"{original_base}_{srt_lang}_{platform}.txt"
                         with open(post_path, 'w', encoding='utf-8') as f:
                             f.write(post_text)
