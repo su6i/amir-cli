@@ -21,10 +21,21 @@ run_clip() {
                 # Copy text only to clipboard
                 if [[ "$OSTYPE" == "darwin"* ]]; then
                     echo -n "$input_text" | pbcopy
+                    echo "✅ Text from pipe copied to clipboard"
+                elif [[ -n "$DISPLAY" ]] || [[ -n "$WAYLAND_DISPLAY" ]]; then
+                    if echo -n "$input_text" | xclip -selection clipboard 2>/dev/null || \
+                       echo -n "$input_text" | xsel --clipboard 2>/dev/null; then
+                        echo "✅ Text from pipe copied to clipboard"
+                    else
+                        echo "❌ xclip/xsel not installed. Run: sudo apt install xclip"
+                        return 1
+                    fi
                 else
-                    echo -n "$input_text" | xclip -selection clipboard 2>/dev/null || echo -n "$input_text" | xsel --clipboard 2>/dev/null
+                    echo "⚠️  No display detected (headless server)."
+                    echo "   Clipboard is not available via SSH without X11 forwarding."
+                    echo "   ↳ Tip: use 'ssh -X' or pipe to a file instead."
+                    return 1
                 fi
-                echo "✅ Text from pipe copied to clipboard"
             fi
             return 0
         fi
@@ -59,14 +70,23 @@ run_clip() {
                 echo "📍 File path copied: $full_path"
             fi
         else
-            # --- Plain Text Copy Section ---
+            # Copy text only to clipboard
             local text_to_copy="$*"
             if [[ "$OSTYPE" == "darwin"* ]]; then
                 echo -n "$text_to_copy" | pbcopy
+                echo "🔤 Text copied to clipboard: '$text_to_copy'"
+            elif [[ -n "$DISPLAY" ]] || [[ -n "$WAYLAND_DISPLAY" ]]; then
+                if echo -n "$text_to_copy" | xclip -selection clipboard 2>/dev/null || \
+                   echo -n "$text_to_copy" | xsel --clipboard 2>/dev/null; then
+                    echo "🔤 Text copied to clipboard: '$text_to_copy'"
+                else
+                    echo "❌ xclip/xsel not installed. Run: sudo apt install xclip"
+                    return 1
+                fi
             else
-                echo -n "$text_to_copy" | xclip -selection clipboard 2>/dev/null || echo -n "$text_to_copy" | xsel --clipboard 2>/dev/null
+                echo "⚠️  No display detected (headless server). Clipboard not available."
+                return 1
             fi
-            echo "🔤 Text copied to clipboard: '$text_to_copy'"
         fi
     }
     clip "$@"
