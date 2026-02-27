@@ -301,11 +301,11 @@ def detect_document(img, kernel_size):
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
     gray = clahe.apply(gray)
     
-    # 3. Blur
-    blurred = cv2.bilateralFilter(gray, 9, 75, 75)
+    # 4. Blur - Extremely important for laptop screens (Pixels/Moiré)
+    # Using a stronger Sigma for color and space to melt away screen pixels
+    blurred = cv2.bilateralFilter(gray, 15, 120, 120)
     
-    # 4. Hybrid Segmentation: Gaussian (texture) + Mean (mass)
-    # This combination is extremely robust for white paper on gray/dark desks
+    # 5. Hybrid Segmentation
     thresh_g = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 201, 10)
     thresh_m = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 201, 10)
     mask = cv2.bitwise_and(thresh_g, thresh_m)
@@ -313,62 +313,121 @@ def detect_document(img, kernel_size):
     
     k_size = int(kernel_size)
     if k_size % 2 == 0: k_size += 1
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k_size, k_size))
     
-    # 5. Connect and bridge
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    # Edge energy map for tie-breaking
+    # Strong edges (physical objects) vs soft edges (screen UI)
+    sobel_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+    sobel_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+    edge_energy = np.sqrt(sobel_x**2 + sobel_y**2)
     
-    # FIXED: Fill small holes (like punch holes) instead of aggressive erosion
-    # This preserves document edges while cleaning up noise
-    mask_filled = mask.copy()
-    contours_holes, _ = cv2.findContours(cv2.bitwise_not(mask), cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
-    for c in contours_holes:
-        area = cv2.contourArea(c)
-        # Fill holes smaller than 5000 pixels (punch holes, stamps, etc.)
-        if area < 5000:
-            cv2.drawContours(mask_filled, [c], -1, 255, -1)
-    mask = mask_filled
-    
-    # Clean padding in mask
-    mask[0:pad, :] = 0
-    mask[-pad:, :] = 0
-    mask[:, 0:pad] = 0
-    mask[:, -pad:] = 0
-    
-    # 6. Find Contours
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours: return None, mask
-    
-    # 7. EXPLICIT FILTER: Only take contours that are 10% to 90% of image area
-    total_area = (h_small + 2*pad) * (w_small + 2*pad)
-    valid = []
-    for c in contours:
-        area = cv2.contourArea(c)
-        if total_area * 0.10 < area < total_area * 0.95:
-            valid.append(c)
-            
-    if not valid: 
-        valid = sorted(contours, key=cv2.contourArea, reverse=True)
-        if cv2.contourArea(valid[0]) > total_area * 0.98 and len(valid) > 1:
-            valid = valid[1:]
- 
-    # Sort descending
-    valid = sorted(valid, key=cv2.contourArea, reverse=True)
-    
-    screenCnt = None
-    for c in valid[:5]:
-        # USE HULL to ensure we don't cut corners of the document
-        hull = cv2.convexHull(c)
+    def score_contour(cnt, img_w, img_h):
+        area = cv2.contourArea(cnt)
+        total_area = img_w * img_h
+        area_pct = area / total_area
+        
+        # 1. Area Penalty: Stronger guard against internal features (chips, logos)
+        # We increase min area to 8% to ensure we catch the CARD, not the CHIP.
+        if area_pct < 0.08 or area_pct > 0.98: return -1
+        
+        hull = cv2.convexHull(cnt)
         peri = cv2.arcLength(hull, True)
-        # PRECISION: Lower factor (0.005) follows corners more accurately
-        approx = cv2.approxPolyDP(hull, 0.005 * peri, True)
-        if len(approx) == 4:
-            screenCnt = approx.reshape(4, 2)
-            break
+        approx = cv2.approxPolyDP(hull, 0.01 * peri, True)
+        is_quad = 2.0 if len(approx) == 4 else 1.0
+        
+        rect = cv2.minAreaRect(cnt)
+        (x, y), (w, h), angle = rect
+        if w == 0 or h == 0: return -1
+        ratio = max(w, h) / min(w, h)
+        
+        # 3. Ratio-Area Correlation:
+        def ratio_bell(r, target, sigma=0.12):
+            return np.exp(-((r - target)**2) / (2 * sigma**2))
             
-    if screenCnt is None and valid:
-        rect = cv2.minAreaRect(valid[0])
+        s_id = ratio_bell(ratio, 1.58)
+        s_a4 = ratio_bell(ratio, 1.41)
+        
+        # Correlated Scoring:
+        final_ratio_score = 0.5
+        if area_pct < 0.35:
+            final_ratio_score = s_id * 15.0 # IDs
+        else:
+            final_ratio_score = s_a4 * 8.0  # Papers
+            
+        # 4. Edge Density Score (Internal Contrast)
+        mask_cnt = np.zeros_like(gray)
+        cv2.drawContours(mask_cnt, [cnt], -1, 255, 2)
+        mean_edge = cv2.mean(edge_energy, mask=mask_cnt)[0]
+        edge_score = min(2.0, mean_edge / 30.0) 
+        
+        # 5. Centrality
+        cx, cy = img_w / 2, img_h / 2
+        norm_dist = np.sqrt((x - cx)**2 + (y - cy)**2) / (img_w/2)
+        center_score = np.exp(-3.0 * norm_dist)
+        
+        return area_pct * final_ratio_score * center_score * edge_score * is_quad
+
+    # --- MULTI-SCALE CANDIDATE COLLECTION ---
+    all_raw_candidates = []
+    for k in [7, 13, 21, 31, 45, 61]:
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k, k))
+        m_curr = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        m_curr = cv2.morphologyEx(m_curr, cv2.MORPH_OPEN, kernel)
+        
+        cnts, _ = cv2.findContours(m_curr, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        for c in cnts:
+            s = score_contour(c, w_small + 2*pad, h_small + 2*pad)
+            if s > 0:
+                all_raw_candidates.append([s, c])
+                
+    if not all_raw_candidates: return None, mask
+    
+    # --- RECURSIVE CONTEST: HIERARCHICAL SUBJECT SELECTION ---
+    # We distinguish between "Subjects" (docs on background) and "Fragments" (features in docs).
+    for i in range(len(all_raw_candidates)):
+        s_inner, c_inner = all_raw_candidates[i]
+        area_inner = cv2.contourArea(c_inner)
+        rect_inner = cv2.minAreaRect(c_inner)
+        r_inner = max(rect_inner[1]) / (min(rect_inner[1]) if min(rect_inner[1]) > 0 else 1)
+        
+        for j in range(len(all_raw_candidates)):
+            if i == j: continue
+            s_outer, c_outer = all_raw_candidates[j]
+            area_outer = cv2.contourArea(c_outer)
+            
+            # Check containment
+            if area_inner < area_outer * 0.7:
+                if cv2.pointPolygonTest(c_outer, rect_inner[0], False) >= 0:
+                    rect_outer = cv2.minAreaRect(c_outer)
+                    r_outer = max(rect_outer[1]) / (min(rect_outer[1]) if min(rect_outer[1]) > 0 else 1)
+                    
+                    # Is the outer container already a plausible document?
+                    # A4 (1.41) or ID (1.58). We use a generous 1.35-1.65 window.
+                    is_outer_doc = (1.35 < r_outer < 1.70)
+                    is_inner_doc = (1.35 < r_inner < 1.70)
+                    
+                    if is_outer_doc:
+                        # TRAP: Inner is a fragment (chip/logo) of a document.
+                        # Penalize the fragment to stay on the main document area.
+                        all_raw_candidates[i][0] *= 0.1
+                    elif is_inner_doc:
+                        # SUCCESS: Inner is a document on a non-document background (Screen/Desk).
+                        # Boost the subject.
+                        all_raw_candidates[i][0] *= 20.0
+    
+    # Sort and pick winner
+    all_raw_candidates.sort(key=lambda x: x[0], reverse=True)
+    best_score, best_cnt = all_raw_candidates[0]
+    
+    # Final quad approximation
+    hull = cv2.convexHull(best_cnt)
+    peri = cv2.arcLength(hull, True)
+    approx = cv2.approxPolyDP(hull, 0.005 * peri, True)
+    
+    if len(approx) == 4:
+        screenCnt = approx.reshape(4, 2)
+    else:
+        # Fallback to minAreaRect for non-quads
+        rect = cv2.minAreaRect(best_cnt)
         box = cv2.boxPoints(rect)
         screenCnt = np.array(box, dtype="int")
         
