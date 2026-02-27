@@ -95,7 +95,7 @@ amir subtitle video.mp4 -s de --sub fa
 # Transcribe from SRT file (skip Whisper)
 amir subtitle video_en.srt -s en --sub fa
 
-# Generate Telegram channel intro post (default platform)
+# Generate Telegram channel intro post — FA only (default)
 amir subtitle video.mp4 --post
 
 # Generate posts for specific platforms
@@ -105,6 +105,10 @@ amir subtitle video.mp4 --post telegram youtube linkedin
 # Only generate posts from existing SRTs (faster)
 amir subtitle video.mp4 --post-only
 amir subtitle video.mp4 --post-only linkedin
+
+# Generate posts in specific languages (default is FA only)
+amir subtitle video.mp4 --post-only --post-lang fa de
+amir subtitle video.mp4 --post --post-lang fa de en
 ```
 
 ### 📋 Full Usage Guide
@@ -168,19 +172,23 @@ amir subtitle video.mp4 --llm gemini --model gemini-2.0-flash
 **Social media posts:**
 
 ```bash
-# Telegram (default when no platform given)
+# Telegram (default when no platform given) — FA post only
 amir subtitle video.mp4 --post
 
 # Specific platform(s)
 amir subtitle video.mp4 --post youtube
 amir subtitle video.mp4 --post telegram youtube linkedin
 
-# Multiple output languages → one file per lang×platform
-amir subtitle video.mp4 --sub fa en de --post telegram    # → fa_telegram.txt, en_telegram.txt, de_telegram.txt
+# FA + DE posts in one run
+amir subtitle video.mp4 --sub fa de --post telegram --post-lang fa de
+
+# Multiple output languages → one file per lang (requires --post-lang)
+amir subtitle video.mp4 --sub fa en de --post telegram --post-lang fa de en    # → fa_telegram.txt, de_telegram.txt, en_telegram.txt
 
 # Post only from already-existing SRT files (no transcription)
-amir subtitle video.mp4 --post-only              # super fast — telegram default
+amir subtitle video.mp4 --post-only              # super fast — FA telegram only
 amir subtitle video.mp4 --post-only linkedin
+amir subtitle video.mp4 --post-only --post-lang fa de   # FA + DE posts
 
 # Custom prompt file (one-time override)
 amir subtitle video.mp4 --post youtube --prompt-file ~/my_youtube_prompt.txt
@@ -272,15 +280,18 @@ amir video download "https://youtube.com/watch?v=XYZ" --subtitle -t fa
 |------|------|---------|-------------|
 | `--post` | platforms | `telegram` | Generate posts after workflow. Optional platform args: `telegram` `youtube` `linkedin` |
 | `--post-only` | platforms | `telegram` | Skip processing — generate posts from existing SRTs only |
+| `--post-lang` | langs | `fa` | Languages to generate posts for. Default: FA only. Example: `--post-lang fa de en` |
 | `--prompt-file` | file | — | One-time custom prompt file (overrides `~/.amir/prompts/{platform}.txt`) |
 
 **Platform details:**
 
 | Platform | Output file suffix | Post type |
 |----------|-------------------|-----------|
-| `telegram` | `_fa_telegram.txt` | Short Persian intro, hashtags, ~150 words |
-| `youtube` | `_en_youtube.txt` | SEO description, 200–400 words, timestamp hints |
-| `linkedin` | `_fa_linkedin.txt` | Professional bilingual post, 150–250 words |
+| `telegram` | `_{lang}_telegram.txt` | Short analytical intro, hashtags, ~900 chars (format: 📽️ 🔴 🚨 ✨ 📌 ⏱️) |
+| `youtube` | `_{lang}_youtube.txt` | SEO description, 200–400 words, timestamp hints |
+| `linkedin` | `_{lang}_linkedin.txt` | Professional bilingual post, 150–250 words |
+
+**Default language:** only `fa` is generated unless `--post-lang` is specified.
 
 **Persistent prompt override:** place a file at `~/.amir/prompts/{platform}.txt` using vars `{title}`, `{srt_lang_name}`, `{full_text}`.
 
@@ -344,8 +355,12 @@ amir subtitle long_video.mp4 --limit 30
 
 #### 4. Batch Process SRT Files
 ```bash
-# Skip Whisper, straight to translation
+# Skip Whisper, straight to translation — FA post only (default)
 amir subtitle source_en.srt -s en --sub fa de --post-only
+# Output: source_fa_telegram.txt
+
+# Generate both FA and DE posts explicitly
+amir subtitle source_en.srt -s en --sub fa de --post-only --post-lang fa de
 # Output: source_fa_telegram.txt, source_de_telegram.txt
 ```
 

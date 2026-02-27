@@ -361,10 +361,16 @@ amir subtitle video.mp4 -t en fa ar es -r
 ```
 
 #### Technical Implementation Details
-- **File:** `lib/python/subtitle/processor.py` (2164 lines)
+- **File:** `lib/python/subtitle/processor.py` (~4400 lines)
 - **Class:** `SubtitleProcessor`
 - **Key Methods:**
-  - `run_workflow()`: Orchestrates full pipeline
+  - `run_workflow(post_langs=None)`: Orchestrates full pipeline; `post_langs` limits which language posts are generated
+  - `generate_posts(original_base, source_lang, result, platforms, post_langs=None)`: Generates social media posts; default `post_langs=None` → FA only
+  - `_get_post_prompt(platform, title, srt_lang_name, full_text, ..., source_lang='')`: Builds analytical/factual LLM prompt per platform + language
+  - `_telegram_sections_complete(text) -> (bool, list)`: Validates 8 required post sections (📽️ 🔴 🚨 ✨ 📌 ⏱️ 5×🔹 #)
+  - `_sanitize_post(text, platform)`: Strips markdown, enforces 1024-char Telegram hard cap
+  - `_srt_duration_str(entries, lang='fa')`: Returns video duration formatted as Persian-Indic numerals+words for `fa`, Latin numerals+English for all other langs
+  - `_to_persian_digits(value)`: Converts `0-9` → `۰-۹`
   - `_parse_translated_batch_output()`: Robust multi-format parser
   - `translate_with_deepseek()`: Batch translation with retry logic
   - `create_ass_with_font()`: ASS generation with bilingual support

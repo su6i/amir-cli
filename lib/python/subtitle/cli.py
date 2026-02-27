@@ -129,6 +129,9 @@ Note:
                         help=("Override LLM user prompt from a .txt file for this run. "
                               "Supports variables: {title}, {srt_lang_name}, {full_text}. "
                               "Persistent per-platform override: ~/.amir/prompts/{platform}.txt"))
+    parser.add_argument("--post-lang", nargs='+', dest="post_langs", default=None, metavar='LANG',
+                        help=("Languages to generate posts for (default: fa only). "
+                              "Example: --post-lang fa de en"))
 
     args = parser.parse_args()
 
@@ -183,6 +186,7 @@ Note:
         platforms=_platforms,
         post_only=_post_only,
         prompt_file=args.prompt_file,
+        post_langs=args.post_langs,
     )
 
 if __name__ == "__main__":
