@@ -49,6 +49,7 @@ _amir() {
                         '--weasyprint[Use WeasyPrint engine]' \
                         '--pil[Use PIL grayscale fallback engine]' \
                         '--pandoc[Use Pandoc engine]' \
+                        '(-f --free-size)'{-f,--free-size}'[Generate a single continuous PDF with custom dimensions]' \
                         {-o,--output}'[Specify output file]:filename:_files' \
                         {-r,--rotate}'[Rotate images (degrees)]:angle' \
                         {-q,--quality}'[JPEG Quality (default: 60)]:quality (0-100)' \
