@@ -245,9 +245,16 @@ amir video download <url> [options]
 5. `amir subtitle` does LLM translation → validates 100% → optionally burns with ffmpeg
 
 **Robust `yt-dlp` Configuration & URL Parsing (Lessons Learned):**
-- **Unsupported Arguments:** Avoid using experimental or heavily environment-dependent flags like `--remote-components ejs:github` or `--js-runtimes` unless the executing environment explicitly supports them. In stripped-down server environments or standalone `yt-dlp` binaries, these flags can cause immediate process crashes.
-- **Strict URL Extraction:** Never pass raw user input (which may contain captions, newlines, and extra text alongside a link) directly to `yt-dlp`. Always defensively extract the exact URL using a centralized regex utility (e.g., `extract_link_from_text`) before execution:
+- **Strict URL Extraction (UTF-16 vs Unicode):** Never pass raw user input directly to `yt-dlp`. Always extract the URL using `extract_link_from_text` first. **CRITICAL WARNING:** Do not rely on Telegram's `entity.offset` and `entity.length` for raw `url` entities if mixing emojis or Persian characters. Telegram provides these offsets in **UTF-16 code units**, whereas Python 3 strings are Unicode characters. An emoji counts as 2 units in UTF-16 but 1 in Python, causing severe string slicing misalignments:
   ```python
+  # INCORRECT: Will break if the message contains emojis before the URL
+  url = text_content[entity.offset : entity.offset+entity.length]
+  
+  # CORRECT: Encode to UTF-16 first, slice the bytes, then decode
+  encoded = text_content.encode('utf-16-le')
+  url = encoded[entity.offset*2 : (entity.offset+entity.length)*2].decode('utf-16-le')
+  ```
+- **Systemd Logging:** If a server's `.service` file uses `StandardOutput=append:/home/user/bot.log`, the `journalctl -u bot -f` command will **NOT** show any Python application output or Exception tracebacks. Always check the physical `bot.log` file when debugging silent failures on production.
   import re
   match = re.search(r'(https?://\S+)', user_text)
   target_url = match.group(1) if match else user_text
