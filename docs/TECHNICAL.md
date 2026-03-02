@@ -244,6 +244,16 @@ amir video download <url> [options]
 4. Call `amir subtitle <video> -s en -t fa` with or without `--no-render`
 5. `amir subtitle` does LLM translation → validates 100% → optionally burns with ffmpeg
 
+**Robust `yt-dlp` Configuration & URL Parsing (Lessons Learned):**
+- **Unsupported Arguments:** Avoid using experimental or heavily environment-dependent flags like `--remote-components ejs:github` or `--js-runtimes` unless the executing environment explicitly supports them. In stripped-down server environments or standalone `yt-dlp` binaries, these flags can cause immediate process crashes.
+- **Strict URL Extraction:** Never pass raw user input (which may contain captions, newlines, and extra text alongside a link) directly to `yt-dlp`. Always defensively extract the exact URL using a centralized regex utility (e.g., `extract_link_from_text`) before execution:
+  ```python
+  import re
+  match = re.search(r'(https?://\S+)', user_text)
+  target_url = match.group(1) if match else user_text
+  ```
+  Failing to do so results in `yt-dlp` interpreting the entire block of text as a single invalid URL or mistaking newlines/text for unsupported command-line options.
+
 ### `pdf` (Multi-Engine High-Fidelity Rendering)
 - **Architecture:** Hybrid system utilizing specialized rendering engines with a robust fallback pipeline.
 - **Engines:**

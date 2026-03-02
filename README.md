@@ -125,7 +125,7 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 ### 🎬 Multimedia
 | Command | Description |
 | :--- | :--- |
-| `amir video <URL> [opts]` | **Unified Download + Process**: Download from YouTube & 1000+ sites. URL auto-detected — no subcommand needed. Key flags: `--subtitle -t en fa` (Whisper AI), `--yt-subs --translate -t en fa` (platform subs → LLM translate), `--resolution 720 60` (compress after download), `--no-render` (SRT only), `--only-subs`, `--cookies`. |
+| `amir video <URL> [opts]` | **Unified Download + Process**: Download from YouTube & 1000+ sites. URL auto-detected and extracted strictly from mixed text input. Key flags: `--subtitle -t en fa` (Whisper AI), `--yt-subs --translate -t en fa` (platform subs → LLM translate), `--resolution 720 60` (compress after download), `--no-render` (SRT only), `--only-subs`, `--cookies`. |
 | `amir video <file/dir>` | Advanced video processing (compress, cut, batch). Features AI Learning and hardware acceleration. |
 | `amir video cut <file> [opts]` | Cut video segments without re-encoding (instant) or with rendering. |
 | `amir video stats` | View AI learning statistics & compression history. |
