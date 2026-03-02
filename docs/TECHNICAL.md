@@ -252,6 +252,7 @@ amir video download <url> [options]
     - **Pandoc:** Vector-based conversion for document formats.
     - **PIL (Fallback):** Ultra-robust image-based renderer. Used automatically if advanced engines fail to ensure no content loss. Supports infinite vertical pagination.
 - **Key Technical Features:**
+    - **Continuous / Free-Size Rendering:** The `--free-size` (`-f`) flag bypasses A4 constraints. `render_puppeteer.js` uses `page.evaluate()` to measure the exact `scrollWidth` and `scrollHeight` of the DOM, and instructs Puppeteer to generate a single continuous PDF page matching those exact dimensions, preventing tables and blocks from wrapping or splitting.
     - **Piping Support:** Accepts `stdin` if no file arguments are provided. Integrated with `mktemp` to handle content safely and provides descriptive "clipboard" logging/naming.
     - **ExFAT Robustness:** Automatically detects ExFAT filesystems (e.g., SanDisk drives) and bypasses `uv run` in favor of direct `.venv/bin/python3` execution to avoid "Operation not supported" errors caused by ExFAT's lack of file locking.
     - **Base64 Font Embedding:** To bypass browser security restrictions (`file://`), the **B Nazanin** Persian font is injected directly as a Base64 Data URI into the Puppeteer HTML stream.
