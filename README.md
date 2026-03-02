@@ -142,7 +142,7 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir img extend <file> [opts]` | Extend image borders (custom/auto color). |
 | `amir img deskew <file> [output]` | Auto-straighten scanned documents. |
 | `amir img <file> <size> [g]` | Legacy mode (detects resize vs crop). |
-| `amir pdf [files] [opts]` | **Multi-Engine A4 PDF Generator**: Render Markdown/Text/Images to PDF. Supports piping (e.g., `amir clip | amir pdf`), Puppeteer (Default), WeasyPrint, PIL (Robust Fallback). Features: High-fidelity Persian RTL (B Nazanin), auto-pagination, and ExFAT compatibility. |
+| `amir pdf [files] [opts]` | **Multi-Engine A4 PDF Generator**: Render Markdown/Text/Images to PDF. Supports piping (e.g., `amir clip | amir pdf`), Puppeteer (Default), WeasyPrint, PIL (Robust Fallback). Features: High-fidelity Persian RTL (B Nazanin), auto-pagination, ExFAT compatibility, and `--free-size` (`-f`) for continuous/custom dimensions. |
 | `amir watermark <file> [text]` | Add watermark to image (auto-saved or `-o output`). |
 | `amir subtitle <file/URL> [options]` | **AI-Powered Multilingual Subtitles**: Transcribe, translate (32 languages), and render. Accepts a **local file or a direct URL** (auto-downloads). Key flags: `-s en -t fa` (source/target lang), `-l 120` (test first 120 sec), `--llm gemini`, `--no-render` (SRT only), `--whisper-model large-v3`. See [SUBTITLE.md](docs/SUBTITLE.md). |
 | `amir info <file>` | Show detailed technical metadata for any file. |

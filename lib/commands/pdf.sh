@@ -10,7 +10,7 @@ run_pdf() {
     local LIB_DIR="$(dirname "$SCRIPT_DIR")"
     
     local inputs=() output="" engine="puppeteer"
-    local raw_output=""
+    local raw_output="" free_size=false
     local CLEANUP_FILES=()
 
     while [[ $# -gt 0 ]]; do
@@ -20,6 +20,7 @@ run_pdf() {
             --weasyprint) engine="weasyprint"; shift ;;
             --pil) engine="pil"; shift ;;
             --pandoc) engine="pandoc"; shift ;;
+            --free-size|-f) free_size=true; shift ;;
             *) [[ -f "$1" ]] && inputs+=("$1"); shift ;;
         esac
     done
@@ -85,10 +86,12 @@ run_pdf() {
 
             local success=false
             if [[ "$engine" == "puppeteer" ]]; then
-                node "${LIB_DIR}/nodejs/render_puppeteer.js" "$abs_file" "$tmp_out" "$font_fa" "$chrome_profile" &>/dev/null && success=true
+                node "${LIB_DIR}/nodejs/render_puppeteer.js" "$abs_file" "$tmp_out" "$font_fa" "$chrome_profile" "$free_size" &>/dev/null && success=true
             elif [[ "$engine" == "weasyprint" ]]; then
+                if [[ "$free_size" == "true" ]]; then echo "⚠️  --free-size is only fully supported on Puppeteer. Output may vary."; fi
                 $python_cmd "${LIB_DIR}/python/render_weasy.py" "$abs_file" "$tmp_out" "$font_fa" &>/dev/null && success=true
             elif [[ "$engine" == "pandoc" ]]; then
+                if [[ "$free_size" == "true" ]]; then echo "⚠️  --free-size is only fully supported on Puppeteer. Output may vary."; fi
                 pandoc "$abs_file" -o "$tmp_out" --pdf-engine=pdfkit &>/dev/null && success=true
             fi
 
@@ -130,9 +133,13 @@ run_pdf() {
         if [[ "$f" == *.pdf* ]]; then
             final_ready+=("$f")
         else
-            local clip="$tmp_dir/c_$(basename "$f")"
-            $cmd -density 300 "$f" -resize "2232x3260>" -gravity center -extent 2480x3508 -background white -flatten "$clip"
-            final_ready+=("$clip")
+            if [[ "$free_size" == "true" ]]; then
+                final_ready+=("$f")
+            else
+                local clip="$tmp_dir/c_$(basename "$f")"
+                $cmd -density 300 "$f" -resize "2232x3260>" -gravity center -extent 2480x3508 -background white -flatten "$clip"
+                final_ready+=("$clip")
+            fi
         fi
     done
 
