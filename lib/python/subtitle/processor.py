@@ -1070,27 +1070,28 @@ if __name__ == "__main__":
         
         return entries
 
-    def merge_to_clauses(self, entries: List[Dict], max_duration_sec: float = 8.0) -> List[Dict]:
+    def merge_to_clauses(self, entries: List[Dict], min_duration_sec: float = 5.0, max_duration_sec: float = 8.0) -> List[Dict]:
         """
-        Merge consecutive SRT fragments into semantically complete clauses,
-        respecting both punctuation boundaries AND a maximum duration ceiling.
+        Merge consecutive SRT fragments into semantically balanced clauses,
+        using TIME as the primary control axis.
         
-        Pre-translation step: YouTube/Whisper SRTs often split mid-sentence
-        into 2-3 word fragments. This merges them into natural clause
-        boundaries while ensuring no single subtitle exceeds ~8 seconds
-        of screen time (keeps subtitles readable).
-        
-        Priority order for flushing:
-          1. Sentence enders (. ? !) → always flush
-          2. Soft breaks (, ; :) when buffer >= 4s or >= 30 chars → flush
-          3. Duration >= max_duration_sec → force flush (safety net)
+        Rules:
+          1. FLOOR (min_duration_sec=5s): Never show a subtitle for less than
+             5 seconds. Keep merging even past sentence enders (. ? !) until
+             the buffer reaches at least 5 seconds. This merges ultra-short
+             lines like "sure. yes. of course." into a single readable block.
+          2. BREAK ZONE (5s–8s): Once the buffer exceeds 5 seconds, flush at
+             the FIRST natural punctuation opportunity (. ? ! , ; :).
+          3. CEILING (max_duration_sec=8s): If no punctuation appears by 8
+             seconds, force flush anyway (readability > grammar).
         
         Args:
             entries: List of SRT entries with 'start', 'end', 'text' keys
-            max_duration_sec: Maximum seconds per merged clause (default 8s)
+            min_duration_sec: Minimum seconds before any flush is allowed
+            max_duration_sec: Maximum seconds before forced flush
             
         Returns:
-            Merged entries with updated timing (start from first, end from last)
+            Merged entries with updated timing
         """
         if not entries:
             return []
@@ -1101,19 +1102,17 @@ if __name__ == "__main__":
             parts = ts.split(':')
             return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
         
-        clause_enders = ('.', '?', '!', '...', '。', '？', '！')
-        soft_break_chars = (',', ';', ':', '،', '؛')
+        all_break_chars = ('.', '?', '!', '...', '。', '？', '！', ',', ';', ':', '،', '؛')
         
         merged = []
         buffer_texts = []
-        buffer_start = None   # SRT timestamp string
-        buffer_start_sec = 0  # Parsed seconds for duration calc
+        buffer_start = None
+        buffer_start_sec = 0.0
         buffer_end = None
-        buffer_end_sec = 0
-        buffer_len = 0
+        buffer_end_sec = 0.0
         
         def _flush():
-            nonlocal buffer_texts, buffer_start, buffer_start_sec, buffer_end, buffer_end_sec, buffer_len
+            nonlocal buffer_texts, buffer_start, buffer_start_sec, buffer_end, buffer_end_sec
             if buffer_texts:
                 merged_text = ' '.join(buffer_texts)
                 merged_text = re.sub(r'\s+', ' ', merged_text).strip()
@@ -1124,48 +1123,38 @@ if __name__ == "__main__":
                 })
             buffer_texts = []
             buffer_start = None
-            buffer_start_sec = 0
+            buffer_start_sec = 0.0
             buffer_end = None
-            buffer_end_sec = 0
-            buffer_len = 0
+            buffer_end_sec = 0.0
         
         for entry in entries:
             text = entry['text'].strip()
             if not text:
                 continue
             
-            entry_start_sec = _ts_to_sec(entry['start'])
             entry_end_sec = _ts_to_sec(entry['end'])
             
             if buffer_start is None:
                 buffer_start = entry['start']
-                buffer_start_sec = entry_start_sec
+                buffer_start_sec = _ts_to_sec(entry['start'])
             
             buffer_texts.append(text)
             buffer_end = entry['end']
             buffer_end_sec = entry_end_sec
-            buffer_len += len(text) + 1
             
-            # Calculate buffer duration
             buf_duration = buffer_end_sec - buffer_start_sec
             
-            # Decide whether to flush
-            ends_with_clause = text.endswith(clause_enders)
-            ends_with_soft = text.endswith(soft_break_chars)
+            # ── Rule 1: FLOOR — never flush below minimum duration ──
+            if buf_duration < min_duration_sec:
+                continue
             
-            should_flush = False
+            # ── Rule 2: BREAK ZONE (5s–8s) — flush at first punctuation ──
+            if text.endswith(all_break_chars):
+                _flush()
+                continue
             
-            if ends_with_clause:
-                # Always flush on sentence enders
-                should_flush = True
-            elif ends_with_soft and (buf_duration >= 4.0 or buffer_len >= 30):
-                # Flush on comma/semicolon if we have enough material
-                should_flush = True
-            elif buf_duration >= max_duration_sec:
-                # Time ceiling: force flush even mid-phrase (readability > grammar)
-                should_flush = True
-            
-            if should_flush:
+            # ── Rule 3: CEILING — force flush at max duration ──
+            if buf_duration >= max_duration_sec:
                 _flush()
         
         # Flush remaining buffer
