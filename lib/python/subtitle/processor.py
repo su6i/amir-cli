@@ -1070,6 +1070,89 @@ if __name__ == "__main__":
         
         return entries
 
+    def merge_to_clauses(self, entries: List[Dict], max_chars: int = 120) -> List[Dict]:
+        """
+        Merge consecutive SRT fragments into semantically complete clauses.
+        
+        Pre-translation step: YouTube/Whisper SRTs often split mid-sentence
+        into 2-3 word fragments. This merges them back into natural clause
+        boundaries (comma, period, question mark, etc.) so the LLM receives
+        complete semantic units for translation.
+        
+        Args:
+            entries: List of SRT entries with 'start', 'end', 'text' keys
+            max_chars: Hard ceiling per merged clause (only breaks at punctuation)
+            
+        Returns:
+            Merged entries with updated timing (start from first, end from last)
+        """
+        if not entries:
+            return []
+        
+        clause_enders = ('.', '?', '!', '...', '。', '？', '！')
+        soft_break_chars = (',', ';', ':', '،', '؛')
+        
+        merged = []
+        buffer_texts = []
+        buffer_start = None
+        buffer_end = None
+        buffer_len = 0
+        
+        for entry in entries:
+            text = entry['text'].strip()
+            if not text:
+                continue
+            
+            if buffer_start is None:
+                buffer_start = entry['start']
+            
+            buffer_texts.append(text)
+            buffer_end = entry['end']
+            buffer_len += len(text) + 1  # +1 for joining space
+            
+            # Decide whether to flush the buffer
+            ends_with_clause = text.endswith(clause_enders)
+            ends_with_soft = text.endswith(soft_break_chars)
+            
+            should_flush = False
+            
+            if ends_with_clause:
+                # Always flush on sentence enders
+                should_flush = True
+            elif ends_with_soft and buffer_len >= 30:
+                # Flush on comma/semicolon only if we have enough material
+                should_flush = True
+            # No blind hard-limit break: we NEVER flush mid-phrase.
+            # Long lines without punctuation will stay merged until the next
+            # natural boundary appears.
+            
+            if should_flush and buffer_texts:
+                merged_text = ' '.join(buffer_texts)
+                # Clean up double spaces from joining
+                merged_text = re.sub(r'\s+', ' ', merged_text).strip()
+                merged.append({
+                    'start': buffer_start,
+                    'end': buffer_end,
+                    'text': merged_text,
+                })
+                buffer_texts = []
+                buffer_start = None
+                buffer_end = None
+                buffer_len = 0
+        
+        # Flush remaining buffer
+        if buffer_texts:
+            merged_text = ' '.join(buffer_texts)
+            merged_text = re.sub(r'\s+', ' ', merged_text).strip()
+            merged.append({
+                'start': buffer_start,
+                'end': buffer_end,
+                'text': merged_text,
+            })
+        
+        self.logger.info(f"📐 Clause merge: {len(entries)} fragments → {len(merged)} clauses")
+        return merged
+
     def sanitize_entries(self, entries: List[Dict]) -> List[Dict]:
         """Fix overlaps, enforce minimum duration, and semantically split long lines"""
         min_duration = self.min_duration
@@ -2946,6 +3029,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             
             # Smart Merge: Fix split numbers (e.g. "1" + ",000") before saving
             src_entries = self._merge_split_numbers(src_entries)
+            
+            # 📐 Merge short fragments into semantic clauses (shared with translation path)
+            # Ensures bilingual ASS file has matching English/Persian line counts
+            src_entries = self.merge_to_clauses(src_entries)
+            
             with open(src_srt, 'w', encoding='utf-8-sig') as f:
                 for idx, entry in enumerate(src_entries, 1):
                     f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
@@ -2976,6 +3064,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 
                 try:
                     entries = self.parse_srt(src_srt)
+                    # entries are already clause-merged (via src_srt save above)
                     
                     # 💰 SMART RESUME: Ingest partial work before calling LLM (returns recovered mappings)
                     # Skip SRT-based recovery when force=True (still uses local hash cache + provider KV caches)
