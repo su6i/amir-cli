@@ -1070,18 +1070,24 @@ if __name__ == "__main__":
         
         return entries
 
-    def merge_to_clauses(self, entries: List[Dict], max_chars: int = 120) -> List[Dict]:
+    def merge_to_clauses(self, entries: List[Dict], max_duration_sec: float = 8.0) -> List[Dict]:
         """
-        Merge consecutive SRT fragments into semantically complete clauses.
+        Merge consecutive SRT fragments into semantically complete clauses,
+        respecting both punctuation boundaries AND a maximum duration ceiling.
         
         Pre-translation step: YouTube/Whisper SRTs often split mid-sentence
-        into 2-3 word fragments. This merges them back into natural clause
-        boundaries (comma, period, question mark, etc.) so the LLM receives
-        complete semantic units for translation.
+        into 2-3 word fragments. This merges them into natural clause
+        boundaries while ensuring no single subtitle exceeds ~8 seconds
+        of screen time (keeps subtitles readable).
+        
+        Priority order for flushing:
+          1. Sentence enders (. ? !) → always flush
+          2. Soft breaks (, ; :) when buffer >= 4s or >= 30 chars → flush
+          3. Duration >= max_duration_sec → force flush (safety net)
         
         Args:
             entries: List of SRT entries with 'start', 'end', 'text' keys
-            max_chars: Hard ceiling per merged clause (only breaks at punctuation)
+            max_duration_sec: Maximum seconds per merged clause (default 8s)
             
         Returns:
             Merged entries with updated timing (start from first, end from last)
@@ -1089,28 +1095,61 @@ if __name__ == "__main__":
         if not entries:
             return []
         
+        def _ts_to_sec(ts: str) -> float:
+            """Parse SRT timestamp '00:04:09,430' → seconds."""
+            ts = ts.replace(',', '.')
+            parts = ts.split(':')
+            return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+        
         clause_enders = ('.', '?', '!', '...', '。', '？', '！')
         soft_break_chars = (',', ';', ':', '،', '؛')
         
         merged = []
         buffer_texts = []
-        buffer_start = None
+        buffer_start = None   # SRT timestamp string
+        buffer_start_sec = 0  # Parsed seconds for duration calc
         buffer_end = None
+        buffer_end_sec = 0
         buffer_len = 0
+        
+        def _flush():
+            nonlocal buffer_texts, buffer_start, buffer_start_sec, buffer_end, buffer_end_sec, buffer_len
+            if buffer_texts:
+                merged_text = ' '.join(buffer_texts)
+                merged_text = re.sub(r'\s+', ' ', merged_text).strip()
+                merged.append({
+                    'start': buffer_start,
+                    'end': buffer_end,
+                    'text': merged_text,
+                })
+            buffer_texts = []
+            buffer_start = None
+            buffer_start_sec = 0
+            buffer_end = None
+            buffer_end_sec = 0
+            buffer_len = 0
         
         for entry in entries:
             text = entry['text'].strip()
             if not text:
                 continue
             
+            entry_start_sec = _ts_to_sec(entry['start'])
+            entry_end_sec = _ts_to_sec(entry['end'])
+            
             if buffer_start is None:
                 buffer_start = entry['start']
+                buffer_start_sec = entry_start_sec
             
             buffer_texts.append(text)
             buffer_end = entry['end']
-            buffer_len += len(text) + 1  # +1 for joining space
+            buffer_end_sec = entry_end_sec
+            buffer_len += len(text) + 1
             
-            # Decide whether to flush the buffer
+            # Calculate buffer duration
+            buf_duration = buffer_end_sec - buffer_start_sec
+            
+            # Decide whether to flush
             ends_with_clause = text.endswith(clause_enders)
             ends_with_soft = text.endswith(soft_break_chars)
             
@@ -1119,36 +1158,18 @@ if __name__ == "__main__":
             if ends_with_clause:
                 # Always flush on sentence enders
                 should_flush = True
-            elif ends_with_soft and buffer_len >= 30:
-                # Flush on comma/semicolon only if we have enough material
+            elif ends_with_soft and (buf_duration >= 4.0 or buffer_len >= 30):
+                # Flush on comma/semicolon if we have enough material
                 should_flush = True
-            # No blind hard-limit break: we NEVER flush mid-phrase.
-            # Long lines without punctuation will stay merged until the next
-            # natural boundary appears.
+            elif buf_duration >= max_duration_sec:
+                # Time ceiling: force flush even mid-phrase (readability > grammar)
+                should_flush = True
             
-            if should_flush and buffer_texts:
-                merged_text = ' '.join(buffer_texts)
-                # Clean up double spaces from joining
-                merged_text = re.sub(r'\s+', ' ', merged_text).strip()
-                merged.append({
-                    'start': buffer_start,
-                    'end': buffer_end,
-                    'text': merged_text,
-                })
-                buffer_texts = []
-                buffer_start = None
-                buffer_end = None
-                buffer_len = 0
+            if should_flush:
+                _flush()
         
         # Flush remaining buffer
-        if buffer_texts:
-            merged_text = ' '.join(buffer_texts)
-            merged_text = re.sub(r'\s+', ' ', merged_text).strip()
-            merged.append({
-                'start': buffer_start,
-                'end': buffer_end,
-                'text': merged_text,
-            })
+        _flush()
         
         self.logger.info(f"📐 Clause merge: {len(entries)} fragments → {len(merged)} clauses")
         return merged
