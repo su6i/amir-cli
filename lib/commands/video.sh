@@ -761,20 +761,11 @@ run_video_cut() {
         # For now, we use the simple "working well" logic + Bitrate Cap.
         
         local target_h=$(get_config "video" "resolution" "720")
-        local quality=$(get_config "video" "quality" "60")
+        local quality=$(get_config "video" "quality" "70")
         
         # Hardware Detection & Smart Encoder Selection
+        # Always use H.264 for maximum compatibility (Telegram, QuickTime, etc.)
         local encoder="libx264"
-        local tag_opts=()
-        
-        # Smart Selection: AV1 for 1080p+ | libx264 for Others
-        local input_height=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
-        if [[ -n "$input_height" && "$input_height" -ge 1080 ]]; then
-            encoder="libsvtav1"
-            echo "💎 High-Res Detected (${input_height}p). Switching to AV1 Encoder..."
-        else
-            encoder="libx264"
-        fi
         
         # Bitrate Logic (Match Input)
         local bitrate_flags=()
@@ -811,39 +802,16 @@ run_video_cut() {
         
         # Construct Filter Chain
         if [[ -n "$filter_complex" ]]; then
-             if [[ "$encoder" == "hevc_videotoolbox" ]]; then
-                 if [[ -n "$target_bitrate_val" ]]; then
-                     # Use Average Bitrate mode to match input specs (as requested by user)
-                     cmd+=("-vf" "$filter_complex" "-c:v" "$encoder" "-b:v" "${target_bitrate_val}" "${tag_opts[@]}")
-                 else
-                     # Fallback to Quality mode
-                     cmd+=("-vf" "$filter_complex" "-c:v" "$encoder" "-q:v" "$quality" "${tag_opts[@]}")
-                 fi
-              else
-                  # Software/CPU Encoding Path
-                  if [[ "$encoder" == "libsvtav1" ]]; then
-                      # AV1 Specific Flags (High Efficiency)
-                      # Map quality 60 -> CRF 30 (approx standard for AV1)
-                      local av1_crf=$(( 60 - (quality / 2) )) # 60 -> 30, 70 -> 25
-                      [[ $av1_crf -lt 20 ]] && av1_crf=20
-                      cmd+=("-vf" "$filter_complex" "-c:v" "libsvtav1" "-preset" "10" "-crf" "$av1_crf" "-svtav1-params" "tune=0")
-                  else
-                      # H.264 Specific Flags (Standard)
-                      local crf_val=$(( (100 - quality) * 51 / 100 ))
-                      [[ $crf_val -lt 15 ]] && crf_val=15
-                      cmd+=("-vf" "$filter_complex" "-c:v" "libx264" "-crf" "$crf_val" "-preset" "medium")
-                  fi
-              fi
-              # Audio Copy (User Request: Quality "Red Line")
-              cmd+=("${bitrate_flags[@]}" "-c:a" "copy")
-         else
-             # No filters path
-             if [[ "$encoder" == "libsvtav1" ]]; then
-                  cmd+=("-c:v" "libsvtav1" "-preset" "10" "-crf" "30" "-c:a" "copy")
-             else
-                  cmd+=("-c:v" "libx264" "-crf" "23" "-preset" "medium" "-c:a" "copy")
-             fi
-         fi
+            # H.264 with CRF (match input quality, prevent bloat)
+            local crf_val=$(( (100 - quality) * 51 / 100 ))
+            [[ $crf_val -lt 15 ]] && crf_val=15
+            cmd+=("-vf" "$filter_complex" "-c:v" "libx264" "-crf" "$crf_val" "-preset" "medium" "-pix_fmt" "yuv420p")
+            # Audio Copy (preserve original quality)
+            cmd+=("-c:a" "copy")
+        else
+            # No filters path
+            cmd+=("-c:v" "libx264" "-crf" "23" "-preset" "medium" "-c:a" "copy")
+        fi
     else
         echo "🚀 Mode: Stream Copy (Instant)"
         cmd+=("-c" "copy")
@@ -947,7 +915,7 @@ video_download() {
     local YT_TRANSLATE=false       # translate downloaded YT subs via amir subtitle (skips Whisper)
     local BROWSER="chrome"
     local COOKIES_FILE=""
-
+    local DL_RESOLUTION=$(get_config "video" "resolution" "720")
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --subtitle|-s)   DO_SUBTITLE=true; DO_RENDER=true; shift ;;  # whisper+burn
@@ -968,6 +936,7 @@ video_download() {
             --cookies)       COOKIES_FILE="$2"; shift 2 ;;
             -y|--yes)        AUTO_YES=true; shift ;;
             --get-link|-l)   GET_LINK=true; shift ;;
+            --resolution|-r) DL_RESOLUTION="$2"; shift 2 ;;
             -*)
                 log_error "Unknown option: $1" >&2
                 echo "Usage: amir video download <url> [options]" >&2
@@ -1057,7 +1026,7 @@ video_download() {
         --remote-components "ejs:github" \
         --newline \
         --continue \
-        -f "bestvideo+bestaudio/best" \
+        -f "bestvideo[height<=${DL_RESOLUTION}]+bestaudio/best[height<=${DL_RESOLUTION}]/best" \
         --merge-output-format mp4 \
         --print "before_dl:%(title)s" \
         --print "after_move:filepath" \

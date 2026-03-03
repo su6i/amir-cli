@@ -242,7 +242,8 @@ amir video download <url> [options]
 2. Fetch YT built-in subtitles (`--skip-download --write-subs --write-auto-subs`, prefer `*.en.srt` over `*.en-orig.srt`)
 3. Copy chosen source SRT to `_en.srt` (triggers Whisper-skip in `amir subtitle`)
 4. Call `amir subtitle <video> -s en -t fa` with or without `--no-render`
-5. `amir subtitle` does LLM translation → validates 100% → optionally burns with ffmpeg
+5. `amir subtitle` pre-processes the source SRT: **Clause Merging**. Automatically merges fragmented YouTube subtitle lines into semantically complete clauses (breaking only on `. , ? ! : ;`).
+6. `amir subtitle` does LLM translation → validates 100% → optionally burns with ffmpeg (Always forces **H.264 (`-pix_fmt yuv420p`)** for maximum cross-platform compatibility like Telegram/QuickTime, safely ignoring AV1 triggers).
 
 **Robust `yt-dlp` Configuration & URL Parsing (Lessons Learned):**
 - **Strict URL Extraction (UTF-16 vs Unicode):** Never pass raw user input directly to `yt-dlp`. Always extract the URL using `extract_link_from_text` first. **CRITICAL WARNING:** Do not rely on Telegram's `entity.offset` and `entity.length` for raw `url` entities if mixing emojis or Persian characters. Telegram provides these offsets in **UTF-16 code units**, whereas Python 3 strings are Unicode characters. An emoji counts as 2 units in UTF-16 but 1 in Python, causing severe string slicing misalignments:
