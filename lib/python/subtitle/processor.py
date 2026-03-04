@@ -1131,15 +1131,15 @@ if __name__ == "__main__":
             # --- The "Smart Time-Based" Flush Logic ---
             # 1. Primary rule: If we reached the target time, flush immediately 
             #    (the fragment boundary itself is a natural semantic pause).
-            # 2. Secondary rule: If we hit a hard sentence ender AND we have 
+            # 2. Secondary rule: If we hit ANY punctuation AND we have 
             #    accumulated at least ~70% of the target time (e.g. 3.5s), flush early.
             
-            hard_enders = ('.', '?', '!', '...', '。', '？', '！')
+            all_break_chars = ('.', '?', '!', '...', '。', '？', '！', ',', ';', ':', '،', '؛')
             should_flush = False
             
             if buf_duration >= target_duration_sec:
                 should_flush = True
-            elif text.endswith(hard_enders) and buf_duration >= (target_duration_sec * 0.7):
+            elif text.endswith(all_break_chars) and buf_duration >= (target_duration_sec * 0.7):
                 should_flush = True
                 
             if should_flush:
