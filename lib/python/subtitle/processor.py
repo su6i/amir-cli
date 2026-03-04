@@ -2599,14 +2599,17 @@ if __name__ == "__main__":
             f"{style.alignment},10,10,10,1"
         )
 
+        # Build styles block: always include primary, conditionally add FA
+        styles_block = f"{format_line}\n{primary_style_full}"
+        if lang == 'fa' or secondary_srt:
+            styles_block += f"\n{fa_style}"
+
         header = f"""[Script Info]
 ScriptType: v4.00+
 WrapStyle: 2
 
 [V4+ Styles]
-{format_line}
-{primary_style_full}
-{fa_style}
+{styles_block}
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
