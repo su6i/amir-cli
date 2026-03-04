@@ -1082,7 +1082,7 @@ if __name__ == "__main__":
             
         # Load configurable target duration and break characters
         try:
-            from .media_config import MediaConfig
+            from media_config import MediaConfig
             config = MediaConfig()
             target_duration_sec = float(config.get('video.subtitle.merge_sec', 5.0))
             # Get list of chars and convert to tuple for endswith()
