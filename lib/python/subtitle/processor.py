@@ -1070,39 +1070,28 @@ if __name__ == "__main__":
         
         return entries
 
-    def merge_to_clauses(self, entries: List[Dict], min_duration_sec: float = 5.0, max_duration_sec: float = 8.0) -> List[Dict]:
+    def merge_to_clauses(self, entries: List[Dict]) -> List[Dict]:
         """
-        Merge consecutive SRT fragments into semantically balanced clauses,
-        using TIME as the primary control axis.
-        
-        Rules:
-          1. FLOOR (min_duration_sec=5s): Never show a subtitle for less than
-             5 seconds. Keep merging even past sentence enders (. ? !) until
-             the buffer reaches at least 5 seconds. This merges ultra-short
-             lines like "sure. yes. of course." into a single readable block.
-          2. BREAK ZONE (5s–8s): Once the buffer exceeds 5 seconds, flush at
-             the FIRST natural punctuation opportunity (. ? ! , ; :).
-          3. CEILING (max_duration_sec=8s): If no punctuation appears by 8
-             seconds, force flush anyway (readability > grammar).
-        
-        Args:
-            entries: List of SRT entries with 'start', 'end', 'text' keys
-            min_duration_sec: Minimum seconds before any flush is allowed
-            max_duration_sec: Maximum seconds before forced flush
-            
-        Returns:
-            Merged entries with updated timing
+        Merge consecutive SRT fragments primarily based on TIME (configurable via config).
+        Raw fragments inherently represent semantic pauses. We accumulate them until 
+        reaching a target duration (e.g., 5.0 seconds) so that subtitles stay on screen 
+        long enough to be comfortably read, and don't stretch into massive lines.
         """
         if not entries:
             return []
+            
+        # Load configurable target duration
+        try:
+            from .media_config import MediaConfig
+            target_duration_sec = float(MediaConfig().get('video.subtitle.merge_sec', 5.0))
+        except Exception:
+            target_duration_sec = 5.0
         
         def _ts_to_sec(ts: str) -> float:
             """Parse SRT timestamp '00:04:09,430' → seconds."""
             ts = ts.replace(',', '.')
             parts = ts.split(':')
             return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
-        
-        all_break_chars = ('.', '?', '!', '...', '。', '？', '！', ',', ';', ':', '،', '؛')
         
         merged = []
         buffer_texts = []
@@ -1123,16 +1112,11 @@ if __name__ == "__main__":
                 })
             buffer_texts = []
             buffer_start = None
-            buffer_start_sec = 0.0
-            buffer_end = None
-            buffer_end_sec = 0.0
-        
+            
         for entry in entries:
             text = entry['text'].strip()
             if not text:
                 continue
-            
-            entry_end_sec = _ts_to_sec(entry['end'])
             
             if buffer_start is None:
                 buffer_start = entry['start']
@@ -1140,27 +1124,31 @@ if __name__ == "__main__":
             
             buffer_texts.append(text)
             buffer_end = entry['end']
-            buffer_end_sec = entry_end_sec
+            buffer_end_sec = _ts_to_sec(entry['end'])
             
             buf_duration = buffer_end_sec - buffer_start_sec
             
-            # ── Rule 1: FLOOR — never flush below minimum duration ──
-            if buf_duration < min_duration_sec:
-                continue
+            # --- The "Smart Time-Based" Flush Logic ---
+            # 1. Primary rule: If we reached the target time, flush immediately 
+            #    (the fragment boundary itself is a natural semantic pause).
+            # 2. Secondary rule: If we hit a hard sentence ender AND we have 
+            #    accumulated at least ~70% of the target time (e.g. 3.5s), flush early.
             
-            # ── Rule 2: BREAK ZONE (5s–8s) — flush at first punctuation ──
-            if text.endswith(all_break_chars):
-                _flush()
-                continue
+            hard_enders = ('.', '?', '!', '...', '。', '？', '！')
+            should_flush = False
             
-            # ── Rule 3: CEILING — force flush at max duration ──
-            if buf_duration >= max_duration_sec:
+            if buf_duration >= target_duration_sec:
+                should_flush = True
+            elif text.endswith(hard_enders) and buf_duration >= (target_duration_sec * 0.7):
+                should_flush = True
+                
+            if should_flush:
                 _flush()
         
         # Flush remaining buffer
         _flush()
         
-        self.logger.info(f"📐 Clause merge: {len(entries)} fragments → {len(merged)} clauses")
+        self.logger.info(f"📐 Clause merge (Target: {target_duration_sec}s): {len(entries)} fragments → {len(merged)} clauses")
         return merged
 
     def sanitize_entries(self, entries: List[Dict]) -> List[Dict]:
