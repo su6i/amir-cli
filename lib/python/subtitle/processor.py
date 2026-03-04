@@ -1158,15 +1158,24 @@ if __name__ == "__main__":
                 continue
                 
             text_lower = text.lower()
+            incoming_word_count = len(text.split())
             
-            # --- 1. Pre-addition check (Semantic Chunking based on Conjunctions) ---
-            # If the current fragment starts with a conjunction (and, but, because) AND 
-            # we already have a decent clause built up, split BEFORE adding this word.
+            # --- 1. Pre-addition check (Semantic Chunking based on Conjunctions & Limits) ---
             if buffer_texts:
-                word_count = len(' '.join(buffer_texts).split())
+                current_word_count = sum(len(t.split()) for t in buffer_texts)
                 is_conjunction = any(text_lower == w or text_lower.startswith(w + " ") for w in split_words)
                 
-                if is_conjunction and word_count >= min_words:
+                should_flush_early = False
+                
+                # Rule 1: Break before conjunctions if we already have a decent clause
+                if is_conjunction and current_word_count >= min_words:
+                    should_flush_early = True
+                
+                # Rule 2: Break BEFORE adding this chunk if it would exceed our hard max
+                elif (current_word_count + incoming_word_count) > max_words:
+                    should_flush_early = True
+                    
+                if should_flush_early:
                     _flush()
             
             # Now add current fragment to the buffer
@@ -1179,19 +1188,22 @@ if __name__ == "__main__":
             buffer_end_sec = _ts_to_sec(entry['end'])
             
             buf_duration = buffer_end_sec - buffer_start_sec
-            word_count = len(' '.join(buffer_texts).split())
+            current_word_count = sum(len(t.split()) for t in buffer_texts)
             ends_with_break = text.endswith(all_break_chars)
             
+            # --- 2. Post-addition check (Time & Punctuation) ---
             should_flush = False
             
-            # --- 2. Post-addition check (Time & Punctuation) ---
             # Rule A: User logic -> Above `min_words` AND `break_chars` exists
-            # Rule B: User logic -> Above `merge_sec` AND `break_chars` exists
-            if ends_with_break and (word_count >= min_words or buf_duration >= target_duration_sec):
+            if ends_with_break and current_word_count >= min_words:
                 should_flush = True
                 
-            # Rule C: Hard ceilings to prevent infinite lines if no punctuation exists
-            elif word_count >= max_words or buf_duration >= 8.0:
+            # Rule B: Time logic -> Above `merge_sec` AND `break_chars` exists    
+            elif ends_with_break and buf_duration >= target_duration_sec:
+                should_flush = True
+                
+            # Rule C: Time ceiling to prevent infinite lines if no punctuation exists
+            elif buf_duration >= 8.0:
                 should_flush = True
                 
             if should_flush:
