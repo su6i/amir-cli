@@ -35,15 +35,20 @@
   },
   "video": {
     "subtitle": {
-      "merge_sec": 3.0,
+      "merge_sec": 2.0,
+      "min_words": 5,
+      "max_words": 15,
       "break_chars": [".", "?", "!", "...", "。", "？", "！", ",", ";", ":", "،", "؛"],
+      "split_words": [
+        "and", "but", "because", "so", "if", "when", "while", "although", "what", "why", "where", "how", "who"
+      ],
       "styles": {
         "Lecture": {
-          "font_size": 28,
+          "font_size": 16,
           "primary_color": "&H00FFFF00"
         },
         "Vlog": {
-          "font_size": 22,
+          "font_size": 14,
           "primary_color": "&H00FFFFFF"
         }
       },

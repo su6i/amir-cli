@@ -1113,12 +1113,18 @@ if __name__ == "__main__":
             from media_config import MediaConfig
             config = MediaConfig()
             target_duration_sec = float(config.get('video.subtitle.merge_sec', 5.0))
-            # Get list of chars and convert to tuple for endswith()
+            min_words = int(config.get('video.subtitle.min_words', 5))
+            max_words = int(config.get('video.subtitle.max_words', 15))
             break_chars_list = config.get('video.subtitle.break_chars', ['.', '?', '!', '...', '。', '？', '！', ',', ';', ':', '،', '؛'])
             all_break_chars = tuple(break_chars_list)
+            split_words_list = config.get('video.subtitle.split_words', ['and', 'but', 'because', 'so', 'if', 'when', 'what', 'why', 'where', 'how', 'who'])
+            split_words = tuple(w.lower() for w in split_words_list)
         except Exception:
             target_duration_sec = 5.0
+            min_words = 5
+            max_words = 15
             all_break_chars = ('.', '?', '!', '...', '。', '？', '！', ',', ';', ':', '،', '؛')
+            split_words = ('and', 'but', 'because', 'so', 'if', 'when', 'what', 'why', 'where', 'how', 'who')
         
         def _ts_to_sec(ts: str) -> float:
             """Parse SRT timestamp '00:04:09,430' → seconds."""
@@ -1150,7 +1156,20 @@ if __name__ == "__main__":
             text = entry['text'].strip()
             if not text:
                 continue
+                
+            text_lower = text.lower()
             
+            # --- 1. Pre-addition check (Semantic Chunking based on Conjunctions) ---
+            # If the current fragment starts with a conjunction (and, but, because) AND 
+            # we already have a decent clause built up, split BEFORE adding this word.
+            if buffer_texts:
+                word_count = len(' '.join(buffer_texts).split())
+                is_conjunction = any(text_lower == w or text_lower.startswith(w + " ") for w in split_words)
+                
+                if is_conjunction and word_count >= min_words:
+                    _flush()
+            
+            # Now add current fragment to the buffer
             if buffer_start is None:
                 buffer_start = entry['start']
                 buffer_start_sec = _ts_to_sec(entry['start'])
@@ -1160,18 +1179,19 @@ if __name__ == "__main__":
             buffer_end_sec = _ts_to_sec(entry['end'])
             
             buf_duration = buffer_end_sec - buffer_start_sec
-            
-            # --- The "Smart Time-Based" Flush Logic ---
-            # 1. Primary rule: If we reached the target time, flush immediately 
-            #    (the fragment boundary itself is a natural semantic pause).
-            # 2. Secondary rule: If we hit ANY punctuation AND we have 
-            #    accumulated at least ~70% of the target time (e.g. 3.5s), flush early.
+            word_count = len(' '.join(buffer_texts).split())
+            ends_with_break = text.endswith(all_break_chars)
             
             should_flush = False
             
-            if buf_duration >= target_duration_sec:
+            # --- 2. Post-addition check (Time & Punctuation) ---
+            # Rule A: User logic -> Above `min_words` AND `break_chars` exists
+            # Rule B: User logic -> Above `merge_sec` AND `break_chars` exists
+            if ends_with_break and (word_count >= min_words or buf_duration >= target_duration_sec):
                 should_flush = True
-            elif text.endswith(all_break_chars) and buf_duration >= (target_duration_sec * 0.7):
+                
+            # Rule C: Hard ceilings to prevent infinite lines if no punctuation exists
+            elif word_count >= max_words or buf_duration >= 8.0:
                 should_flush = True
                 
             if should_flush:
