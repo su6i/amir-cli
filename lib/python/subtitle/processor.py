@@ -1163,7 +1163,14 @@ if __name__ == "__main__":
             # --- 1. Pre-addition check (Semantic Chunking based on Conjunctions & Limits) ---
             if buffer_texts:
                 current_word_count = sum(len(t.split()) for t in buffer_texts)
-                is_conjunction = any(text_lower == w or text_lower.startswith(w + " ") for w in split_words)
+                
+                # Check if any of our split words exist as whole words in the string
+                # We use regex word boundaries to prevent matching 'or' inside 'world'
+                is_conjunction = False
+                for w in split_words:
+                    if re.search(r'\b' + re.escape(w) + r'\b', text_lower):
+                        is_conjunction = True
+                        break
                 
                 should_flush_early = False
                 
