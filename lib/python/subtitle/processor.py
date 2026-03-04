@@ -336,10 +336,35 @@ class SubtitleProcessor:
         
         # FIX: Copy the preset to avoid modifying the global dictionary
         base_style = STYLE_PRESETS.get(style, STYLE_PRESETS[SubtitleStyle.LECTURE])
-        # Create a fresh copy
         self.style_config = StyleConfig(**base_style.__dict__)
         
-        # Apply overrides
+        self.en_font_scale = 1.0
+        self.fa_font_name = 'Vazirmatn'
+        self.fa_font_scale = 1.0
+        
+        # Override with media.json configuration if available
+        try:
+            from media_config import MediaConfig
+            config = MediaConfig()
+            
+            # Load scale settings
+            self.en_font_scale = float(config.get('video.subtitle.fonts.english.scale', 1.0))
+            self.fa_font_name = config.get('video.subtitle.fonts.persian.name', 'Vazirmatn')
+            self.fa_font_scale = float(config.get('video.subtitle.fonts.persian.scale', 1.0))
+            
+            # Load English font name override
+            self.style_config.font_name = config.get('video.subtitle.fonts.english.name', self.style_config.font_name)
+            
+            # Try to load preset style overrides (e.g. 'Lecture', 'Vlog' base font_size)
+            style_overrides = config.get(f"video.subtitle.styles.{self.style_config.name}", {})
+            for k, v in style_overrides.items():
+                if hasattr(self.style_config, k):
+                    setattr(self.style_config, k, v)
+            
+        except Exception as e:
+            self.logger.warning(f"Could not load media.json subtitle styles: {e}")
+            
+        # Apply overrides from CLI arguments
         self.style_config.max_lines = max_lines
         if alignment is not None: self.style_config.alignment = alignment
         if font_size is not None: self.style_config.font_size = font_size
@@ -347,6 +372,9 @@ class SubtitleProcessor:
         if outline is not None: self.style_config.outline = outline
         if back_color is not None: self.style_config.back_color = back_color
         if primary_color is not None: self.style_config.primary_color = primary_color
+        
+        # Finally, apply the english font scaling factor
+        self.style_config.font_size = int(self.style_config.font_size * self.en_font_scale)
         
         self.sec_font_size = sec_font_size or 25  # Default for Persian if not provided
         self.fail_on_translation_error = fail_on_translation_error
@@ -2573,10 +2601,15 @@ if __name__ == "__main__":
         style = self.style_config
         
         if lang == 'fa' or secondary_srt:
-            # Sync FA font size with English to avoid visual jump
-            fa_font_size = style.font_size
+            # Calculate actual FA font size based on scales (style.font_size is already scaled by EN scale in __init__)
+            en_scale = getattr(self, 'en_font_scale', 1.0)
+            fa_scale = getattr(self, 'fa_font_scale', 1.0)
+            base_size = style.font_size / en_scale if en_scale > 0 else style.font_size
+            fa_font_size = int(base_size * fa_scale)
+            fa_font_name = getattr(self, 'fa_font_name', 'Vazirmatn')
+            
             fa_style = (
-                f"Style: FaDefault,Vazirmatn,{fa_font_size},&H00FFFFFF,&H000000FF,&H00000000,{style.back_color},"
+                f"Style: FaDefault,{fa_font_name},{fa_font_size},&H00FFFFFF,&H000000FF,&H00000000,{style.back_color},"
                 f"-1,0,0,0,100,100,0,0,{style.border_style},{style.outline},{style.shadow},"
                 f"{style.alignment},10,10,10,1"
             )

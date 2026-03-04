@@ -35,7 +35,28 @@
   },
   "video": {
     "subtitle": {
-      "merge_sec": 5.0
+      "merge_sec": 3.0,
+      "break_chars": [".", "?", "!", "...", "。", "？", "！", ",", ";", ":", "،", "؛"],
+      "styles": {
+        "Lecture": {
+          "font_size": 28,
+          "primary_color": "&H00FFFF00"
+        },
+        "Vlog": {
+          "font_size": 22,
+          "primary_color": "&H00FFFFFF"
+        }
+      },
+      "fonts": {
+        "english": {
+          "name": "Arial",
+          "scale": 1.0
+        },
+        "persian": {
+          "name": "Vazirmatn",
+          "scale": 1.0
+        }
+      }
     }
   },
   "metadata": {
