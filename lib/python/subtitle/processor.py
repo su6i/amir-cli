@@ -1080,12 +1080,17 @@ if __name__ == "__main__":
         if not entries:
             return []
             
-        # Load configurable target duration
+        # Load configurable target duration and break characters
         try:
             from .media_config import MediaConfig
-            target_duration_sec = float(MediaConfig().get('video.subtitle.merge_sec', 5.0))
+            config = MediaConfig()
+            target_duration_sec = float(config.get('video.subtitle.merge_sec', 5.0))
+            # Get list of chars and convert to tuple for endswith()
+            break_chars_list = config.get('video.subtitle.break_chars', ['.', '?', '!', '...', '。', '？', '！', ',', ';', ':', '،', '؛'])
+            all_break_chars = tuple(break_chars_list)
         except Exception:
             target_duration_sec = 5.0
+            all_break_chars = ('.', '?', '!', '...', '。', '？', '！', ',', ';', ':', '،', '؛')
         
         def _ts_to_sec(ts: str) -> float:
             """Parse SRT timestamp '00:04:09,430' → seconds."""
@@ -1134,7 +1139,6 @@ if __name__ == "__main__":
             # 2. Secondary rule: If we hit ANY punctuation AND we have 
             #    accumulated at least ~70% of the target time (e.g. 3.5s), flush early.
             
-            all_break_chars = ('.', '?', '!', '...', '。', '？', '！', ',', ';', ':', '،', '؛')
             should_flush = False
             
             if buf_duration >= target_duration_sec:
