@@ -168,3 +168,24 @@ result = detect_best_hw_encoder()
 print(f\"{result['encoder']}|{result['codec']}|{result['platform']}\")
 " 2>/dev/null || echo "libx264|h264|cpu"
 }
+
+# ==============================================================================
+# UI & Table Helpers (Modularized for reuse)
+# ==============================================================================
+
+# Calculate visual width (2 for wide/emoji, 1 for normal) using Python unicodedata
+get_visual_width() {
+    python3 -c "import unicodedata, sys; s=sys.argv[1]; print(sum(2 if unicodedata.east_asian_width(c) in 'WF' else 0 if unicodedata.category(c) in ('Mn','Me','Cf') else 1 for c in s))" "$1" 2>/dev/null || echo ${#1}
+}
+
+# Pad to target visual width
+pad_to_width() {
+    local text="$1"
+    local target="$2"
+    local current=$(get_visual_width "$text")
+    local diff=$((target - current))
+    echo -n "$text"
+    if [[ $diff -gt 0 ]]; then
+        printf "%${diff}s" ""
+    fi
+}
