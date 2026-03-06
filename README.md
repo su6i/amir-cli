@@ -17,7 +17,7 @@ Built with modularity and ease of use in mind, `amir` works seamlessly across **
 
 ## ✨ Features
 
-- **🎬 Smart Video Compression:** Auto-detects hardware (Apple Silicon, NVENC, QSV) and optimizes settings for the best quality/size ratio. Features "AI Learning" to adapt to your preferences over time.
+- **🎬 Smart Video Compression:** Auto-detects hardware (Apple Silicon, NVENC, QSV) and optimizes settings for the best quality/size ratio. Features `--gpu`/`--cpu` encoding toggle, real-time progress bar with ETA, output size validation, and "AI Learning" to adapt to your preferences over time.
 - **🖼️ Advanced Image Processing:** AI-powered upscaling (Real-ESRGAN), document enhancement lab (140 variations), smart stacking (front/back), and professional corner rounding.
 - **🌍 Advanced Subtitle System:** AI-powered multilingual subtitles supporting **32 languages**. Features automatic translation, multi-platform hardware encoding (Mac/Ubuntu) with 1:1 size parity, and Whisper Turbo as the default high-performance model.
 - **🤖 AI Powered:** Chat with Gemini/Gemma, generate code, and fetch model lists from 5 LLM providers (Gemini, OpenAI, DeepSeek, Groq, Anthropic).
@@ -126,7 +126,7 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | Command | Description |
 | :--- | :--- |
 | `amir video <URL> [opts]` | **Unified Download + Process**: Download from YouTube & 1000+ sites. URL auto-detected and extracted strictly from mixed text input. Key flags: `--subtitle -t en fa` (Whisper AI), `--yt-subs --translate -t en fa` (platform subs → LLM translate), `--resolution 720 60` (compress after download), `--no-render` (SRT only), `--only-subs`, `--cookies`. |
-| `amir video <file/dir>` | Advanced video processing (compress, cut, batch). Features AI Learning and hardware acceleration. |
+| `amir video <file/dir> [--gpu|--cpu]` | Advanced video processing (compress, cut, batch). `--gpu` for hardware acceleration (default on Apple Silicon), `--cpu` for better compression ratio. Features AI Learning, real-time progress bar with ETA, and output size validation. |
 | `amir video cut <file> [opts]` | Cut video segments without re-encoding (instant) or with rendering. |
 | `amir video stats` | View AI learning statistics & compression history. |
 | `amir mp3 <file>` | Extract high-quality MP3 audio from a video file. |
