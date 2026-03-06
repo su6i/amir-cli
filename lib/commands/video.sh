@@ -821,22 +821,8 @@ run_video_cut() {
 
 # --- Table Helpers (The Scientific Way) ---
 
-# Calculate visual width (2 for wide/emoji, 1 for normal) using Python unicodedata
-get_visual_width() {
-    python3 -c "import unicodedata, sys; s=sys.argv[1]; print(sum(2 if unicodedata.east_asian_width(c) in 'WF' else 0 if unicodedata.category(c) in ('Mn','Me','Cf') else 1 for c in s))" "$1" 2>/dev/null || echo ${#1}
-}
-
-# Pad to target visual width
-pad_to_width() {
-    local text="$1"
-    local target="$2"
-    local current=$(get_visual_width "$text")
-    local diff=$((target - current))
-    echo -n "$text"
-    if [[ $diff -gt 0 ]]; then
-        printf "%${diff}s" ""
-    fi
-}
+# --- Table Helpers (The Scientific Way) ---
+# Functions get_visual_width and pad_to_width are now globally available via amir_lib.sh
 
     # Execute
     # Direct execution without pipe to avoid subshell/signal issues

@@ -3578,10 +3578,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                             elif time_match:
                                 elapsed_str = time.strftime('%M:%S', time.gmtime(elapsed_wall))
                                 progress_str = f" | elapsed: {elapsed_str}"
-                            print(f"\r{line_stripped}{progress_str}".ljust(120), end="", flush=True)
+                            
+                            # Use VT100 clear line to prevent word-wrapping spam on narrow terminals
+                            out_str = f"{line_stripped}{progress_str}"[:110] # Cap length to avoid wrap
+                            sys.stdout.write(f"\r\033[K{out_str}")
+                            sys.stdout.flush()
                         else:
+                            # Allow errors, warnings, completion events OR the Dashboard Table to print
                             if any(keyword in line_stripped.lower() for keyword in ['error', 'warning', 'failed', 'complete', 'finished', 'rendered']):
                                 print(f"\n{line_stripped}", flush=True)
+                            elif any(c in line_stripped for c in ['╭', '│', '╰', '─', '┌', '├', '└', '┬', '┼', '┴', '┐', '┤', '┘', '📥', '📤', '📊', '📈', '✅', '═']):
+                                print(line_stripped, flush=True)
                         
                     process.wait()
                     print() # Final newline after loop finishes
@@ -4449,7 +4456,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 try:
                     batch_size = BATCH_SIZES[model_name]
                     
-                    self.logger.info(f"Batch {batch_num + 1}/{batch_count}: Trying {model_name.upper()} (Model {model_idx + 1}/{len(MODEL_CHAIN)})")
+                    # Update progress bar postfix instead of printing a new line
+                    pbar.set_postfix_str(f"Batch {batch_num + 1}/{batch_count} via {model_name.upper()}")
                     
                     # Call translation with minimal retries
                     trans_list = self.translate_batch_single_attempt(
@@ -4479,12 +4487,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                                     t_text = trans if trans is not None else entry['text']
                                     f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{t_text}\n\n")
                         except Exception as e:
-                            self.logger.warning(f"Could not save intermediate SRT: {e}")
+                            pbar.write(f"⚠️ Could not save intermediate SRT: {e}")
                     
                     # Update progress
                     pbar.update(len(batch))
                     success_batch = True
-                    self.logger.info(f"✓ Batch {batch_num + 1} succeeded with {model_name.upper()}")
+                    # Success is implied by progress bar advancing, no need to spam the console.
                     
                     # Wait to avoid rate limit issues
                     time.sleep(1)
@@ -4495,9 +4503,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     is_api_key = "401" in error_msg or "401 Unauthorized" in error_msg or "Invalid API Key" in error_msg
                     
                     if is_api_key:
-                        self.logger.warning(f"⚠️ Batch {batch_num + 1}: {model_name.upper()} - Invalid API Key, skipping...")
+                        pbar.write(f"⚠️ Batch {batch_num + 1}: {model_name.upper()} - API Key issue, skipping.")
                     else:
-                        self.logger.warning(f"⚠️ Batch {batch_num + 1}: {model_name.upper()} failed - {error_msg[:80]}, trying next model...")
+                        pbar.write(f"⚠️ Batch {batch_num + 1}: {model_name.upper()} failed - {error_msg[:80]}")
             
             # Check if batch succeeded
             if not success_batch:
