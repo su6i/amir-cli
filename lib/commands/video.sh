@@ -7,12 +7,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$(dirname "$SCRIPT_DIR")"
 if [[ -f "$LIB_DIR/config.sh" ]]; then
     source "$LIB_DIR/config.sh"
-    # We don't verify init_config here, we just use get_config if needed.
-    # Actually, we should ensure config exists if we are going to read it.
-    if type init_config &>/dev/null; then init_config; fi
+    if type init_config &> /dev/null; then init_config; fi
 else
-    # Fallback
     get_config() { echo "$3"; }
+fi
+
+# Source shared media library (encoder detection, table rendering, etc.)
+if [[ -f "$LIB_DIR/media_lib.sh" ]]; then
+    source "$LIB_DIR/media_lib.sh"
 fi
 
 stats() {
@@ -259,9 +261,9 @@ process_video() {
     local input_file="$1"
     local target_h="$2"
     local quality="$3"
+    local encoding_mode="${4:---gpu}"  # Default: GPU
 
     if [[ ! -f "$input_file" ]]; then
-        # Silent ignore for directories if they get here (shouldn't happen)
         return
     fi
     
@@ -270,34 +272,24 @@ process_video() {
         return
     fi
     
-    # Detect input dimensions (Width, Height, and Rotation from side data or tags)
-    local ff_output=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height:stream_side_data=rotation -of csv=s=x:p=0 "$input_file" 2>/dev/null)
-    local in_w=$(echo "$ff_output" | cut -d'x' -f1)
-    local in_h=$(echo "$ff_output" | cut -d'x' -f2)
-    local rotation=$(echo "$ff_output" | cut -d'x' -f3)
-
-    # Clean rotation (remove minus sign if any, handle empty)
-    rotation=${rotation#-}
-    [[ -z "$rotation" ]] && rotation=0
-
-    # Handle rotation (some videos are stored sideways but flagged with rotation)
-    if [[ "$rotation" == "90" || "$rotation" == "-90" || "$rotation" == "270" ]]; then
-        local temp_w=$in_w
-        in_w=$in_h
-        in_h=$temp_w
+    # ── Media Info (via shared library) ──
+    get_media_info "$input_file"
+    local in_w=$MEDIA_WIDTH
+    local in_h=$MEDIA_HEIGHT
+    local is_portrait=$MEDIA_IS_PORTRAIT
+    local duration_seconds=$MEDIA_DURATION
+    local duration_formatted=$MEDIA_DURATION_FMT
+    
+    if [[ -z "$duration_seconds" || "$duration_seconds" -eq 0 ]]; then
+        echo "⚠️  Skipping: $(basename "$input_file") (Could not determine duration)"
+        return
     fi
 
-    local is_portrait=0
-    if [[ "$in_h" -gt "$in_w" ]]; then
-        is_portrait=1
-    fi
-
-    # Calculate target dimensions base on orientation
+    # Calculate target dimensions based on orientation
     local target_w target_h_final
     if [[ $is_portrait -eq 1 ]]; then
         target_h_final=$(( (target_h * 16 / 9 + 1) / 2 * 2 ))
         target_w=$target_h
-        # Ensure target_h_final is the larger dimension
         [[ $target_h_final -lt $target_w ]] && target_h_final=$((target_w * 16 / 9))
     else
         target_w=$(( (target_h * 16 / 9 + 1) / 2 * 2 ))
@@ -313,57 +305,23 @@ process_video() {
 
     local input_size=$(ls -lh "$input_file" | awk '{print $5}')
     local input_bytes=$(ls -l "$input_file" | awk '{print $5}')
-    local duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
     
-    if [[ -z "$duration" ]]; then
-        echo "⚠️  Skipping: $(basename "$input_file") (Could not determine duration)"
-        return
-    fi
-
-    local duration_seconds=${duration%.*}
-    local duration_formatted=$(printf '%02d:%02d:%02d' $(($duration_seconds/3600)) $(($duration_seconds%3600/60)) $(($duration_seconds%60)))
+    # ── Encoder Detection (via shared library) ──
+    detect_encoder "$encoding_mode"
+    local encoder="$MEDIA_ENCODER"
+    local tag_opt="$MEDIA_TAG_OPT"
+    local encoder_display="$MEDIA_ENCODER_DISPLAY"
     
-    # Hardware Detection
-    local cpu_info="Unknown"
-    local gpu_info="Unknown"
-    
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        cpu_info=$(sysctl -n machdep.cpu.brand_string 2>/dev/null)
-        gpu_info="Apple Silicon GPU"
-        [[ "$cpu_info" == *"Intel"* ]] && gpu_info="Intel GPU"
-    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        cpu_info=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)
-        gpu_info=$(lspci | grep -i vga | cut -d: -f3 | xargs 2>/dev/null || echo "Linux GPU")
-    fi
+    # ── Hardware Detection (via shared library) ──
+    detect_hardware
     
     local quality_factor=${quality_factors[$quality]:-1.0}
     local speed_factor=${speed_factors[$quality]:-6}
     local sample_count=${sample_counts[$quality]:-0}
     
-    # Encoder selection
-    local encoder="libx265"
-    local tag_opt="-tag:v hvc1"
-    
-    # Check available encoders
-    if ffmpeg -encoders 2>/dev/null | grep -q "hevc_videotoolbox"; then
-        encoder="hevc_videotoolbox"
-        tag_opt="-tag:v hvc1 -allow_sw 1"
-    elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_nvenc"; then
-        encoder="hevc_nvenc"
-        tag_opt=""
-    elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_amf"; then
-        encoder="hevc_amf"
-        tag_opt=""
-    elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_qsv"; then
-        encoder="hevc_qsv"
-        tag_opt=""
-    fi
-    
-    # Pre-calculate display name
-    local encoder_display="CPU (x265)"
-    [[ "$encoder" == "hevc_videotoolbox" ]] && encoder_display="Apple Silicon"
-    [[ "$encoder" == "hevc_nvenc" ]] && encoder_display="NVIDIA NVENC"
-    [[ "$encoder" == "hevc_qsv" ]] && encoder_display="Intel QSV"
+    # ── Input Info Table (via shared library) ──
+    local t_orient="Landscape"
+    [[ $is_portrait -eq 1 ]] && t_orient="Portrait"
     
     echo ""
     echo "🎬 PROCESSING: $(basename "$input_file")"
@@ -371,99 +329,33 @@ process_video() {
     echo ""
     
     local col_width=$(calculate_column_width 3 28 35)
-    
-    printf "┌%s┬%s┬%s┐\n" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
-    
-    # Standard Header Padding (Unicode Aware)
-    local h_input=$(pad_to_width "📂 INPUT FILE" $col_width)
-    local h_hard=$(pad_to_width "🖥️  HARDWARE" $col_width)
-    local h_set=$(pad_to_width "🎯 SETTINGS" $col_width)
-    
-    printf "│ %s │ %s │ %s │\n" "$h_input" "$h_hard" "$h_set"
-    
-    printf "├%s┼%s┼%s┤\n" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
-    
-    # Content Padding using standard unicode width
-    local t_file=$(pad_to_width "File: $(basename "$input_file")" $col_width)
-    local t_cpu=$(pad_to_width "CPU: $cpu_info" $col_width)
-    local t_res=$(pad_to_width "Resolution: ${target_h}p" $col_width)
-    
-    local t_size=$(pad_to_width "Size: $input_size" $col_width)
-    local t_gpu=$(pad_to_width "GPU: $gpu_info" $col_width)
-    local t_qual=$(pad_to_width "Quality: $quality/100" $col_width)
-    
-    local t_dur=$(pad_to_width "Duration: $duration_formatted" $col_width)
-    local t_enc=$(pad_to_width "Encoder: ${encoder_display}" $col_width)
-    local t_orient="Landscape"
-    [[ $is_portrait -eq 1 ]] && t_orient="Portrait"
-    local t_audio=$(pad_to_width "Orientation: $t_orient" $col_width)
-
-    printf "│ %s │ %s │ %s │\n" \
-        "$t_file" "$t_cpu" "$t_res"
-    printf "│ %s │ %s │ %s │\n" \
-        "$t_size" "$t_gpu" "$t_qual"
-    printf "│ %s │ %s │ %s │\n" \
-        "$t_dur" "$t_enc" "$t_audio"
-    
-    printf "└%s┴%s┴%s┘\n" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
+    print_media_table "$col_width" \
+        "📂 INPUT FILE|🖥️  HARDWARE|🎯 SETTINGS" \
+        "File: $(basename "$input_file")|CPU: $HW_CPU_INFO|Resolution: ${target_h}p" \
+        "Size: $input_size|GPU: $HW_GPU_INFO|Quality: $quality/100" \
+        "Duration: $duration_formatted|Encoder: $encoder_display|Orientation: $t_orient"
     
     echo ""
     echo "⏳ Processing..."
     
     local start_time=$(date +%s)
     
-
+    # ── Encoder Options (via shared library) ──
+    local input_bitrate=$(get_media_bitrate "$input_file")
+    build_encoder_opts "$encoder" "$quality" "$input_bitrate"
     
-    # Windows/Linux fix for audio filters
     local audio_filter="aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo"
-    
-    # bitrate_flags only for software encoder (hevc_videotoolbox/nvenc/etc don't support
-    # -maxrate/-bufsize combined with -q:v quality mode — causes immediate failure)
-    local bitrate_flags=()
-    local q_opt=("-q:v" "$quality")
-    local input_bitrate=$(ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
-    
-    if [[ "$encoder" == "libx265" ]]; then
-        if [[ -n "$input_bitrate" && "$input_bitrate" =~ ^[0-9]+$ ]]; then
-            local max_bitrate=$(echo "$input_bitrate * 1.15 / 1" | bc)
-            local buf_size=$((max_bitrate * 2))
-            bitrate_flags=("-maxrate" "${max_bitrate}" "-bufsize" "${buf_size}")
-        fi
-    elif [[ "$encoder" == "hevc_videotoolbox" || "$encoder" == "h264_videotoolbox" ]]; then
-        # VideoToolbox does not support -q:v for quality, it requires -b:v
-        # Let's derive a target bitrate based on input bitrate and quality scale
-        local target_bitrate="2000k" # Safe fallback
-        if [[ -n "$input_bitrate" && "$input_bitrate" =~ ^[0-9]+$ ]]; then
-             # Quality is 1-100. Let's scale input bitrate by (quality/100) or at least maintain part of it
-             target_bitrate=$(echo "$input_bitrate * $quality / 100" | bc)
-        fi
-        q_opt=("-b:v" "${target_bitrate}")
-    fi
-
-    # Execute ffmpeg with a single-line progress filter
-    # Use proper rounding to even numbers for H.264/HEVC encoding requirements
     local filter_cmd="fps=25,scale='min(${target_w},iw)':-2"
 
-    local duration_seconds=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null | cut -d. -f1)
-
-    local ffmpeg_error_log=$(mktemp)
-    ffmpeg -hide_banner -loglevel info -stats -nostdin -y -i "$input_file" \
-    -vf "$filter_cmd" -sws_flags bilinear \
-    -c:v "$encoder" "${q_opt[@]}" $tag_opt \
-    "${bitrate_flags[@]}" \
-    -af "$audio_filter" \
-    -c:a aac -pix_fmt yuv420p -movflags +faststart "$output" 2> >(tee "$ffmpeg_error_log" >&2) | ffmpeg_progress_bar "$duration_seconds"
-    local ffmpeg_exit=${PIPESTATUS[0]:-$?}
-    printf "\r⏳ Processing... Done!                                        \n"
+    # ── Execute FFmpeg with Progress Bar ──
+    run_ffmpeg_with_progress "$duration_seconds" \
+        ffmpeg -hide_banner -loglevel info -stats -nostdin -y -i "$input_file" \
+        -vf "$filter_cmd" -sws_flags bilinear \
+        -c:v "$encoder" "${MEDIA_Q_OPT[@]}" $tag_opt \
+        "${MEDIA_BITRATE_FLAGS[@]}" \
+        -af "$audio_filter" \
+        -c:a aac -pix_fmt yuv420p -movflags +faststart "$output"
+    local ffmpeg_exit=$?
 
     local output_bytes_check=0
     [[ -f "$output" ]] && output_bytes_check=$(ls -l "$output" | awk '{print $5}')
@@ -518,52 +410,16 @@ process_video() {
     echo ""
     
     local col_width=$(calculate_column_width 4 22 28)
-    
-    printf "┌%s┬%s┬%s┬%s┐\n" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
-    
-    # Scientific Header Padding
-    local h_in=$(pad_to_width "📥 INPUT" $col_width)
-    local h_out=$(pad_to_width "📤 OUTPUT" $col_width)
-    local h_perf=$(pad_to_width "📊 PERFORMANCE" $col_width)
-    local h_comp=$(pad_to_width "📈 COMPARISON" $col_width)
-    
-    printf "│ %s │ %s │ %s │ %s │\n" \
-        "$h_in" "$h_out" "$h_perf" "$h_comp"
-    
-    printf "├%s┼%s┼%s┼%s┤\n" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
-    
-    # Content Padding using standard unicode width
-    local t_in_file=$(pad_to_width "File: $(basename "$input_file")" $col_width)
-    local t_out_file=$(pad_to_width "File: $(basename "$output")" $col_width)
-    local t_time=$(pad_to_width "Time: $total_elapsed_formatted" $col_width)
-    local t_saved=$(pad_to_width "${label_saved}: ${val_saved}" $col_width)
-    
-    local t_in_size=$(pad_to_width "Size: $input_size" $col_width)
-    local t_out_size=$(pad_to_width "Size: $output_size" $col_width)
-    local t_speed=$(pad_to_width "Speed: ${actual_speed}x" $col_width)
-    local t_ratio=$(pad_to_width "Ratio: ${ratio}x smaller" $col_width)
-
-    printf "│ %s │ %s │ %s │ %s │\n" \
-        "$t_in_file" "$t_out_file" "$t_time" "$t_saved"
-    printf "│ %s │ %s │ %s │ %s │\n" \
-        "$t_in_size" "$t_out_size" "$t_speed" "$t_ratio"
-    
-    printf "└%s┴%s┴%s┴%s┘\n" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))" \
-        "$(printf '%0.s─' $(seq 1 $((col_width+2))))"
+    print_media_table "$col_width" \
+        "📥 INPUT|📤 OUTPUT|📊 PERFORMANCE|📈 COMPARISON" \
+        "File: $(basename "$input_file")|File: $(basename "$output")|Time: $total_elapsed_formatted|${label_saved}: ${val_saved}" \
+        "Size: $input_size|Size: $output_size|Speed: ${actual_speed}x|Ratio: ${ratio}x smaller"
     
     echo ""
     echo "📍 Output: $(realpath "$output")"
+    
+    # ── Output Size Validation (via shared library) ──
+    validate_output_size "$input_file" "$output" "$encoder"
 }
 
 video() {
@@ -574,14 +430,16 @@ video() {
 
     # If no arguments, show help
     if [[ $# -eq 0 ]]; then
-        echo "Usage: amir video compress <files...> [Resolution] [Quality]"
+        echo "Usage: amir video compress <files...> [Resolution] [Quality] [--gpu|--cpu]"
         echo "       amir video cut / trim <file> [options]"
         echo "       amir video batch <dir> [Resolution]"
         echo ""
         echo "Example (Compress): amir video compress movie.mp4 1080 60"
         echo "Example (Trim):     amir video trim clip.mp4 -s 00:01:30 -t 00:03:00"
         echo ""
-        echo "Options for cut/trim:"
+        echo "Options:"
+        echo "  --gpu            Use hardware encoder (default on Apple Silicon)"
+        echo "  --cpu            Use software encoder (better compression ratio)"
         echo "  -s, --start      Start time (HH:MM:SS or seconds)"
         echo "  -e, --end        End time (HH:MM:SS or seconds)"
         echo "  -t, --to         End time (alias for --end)"
@@ -599,6 +457,7 @@ video() {
     
     # Smart Argument Parsing
     local inputs=()
+    local encoding_mode="--gpu"  # Default: GPU
     # Load defaults from Config
     local target_h=$(get_config "video" "resolution" "720")
     local quality=$(get_config "video" "quality" "70")
@@ -608,20 +467,21 @@ video() {
     [[ "$quality" =~ ^[0-9]+$ ]] || quality=60
     
     for arg in "$@"; do
-        if [[ -f "$arg" || -d "$arg" ]]; then
-            inputs+=("$arg")
-        elif [[ "$arg" =~ ^[0-9]+$ ]]; then
-            if [[ "$arg" -le 100 ]]; then
-                quality="$arg"
-            else
-                target_h="$arg"
-            fi
-        else
-            # Try to treat unknown arg as input (might be a file pattern that didn't expand)
-             if [[ -f "$arg" || -d "$arg" ]]; then
-                 inputs+=("$arg")
-             fi
-        fi
+        case "$arg" in
+            --gpu) encoding_mode="--gpu" ;;
+            --cpu) encoding_mode="--cpu" ;;
+            *)
+                if [[ -f "$arg" || -d "$arg" ]]; then
+                    inputs+=("$arg")
+                elif [[ "$arg" =~ ^[0-9]+$ ]]; then
+                    if [[ "$arg" -le 100 ]]; then
+                        quality="$arg"
+                    else
+                        target_h="$arg"
+                    fi
+                fi
+                ;;
+        esac
     done
 
     if [[ ${#inputs[@]} -eq 0 ]]; then
@@ -634,13 +494,11 @@ video() {
     # Process all inputs
     for input in "${inputs[@]}"; do
         if [[ -f "$input" ]]; then
-            # Single File
-            process_video "$input" "$target_h" "$quality"
+            process_video "$input" "$target_h" "$quality" "$encoding_mode"
         elif [[ -d "$input" ]]; then
-            # Directory (Batch)
             echo "📦 Batch processing directory: $input"
             find "$input" -maxdepth 1 -type f \( -name "*.mp4" -o -name "*.mov" -o -name "*.mkv" -o -name "*.MP4" -o -name "*.MOV" -o -name "*.MKV" \) | while read -r file; do
-                process_video "$file" "$target_h" "$quality" < /dev/null
+                process_video "$file" "$target_h" "$quality" "$encoding_mode" < /dev/null
             done
         fi
     done
@@ -904,16 +762,6 @@ run_video_cut() {
         echo "══════════════════════════════════════════════════════════════════════════"
         echo ""
         
-        # Premium Unicode Table (Width Optimized: 16 per col)
-        # Total width ~ 77 chars (fits in standard 80-col terminal)
-        local t_line="┌──────────────────┬──────────────────┬──────────────────┬──────────────────┐"
-        local h_line="├──────────────────┼──────────────────┼──────────────────┼──────────────────┤"
-        local b_line="└──────────────────┴──────────────────┴──────────────────┴──────────────────┘"
-
-        echo "$t_line"
-        printf "│ %s │ %s │ %s │ %s │\n" "$(pad_to_width "📥 INPUT" 16)" "$(pad_to_width "📤 OUTPUT" 16)" "$(pad_to_width "📊 DETAILS" 16)" "$(pad_to_width "📈 RATIO" 16)"
-        echo "$h_line"
-        
         # Use display overrides or fall back to basenames
         local f_in_label="${display_in:-$(basename "$input_file")}"
         local f_out_label="${display_out:-$(basename "$output_file")}"
@@ -922,11 +770,12 @@ run_video_cut() {
         local label_in="File: $f_in_label"; [[ $(get_visual_width "$label_in") -gt 16 ]] && label_in="${label_in:0:13}..."
         local label_out="File: $f_out_label"; [[ $(get_visual_width "$label_out") -gt 16 ]] && label_out="${label_out:0:13}..."
         
-        local duration_s=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$output_file" 2>/dev/null | cut -d. -f1)
+        local duration_s=$(get_media_duration "$output_file")
 
-        printf "│ %s │ %s │ %s │ %s │\n" "$(pad_to_width "$label_in" 16)" "$(pad_to_width "$label_out" 16)" "$(pad_to_width "Codec: $encoder" 16)" "$(pad_to_width "Saved: ${percent_saved}%" 16)"
-        printf "│ %s │ %s │ %s │ %s │\n" "$(pad_to_width "Size: $in_size" 16)" "$(pad_to_width "Size: $out_size" 16)" "$(pad_to_width "Time: ${duration_s}s" 16)" "$(pad_to_width "Ratio: $ratio" 16)"
-        echo "$b_line"
+        print_media_table 16 \
+            "📥 INPUT|📤 OUTPUT|📊 DETAILS|📈 RATIO" \
+            "$label_in|$label_out|Codec: $encoder|Saved: ${percent_saved}%" \
+            "Size: $in_size|Size: $out_size|Time: ${duration_s}s|Ratio: $ratio"
         
         echo ""
         echo "📍 Output: $(realpath "$output_file")"

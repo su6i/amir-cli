@@ -5,6 +5,13 @@
 # Handles audio extraction, concatenation, and smart video creation.
 # ==============================================================================
 
+# Source shared media library
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$(dirname "$SCRIPT_DIR")"
+if [[ -f "$LIB_DIR/media_lib.sh" ]]; then
+    source "$LIB_DIR/media_lib.sh"
+fi
+
 run_audio() {
     local SUBCOMMAND="$1"
     
