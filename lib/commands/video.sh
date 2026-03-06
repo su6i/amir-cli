@@ -804,13 +804,13 @@ run_video_cut() {
         if [[ -n "$filter_complex" ]]; then
             # H.264 with CRF (match input quality, prevent bloat)
             local crf_val=$(( (100 - quality) * 51 / 100 ))
-            [[ $crf_val -lt 15 ]] && crf_val=15
-            cmd+=("-vf" "$filter_complex" "-c:v" "libx264" "-crf" "$crf_val" "-preset" "medium" "-pix_fmt" "yuv420p")
+            [[ $crf_val -lt 18 ]] && crf_val=18
+            cmd+=("-vf" "$filter_complex" "-c:v" "libx264" "-crf" "$crf_val" "${bitrate_flags[@]}" "-preset" "medium" "-pix_fmt" "yuv420p")
             # Audio Copy (preserve original quality)
             cmd+=("-c:a" "copy")
         else
             # No filters path
-            cmd+=("-c:v" "libx264" "-crf" "23" "-preset" "medium" "-c:a" "copy")
+            cmd+=("-c:v" "libx264" "-crf" "23" "${bitrate_flags[@]}" "-preset" "medium" "-c:a" "copy")
         fi
     else
         echo "🚀 Mode: Stream Copy (Instant)"
