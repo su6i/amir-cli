@@ -15,12 +15,13 @@ amir-cli/
 ├── completions/
 │   └── _amir             # Zsh autocompletion definitions
 ├── lib/
-│   ├── amir_lib.sh       # Core libraries (colors, helpers, error handling)
+│   ├── amir_lib.sh       # Core libraries (colors, helpers, progress bar)
+│   ├── media_lib.sh      # Shared media functions (encoder, tables, probing)
 │   ├── python/           # Python helper scripts (standard library ONLY)
 │   └── commands/         # Individual subcommand scripts
+│       ├── video.sh      # Video processing (compress, cut, download)
+│       ├── audio.sh      # Audio extraction, concat, youtube
 │       ├── img.sh        # Image processing logic
-│       ├── mp3.sh        # Audio extraction
-│       ├── qr.sh         # QR code generation
 │       └── ...
 └── docs/
     └── TECHNICAL.md      # This file
@@ -201,16 +202,35 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
 
 ### `video` (Advanced Video Processing)
 - **Unified Entry:** Single command handles compression, trimming, and batch processing.
+- **Encoding Toggle:** `--gpu` (default on Apple Silicon) uses hardware encoder for speed. `--cpu` forces `libx265` for maximum compression efficiency.
 - **Subcommands:**
     - `cut` (or `trim`): Fast video slicing. Uses `-c copy` (stream copy) by default for near-instant cutting without quality loss. Supports `-s` (start), `-e` (end), and `-d` (duration).
     - `batch`: Optimized for directories.
     - `stats`: View AI learning statistics.
     - `download <url> [opts]`: Download from YouTube & 1000+ sites (see below).
 - **Orientation Awareness:** Automatically detects Portrait vs. Landscape orientation.
-- **Hardware Acceleration:** Auto-detects macOS Silicon (`videotoolbox`), NVIDIA (`nvenc`), or Intel (`qsv`).
-- **Clean Progress:** Captures FFmpeg status for a single-line terminal update.
-- **Table Alignment:** Uses Python's `unicodedata` library to strictly calculate visual string width (East Asian Width).
+- **Hardware Acceleration:** Auto-detects macOS Silicon (`videotoolbox`), NVIDIA (`nvenc`), or Intel (`qsv`). Toggle with `--gpu`/`--cpu` flags.
+- **Smart Encoding:** Output size is validated post-encoding. If output > input, user is warned with a suggestion to try `--cpu` mode.
+- **Real-Time Progress:** Universal `ffmpeg_progress_bar` displays percentage, ETA, speed, and bitrate for all media operations.
+- **Table Alignment:** Uses Python's `unicodedata` library to strictly calculate visual string width (East Asian Width). All tables rendered via shared `print_media_table()` function.
 - **AI Stats:** Log file tracks compression ratios to optimal settings.
+
+### `media_lib.sh` (Shared Media Functions)
+**Purpose:** Centralized library sourced by `video.sh` and `audio.sh` to eliminate code duplication.
+
+| Function | Purpose |
+|---|---|
+| `detect_encoder(mode)` | Auto-detect GPU/CPU encoder. `--gpu` selects hardware, `--cpu` selects `libx265`. |
+| `get_media_duration(file)` | Extract duration in seconds via `ffprobe`. |
+| `get_media_bitrate(file)` | Extract bitrate with container → stream fallback. |
+| `get_media_info(file)` | Full probe: width, height, rotation, duration, portrait detection. Sets `MEDIA_*` globals. |
+| `build_encoder_opts(enc, quality, bitrate)` | Build encoder-specific quality options (`-b:v` for VideoToolbox, `-q:v` for libx265). |
+| `calculate_target_bitrate(bitrate, quality, enc)` | Smart bitrate scaling to prevent output bloat. |
+| `validate_output_size(input, output, enc)` | Post-encode guard: warns if output > input. |
+| `detect_hardware()` | CPU/GPU info for display tables. Sets `HW_CPU_INFO`, `HW_GPU_INFO`. |
+| `print_media_table(width, header, rows...)` | Universal Unicode table renderer (N columns, auto-width). |
+| `format_duration(seconds)` | `HH:MM:SS` formatter. |
+| `run_ffmpeg_with_progress(duration, cmd...)` | Execute FFmpeg with automatic progress bar and error capture. |
 
 #### `video download` — Download + Subtitle Pipeline
 
