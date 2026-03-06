@@ -189,3 +189,72 @@ pad_to_width() {
         printf "%${diff}s" ""
     fi
 }
+
+# ==============================================================================
+# FFmpeg Progress Bar (Universal Parser)
+# ==============================================================================
+
+# Parse FFmpeg output and display an elegant progress bar
+# Usage: ffmpeg -i in.mp4 ... 2>&1 | ffmpeg_progress_bar 120.5
+ffmpeg_progress_bar() {
+    local total_duration="$1"
+    local start_time=$(date +%s)
+    
+    # Check if we have a valid duration; if not default to 0
+    if [[ -z "$total_duration" || "$total_duration" == "N/A" ]]; then
+        total_duration=0
+    fi
+    
+    # Read from FFmpeg stderr line by line (using \r as delimiter)
+    while read -d $'\r' -r line || [[ -n "$line" ]]; do
+        # Clean the line
+        local clean_line=$(echo "$line" | tr -d '\n' | sed -E 's/^[[:space:]]+//')
+        
+        # We only care about lines starting with "frame=" or containing "time="
+        if [[ "$clean_line" == frame=* || "$clean_line" == *"time="* ]]; then
+            # Extract time in HH:MM:SS.xx format using regex/awk
+            local current_time_str=$(echo "$clean_line" | grep -o 'time=[0-9][0-9]*:[0-9][0-9]*:[0-9][0-9]*\.[0-9]*' | cut -d'=' -f2)
+            
+            # Additional extraction: Bitrate, Speed
+            local bitrate=$(echo "$clean_line" | grep -o 'bitrate=[^ ]*' | cut -d'=' -f2)
+            local speed=$(echo "$clean_line" | grep -o 'speed=[^ ]*' | cut -d'=' -f2)
+            
+            if [[ -n "$current_time_str" ]]; then
+                # Convert time string to seconds
+                local h=$(echo "$current_time_str" | cut -d':' -f1)
+                local m=$(echo "$current_time_str" | cut -d':' -f2)
+                local s=$(echo "$current_time_str" | cut -d':' -f3)
+                
+                # Using awk for floating point math
+                local current_sec=$(awk -v h="$h" -v m="$m" -v s="$s" 'BEGIN {print (h*3600) + (m*60) + s}')
+                
+                local elapsed=$(( $(date +%s) - start_time ))
+                local elapsed_fmt=$(date -u -r "$elapsed" +%M:%S 2>/dev/null || date -u -d "@$elapsed" +%M:%S 2>/dev/null)
+                
+                if [[ $(echo "$total_duration > 0" | bc) -eq 1 ]]; then
+                    # Calculate percentage
+                    local pct=$(awk -v cur="$current_sec" -v tot="$total_duration" 'BEGIN { p = (cur/tot)*100; if(p>100)p=100; printf "%.1f", p }')
+                    
+                    # Calculate ETA
+                    local eta_fmt="--:--"
+                    if [[ $(echo "$current_sec > 0" | bc) -eq 1 ]]; then
+                        local remaining_sec=$(awk -v cur="$current_sec" -v tot="$total_duration" -v elapsed="$elapsed" 'BEGIN { rate=cur/(elapsed+0.001); if(rate>0) print int((tot-cur)/rate); else print 0 }')
+                        eta_fmt=$(date -u -r "$remaining_sec" +%M:%S 2>/dev/null || date -u -d "@$remaining_sec" +%M:%S 2>/dev/null)
+                    fi
+                    
+                    # Print progress (using carriage return to write over the same line)
+                    printf "\r\033[K⏳ %-4s | %5s%% | Speed: %-6s | ETA: %s | Time: %s" "Run" "$pct" "${speed:-N/A}" "$eta_fmt" "$elapsed_fmt"
+                else
+                    # Fallback if duration is unknown
+                    printf "\r\033[K⏳ Processing... | Time: %s | Bitrate: %-10s | Speed: %-6s" "$current_time_str" "${bitrate:-N/A}" "${speed:-N/A}"
+                fi
+            fi
+        else
+            # Print non-progress lines normally (e.g. errors, config) if they match specific words
+            if echo "$clean_line" | grep -qiE "(error|warning|failed|complete|finished)"; then
+                echo -e "\n$clean_line"
+            fi
+        fi
+    done
+    echo "" # Final newline
+}

@@ -160,6 +160,7 @@ class StyleConfig:
     max_lines: int
     use_banner: bool = False
     animation: Optional[str] = None
+    secondary_font_size: Optional[int] = None
 
 @dataclass
 class WordObj:
@@ -376,7 +377,17 @@ class SubtitleProcessor:
         # Finally, apply the english font scaling factor
         self.style_config.font_size = int(self.style_config.font_size * self.en_font_scale)
         
-        self.sec_font_size = sec_font_size or 25  # Default for Persian if not provided
+        # Priority for secondary font size: arg > media.json (style_config) > default (scaled by fa_font_scale)
+        if sec_font_size:
+            self.sec_font_size = sec_font_size
+        else:
+            base_sec_size = getattr(self.style_config, 'secondary_font_size', None)
+            if base_sec_size is not None:
+                self.sec_font_size = int(base_sec_size * self.fa_font_scale)
+            else:
+                # If no secondary size defined, default to 75% of primary size, scaled
+                self.sec_font_size = int(self.style_config.font_size * 0.75 * self.fa_font_scale)
+        
         self.fail_on_translation_error = fail_on_translation_error
         self.use_openai_fallback = use_openai_fallback
         self.initial_prompt = initial_prompt
@@ -1591,7 +1602,7 @@ if __name__ == "__main__":
         except Exception:
             return None
 
-    def _parse_translated_batch_output(self, output: str, expected_count: int) -> List[str]:
+    def _parse_translated_batch_output(self, output: str, expected_count: int, threshold: float = 0.8) -> List[str]:
         """Robustly parse model output into an ordered list of translated lines."""
         if not output:
             return []
@@ -1636,9 +1647,9 @@ if __name__ == "__main__":
                     if mapped:
                         # Build full list with same length as expected
                         ordered = [mapped.get(i) for i in range(1, expected_count + 1)]
-                        # Apply 80% threshold for JSON dicts too
+                        # Apply threshold for JSON dicts too
                         valid_count = sum(1 for v in ordered if v is not None)
-                        if valid_count >= int(expected_count * 0.8):
+                        if expected_count == 0 or valid_count >= int(expected_count * threshold):
                             return ordered
             except Exception:
                 pass
@@ -1670,12 +1681,12 @@ if __name__ == "__main__":
             # Accept any value, even empty - caller will handle with original text fallback
             ordered.append(value if value else None)
         
-        # If we got at least 80% valid lines, return the full batch (with None for missing)
+        # If we got at least threshold*100% valid lines, return the full batch (with None for missing)
         valid_count = sum(1 for v in ordered if v and v.strip())
-        if valid_count >= int(expected_count * 0.8):
+        if expected_count == 0 or valid_count >= int(expected_count * threshold):
             return ordered
         
-        # If less than 80% valid, reject entire batch to trigger retry
+        # If less than threshold valid, reject entire batch to trigger retry
         return []
 
         # 3) Plain line fallback (for providers that ignore numbering)
@@ -1727,27 +1738,10 @@ if __name__ == "__main__":
         
         for i, batch_indices in enumerate(batch_indices_list):
             batch = [texts[idx] for idx in batch_indices]
-
-            # ── Context lines (3 before + 3 after, not translated) ──────────
-            first_abs = batch_indices[0]
-            last_abs  = batch_indices[-1]
-            ctx_before = texts[max(0, first_abs - 3): first_abs]
-            ctx_after  = texts[last_abs + 1: last_abs + 4]
-            ctx_section = ""
-            if ctx_before or ctx_after:
-                parts = []
-                if ctx_before:
-                    parts.append("Previous lines (context only, do NOT translate):\n" +
-                                 "\n".join(f"  • {t}" for t in ctx_before))
-                if ctx_after:
-                    parts.append("Following lines (context only, do NOT translate):\n" +
-                                 "\n".join(f"  • {t}" for t in ctx_after))
-                ctx_section = "\n".join(parts) + "\n\nLines to translate:\n"
-
-            # Use indexed list for DeepSeek to ensure perfect alignment
-            batch_text = ctx_section + "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(batch)])
-            
             pbar.set_postfix({"batch": f"{i + 1}/{batch_count}"})
+            
+            # The absolute indices we still need to translate in this batch
+            current_target_indices = list(batch_indices)
             
             # NUCLEAR PERSISTENCE: Retry until successful (Max 10 attempts)
             attempt = 0
@@ -1755,9 +1749,31 @@ if __name__ == "__main__":
             success_batch = False
             ds_failed = False
             last_error_msg = ""
-            while attempt < max_retries:
+            
+            while attempt < max_retries and current_target_indices:
+                attempt += 1
+                
+                # Context lines (3 before first target, 3 after last target in the original batch size scope)
+                first_abs = current_target_indices[0]
+                last_abs  = current_target_indices[-1]
+                ctx_before = texts[max(0, first_abs - 3): first_abs]
+                ctx_after  = texts[last_abs + 1: last_abs + 4]
+                ctx_section = ""
+                if ctx_before or ctx_after:
+                    parts = []
+                    if ctx_before:
+                        parts.append("Previous lines (context only, do NOT translate):\n" +
+                                     "\n".join(f"  • {t}" for t in ctx_before))
+                    if ctx_after:
+                        parts.append("Following lines (context only, do NOT translate):\n" +
+                                     "\n".join(f"  • {t}" for t in ctx_after))
+                    ctx_section = "\n".join(parts) + "\n\nLines to translate:\n"
+
+                current_batch_texts = [texts[idx] for idx in current_target_indices]
+                # Keep prompt numbering 1..N matching the output indices we expect
+                batch_text = ctx_section + "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(current_batch_texts)])
+                
                 try:
-                    attempt += 1
                     response = client.chat.completions.create(
                         model="deepseek-chat",
                         messages=[
@@ -1769,52 +1785,62 @@ if __name__ == "__main__":
                     )
                     
                     output = response.choices[0].message.content.strip()
-                    trans_list = self._parse_translated_batch_output(output, len(batch))
+                    # Use a zero threshold to eagerly accept any validly extracted subsets for partial retries
+                    trans_list = self._parse_translated_batch_output(output, len(current_target_indices), threshold=0.0)
                     
-                        # Replace None values with original text as fallback
-                    if None in trans_list:
-                        trans_list = [trans_list[j] if trans_list[j] is not None else batch[j] for j in range(len(trans_list))]
-                    
-                    if target_lang == 'fa':
-                        processed_list = []
-                        for idx_in_batch, t in enumerate(trans_list):
-                            if not t or not t.strip():
-                                processed_list.append(batch[idx_in_batch])
-                                continue
-                            if not any('\u0600' <= c <= '\u06FF' for c in t):
-                                processed_list.append(batch[idx_in_batch])
-                            else:
-                                processed_list.append(self.fix_persian_text(self.strip_english_echo(t)))
-                        trans_list = processed_list
-                    
-                    if len(trans_list) >= len(batch):
-                        result_batch = trans_list[:len(batch)]
-                        for rel_idx, trans in enumerate(result_batch):
-                            abs_idx = batch_indices[rel_idx]
-                            final_result[abs_idx] = trans
-                            
-                        # LIVE SAVING: Write progress to SRT file immediately
-                        if output_srt and original_entries:
-                            try:
-                                with open(output_srt, 'w', encoding='utf-8-sig') as f:
-                                    for idx, entry in enumerate(original_entries, 1):
-                                        trans = final_result[idx-1]
-                                        t_text = trans if trans is not None else entry['text']
-                                        f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{t_text}\n\n")
-                            except: pass
-
-                        pbar.update(len(batch))
-                        success_batch = True
-                        time.sleep(1)
-                        break
-                    else:
+                    if not trans_list:
                         delay = min(20 + attempt * 5, 120)
-                        self.logger.warning(f"⚠️ Batch {i + 1} incomplete: expected {len(batch)}, got {len(trans_list)}. Retrying in {delay}s... (Attempt {attempt}/{max_retries})")
+                        self.logger.warning(f"⚠️ Batch {i + 1} partial attempt returned empty. Retrying in {delay}s... (Attempt {attempt}/{max_retries})")
                         time.sleep(delay)
                         if attempt >= max_retries:
                             last_error_msg = f"incomplete response after {max_retries} attempts"
                             ds_failed = True
                             break
+                        continue
+                        
+                    # Process items and identify successes
+                    successful_indices = []
+                    for rel_idx, t in enumerate(trans_list):
+                        abs_idx = current_target_indices[rel_idx]
+                        if t is None or not str(t).strip():
+                            continue # Failed this specific line
+                        
+                        raw_t = str(t)
+                        if target_lang == 'fa':
+                            if not any('\u0600' <= c <= '\u06FF' for c in raw_t):
+                                continue # Failed (no Persian chars)
+                            val = self.fix_persian_text(self.strip_english_echo(raw_t))
+                        else:
+                            val = raw_t
+                            
+                        final_result[abs_idx] = val
+                        successful_indices.append(abs_idx)
+                        
+                    missing_indices = [idx for idx in current_target_indices if idx not in successful_indices]
+                    
+                    # Update progress bar only for newly translated items
+                    if successful_indices:
+                        pbar.update(len(successful_indices))
+                        
+                    # LIVE SAVING: Write progress to SRT file immediately
+                    if successful_indices and output_srt and original_entries:
+                        try:
+                            with open(output_srt, 'w', encoding='utf-8-sig') as f:
+                                for idx_srt, entry in enumerate(original_entries, 1):
+                                    trans = final_result[idx_srt-1]
+                                    t_text = trans if trans is not None else entry['text']
+                                    f.write(f"{idx_srt}\n{entry['start']} --> {entry['end']}\n{t_text}\n\n")
+                        except: pass
+
+                    if not missing_indices:
+                        success_batch = True
+                        time.sleep(1)
+                        break
+                    else:
+                        current_target_indices = missing_indices
+                        delay = min(20 + attempt * 5, 120)
+                        self.logger.warning(f"⚠️ Batch {i + 1} partially incomplete ({len(missing_indices)} lines missing). Retrying missing lines in {delay}s... (Attempt {attempt}/{max_retries})")
+                        time.sleep(delay)
 
                 except Exception as e:
                     error_msg = f"{type(e).__name__}: {str(e)}"
@@ -1825,7 +1851,7 @@ if __name__ == "__main__":
                         ds_failed = True
                         break
                     wait_time = min(60, (2 ** (attempt % 6)) * 5)
-                    self.logger.warning(f"Batch {i//batch_size + 1} attempt {attempt}/{max_retries} failed: {error_msg}")
+                    self.logger.warning(f"Batch {i+1} attempt {attempt}/{max_retries} failed: {error_msg}")
                     time.sleep(wait_time)
 
             # ── Per-batch Gemini fallback when DeepSeek fails ────────────────
@@ -2435,7 +2461,10 @@ if __name__ == "__main__":
                 "FORMAT: Return ONLY a valid JSON object where keys are the input line numbers and values are the translations.\n"
                 "EXAMPLE: {\"1\": \"سلام\", \"2\": \"چطوری؟\"}\n"
                 f"RULE: For technical terms (API, AGI, etc.), write the {lang_name} translation first, then the English in parentheses (e.g. 'هزینه‌ها (CapEx)').\n"
-                "CRITICAL: NEVER echo or repeat the original English source text in your output. Each value must contain ONLY the Persian translation.\n"
+                "CRITICAL 1: You MUST translate EACH line strictly independently. Do NOT merge two lines into one key. The output JSON must have the EXACT SAME NUMBER of keys as the input TARGET LINES, with NO skipped numbers.\n"
+                "CRITICAL 2: PREVENT LINE SHIFTING! The translation for line N MUST correspond EXACTLY to the English text in line N. Do NOT shift the translation of line N+1 into line N.\n"
+                "CRITICAL 3: SVO to SOV SPLITTING: If an English sentence spans multiple lines (e.g., Line 1 has the subject, Line 2 has the object, Line 3 has the verb), you MUST split your Persian translation across those EXACT SAME lines. Put the Persian subject in Line 1, the Persian object in Line 2, and the Persian verb in Line 3. DO NOT put the entire translated sentence into Line 1. The timing of the subtitles relies on you keeping the fragments in their respective line keys!\n"
+                "CRITICAL 4: NEVER echo or repeat the original English source text in your output.\n"
                 "NO commentary, NO extra text."
             )
         
@@ -2444,6 +2473,8 @@ if __name__ == "__main__":
             f"You are a professional {lang_name} subtitle translator.\n"
             "FORMAT: Return ONLY a valid JSON object where keys are the input line numbers and values are the translations.\n"
             "EXAMPLE: {\"1\": \"Hello\", \"2\": \"How are you?\"}\n"
+            "CRITICAL 1: You MUST translate EACH line strictly independently. Do NOT merge two lines into one key. The output JSON must have the EXACT SAME NUMBER of keys as the input TARGET LINES, with NO skipped numbers.\n"
+            "CRITICAL 2: The translation for line N MUST correspond EXACTLY to the English text in line N. Do NOT shift translations up or down keys.\n"
             "NO commentary, NO extra text."
         )
 
@@ -2683,9 +2714,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if secondary_srt and os.path.exists(secondary_srt):
             sec = self.parse_srt(secondary_srt)
             # Sync protection: Do NOT re-sanitize here, assume already sanitized in workflow
-            # Use INDEX-based mapping instead of time-based for better alignment
-            for idx, e in enumerate(sec):
-                secondary_map[idx] = e['text'] # fix_persian_text will be handled during rendering
+            # Use original INDEX-based mapping to ensure perfect alignment regardless of empty strings
+            for e in sec:
+                secondary_map[e['index']] = e['text'] # fix_persian_text will be handled during rendering
         
         entries = self.parse_srt(srt_path)
         # Sync protection: Do NOT re-sanitize here, assume already sanitized in workflow
@@ -2721,7 +2752,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             if secondary_map:
                 # Use INDEX-based matching for perfect alignment
-                sec_text = secondary_map.get(idx)
+                sec_text = secondary_map.get(e['index'])
                 
                 if sec_text:
                     # Clean and re-fix to ensure no double-wrapping
