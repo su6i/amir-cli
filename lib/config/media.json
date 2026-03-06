@@ -37,10 +37,10 @@
     "subtitle": {
       "merge_sec": 2.0,
       "min_words": 5,
-      "max_words": 15,
+      "max_words": 10,
       "break_chars": [".", "?", "!", "...", "。", "？", "！", ",", ";", ":", "،", "؛"],
       "split_words": [
-        "and", "but", "because", "so", "if", "when", "while", "although", "what", "why", "where", "how", "who"
+        "and", "but", "because", "so", "if", "when", "while", "although", "what", "why", "where", "how", "who", "the", "or"
       ],
       "styles": {
         "Lecture": {

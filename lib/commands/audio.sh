@@ -60,9 +60,12 @@ audio_extract() {
     
     log_info "🎧 Extracting Audio at ${kbps}kbps: $(basename "$INPUT") ..." >&2
     local FFMPEG_PATH=$(get_ffmpeg_path)
-    "$FFMPEG_PATH" -hide_banner -loglevel error -stats -y -i "$INPUT" -vn -c:a libmp3lame -b:a "${kbps}k" "$OUTPUT"
+    local duration_seconds=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$INPUT" 2>/dev/null | cut -d. -f1)
+    "$FFMPEG_PATH" -hide_banner -loglevel info -stats -y -i "$INPUT" -vn -c:a libmp3lame -b:a "${kbps}k" "$OUTPUT" 2>&1 | ffmpeg_progress_bar "$duration_seconds"
+    local EXIT_CODE=${PIPESTATUS[0]:-$?}
+    printf "\r\033[K"
     
-    if [[ $? -eq 0 ]]; then
+    if [[ $EXIT_CODE -eq 0 ]]; then
         log_success "Created: $OUTPUT" >&2
         echo "$OUTPUT"
     else
@@ -112,8 +115,9 @@ audio_concat() {
     local FFMPEG_PATH=$(get_ffmpeg_path)
     # Re-encoding (vn) is safer than copy because input files might have images/metadata streams 
     # that cause "Exactly one MP3 audio stream is required" error.
-    "$FFMPEG_PATH" -hide_banner -loglevel error -stats -y -f concat -safe 0 -i "$LIST_FILE" -vn -c:a libmp3lame -b:a 192k "$OUTPUT"
-    local EXIT_CODE=$?
+    "$FFMPEG_PATH" -hide_banner -loglevel info -stats -y -f concat -safe 0 -i "$LIST_FILE" -vn -c:a libmp3lame -b:a 192k "$OUTPUT" 2>&1 | ffmpeg_progress_bar ""
+    local EXIT_CODE=${PIPESTATUS[0]:-$?}
+    printf "\r\033[K"
     rm "$LIST_FILE"
 
     if [[ $EXIT_CODE -eq 0 ]]; then
@@ -167,20 +171,24 @@ audio_to_video() {
         return 0
     fi
 
+    local duration_seconds=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$AUDIO" 2>/dev/null | cut -d. -f1)
+    
     local FFMPEG_PATH=$(get_ffmpeg_path)
     if $WAVEFORM; then
         log_info "Creating video with dynamic waveform: $OUTPUT ..." >&2
-        "$FFMPEG_PATH" -hide_banner -loglevel error -stats -y \
+        "$FFMPEG_PATH" -hide_banner -loglevel info -stats -y \
             -loop 1 -i "$IMAGE" -i "$AUDIO" \
             -filter_complex "[1:a]showwaves=s=1280x200:mode=line:colors=cyan[v_wave];[0:v][v_wave]overlay=0:H-h[outv]" \
-            -map "[outv]" -map 1:a -c:v libx264 -preset medium -crf 23 -c:a aac -b:a 192k -shortest "$OUTPUT"
+            -map "[outv]" -map 1:a -c:v libx264 -preset medium -crf 23 -c:a aac -b:a 192k -shortest "$OUTPUT" 2>&1 | ffmpeg_progress_bar "$duration_seconds"
     else
         log_info "Creating static video: $OUTPUT ..." >&2
-        "$FFMPEG_PATH" -hide_banner -loglevel error -stats -y \
-            -loop 1 -i "$IMAGE" -i "$AUDIO" -c:v libx264 -tune stillimage -preset medium -crf 23 -c:a copy -shortest "$OUTPUT"
+        "$FFMPEG_PATH" -hide_banner -loglevel info -stats -y \
+            -loop 1 -i "$IMAGE" -i "$AUDIO" -c:v libx264 -tune stillimage -preset medium -crf 23 -c:a copy -shortest "$OUTPUT" 2>&1 | ffmpeg_progress_bar "$duration_seconds"
     fi
+    local EXIT_CODE=${PIPESTATUS[0]:-$?}
+    printf "\r\033[K"
 
-    if [[ $? -eq 0 ]]; then
+    if [[ $EXIT_CODE -eq 0 ]]; then
         log_success "Video creation complete." >&2
         echo "$OUTPUT"
     else
@@ -292,24 +300,26 @@ PYEOF
 
     # ── Step 4: Local conversion with ffmpeg ──────────────────────────────────
     local OUTPUT_FILE
+    local duration_seconds=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$RAW_FILE" 2>/dev/null | cut -d. -f1)
+    
     case "$OUT_FORMAT" in
         mp3)
             OUTPUT_FILE="${TITLE}_${ENC_ABR}kbps.mp3"
             log_info "🔄 Converting to MP3 at ${ENC_ABR}kbps..." >&2
-            "$FFMPEG_PATH" -hide_banner -loglevel error -stats -y \
-                -i "$RAW_FILE" -vn -c:a libmp3lame -b:a "${ENC_ABR}k" "$OUTPUT_FILE"
+            "$FFMPEG_PATH" -hide_banner -loglevel info -stats -y \
+                -i "$RAW_FILE" -vn -c:a libmp3lame -b:a "${ENC_ABR}k" "$OUTPUT_FILE" 2>&1 | ffmpeg_progress_bar "$duration_seconds"
             ;;
         wav)
             OUTPUT_FILE="${TITLE}_wav.wav"
             log_info "🔄 Converting to WAV..." >&2
-            "$FFMPEG_PATH" -hide_banner -loglevel error -stats -y \
-                -i "$RAW_FILE" -vn "$OUTPUT_FILE"
+            "$FFMPEG_PATH" -hide_banner -loglevel info -stats -y \
+                -i "$RAW_FILE" -vn "$OUTPUT_FILE" 2>&1 | ffmpeg_progress_bar "$duration_seconds"
             ;;
         ogg)
             OUTPUT_FILE="${TITLE}_${ENC_ABR}kbps.ogg"
             log_info "🔄 Converting to OGG at ${ENC_ABR}kbps..." >&2
-            "$FFMPEG_PATH" -hide_banner -loglevel error -stats -y \
-                -i "$RAW_FILE" -vn -c:a libvorbis -b:a "${ENC_ABR}k" "$OUTPUT_FILE"
+            "$FFMPEG_PATH" -hide_banner -loglevel info -stats -y \
+                -i "$RAW_FILE" -vn -c:a libvorbis -b:a "${ENC_ABR}k" "$OUTPUT_FILE" 2>&1 | ffmpeg_progress_bar "$duration_seconds"
             ;;
         *)
             log_error "Unsupported format: $OUT_FORMAT. Use: mp3, wav, ogg" >&2
@@ -317,8 +327,10 @@ PYEOF
             return 1
             ;;
     esac
+    
+    local EXIT_CODE=${PIPESTATUS[0]:-$?}
+    printf "\r\033[K"
 
-    local EXIT_CODE=$?
     rm -f "$RAW_FILE"   # remove the raw downloaded stream
 
     if [[ $EXIT_CODE -eq 0 ]]; then

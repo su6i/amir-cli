@@ -347,6 +347,7 @@ process_video() {
     # Check available encoders
     if ffmpeg -encoders 2>/dev/null | grep -q "hevc_videotoolbox"; then
         encoder="hevc_videotoolbox"
+        tag_opt="-tag:v hvc1 -allow_sw 1"
     elif ffmpeg -encoders 2>/dev/null | grep -q "hevc_nvenc"; then
         encoder="hevc_nvenc"
         tag_opt=""
@@ -428,27 +429,39 @@ process_video() {
     # bitrate_flags only for software encoder (hevc_videotoolbox/nvenc/etc don't support
     # -maxrate/-bufsize combined with -q:v quality mode — causes immediate failure)
     local bitrate_flags=()
+    local q_opt=("-q:v" "$quality")
+    local input_bitrate=$(ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
+    
     if [[ "$encoder" == "libx265" ]]; then
-        local input_bitrate=$(ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
         if [[ -n "$input_bitrate" && "$input_bitrate" =~ ^[0-9]+$ ]]; then
             local max_bitrate=$(echo "$input_bitrate * 1.15 / 1" | bc)
             local buf_size=$((max_bitrate * 2))
             bitrate_flags=("-maxrate" "${max_bitrate}" "-bufsize" "${buf_size}")
         fi
+    elif [[ "$encoder" == "hevc_videotoolbox" || "$encoder" == "h264_videotoolbox" ]]; then
+        # VideoToolbox does not support -q:v for quality, it requires -b:v
+        # Let's derive a target bitrate based on input bitrate and quality scale
+        local target_bitrate="2000k" # Safe fallback
+        if [[ -n "$input_bitrate" && "$input_bitrate" =~ ^[0-9]+$ ]]; then
+             # Quality is 1-100. Let's scale input bitrate by (quality/100) or at least maintain part of it
+             target_bitrate=$(echo "$input_bitrate * $quality / 100" | bc)
+        fi
+        q_opt=("-b:v" "${target_bitrate}")
     fi
 
     # Execute ffmpeg with a single-line progress filter
-    local filter_cmd="fps=25,scale=${target_w}:${target_h_final}:force_original_aspect_ratio=decrease,pad=${target_w}:${target_h_final}:(ow-iw)/2:(oh-ih)/2,setsar=1"
+    # Use proper rounding to even numbers for H.264/HEVC encoding requirements
+    local filter_cmd="fps=25,scale='min(${target_w},iw)':-2"
+
+    local duration_seconds=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null | cut -d. -f1)
 
     local ffmpeg_error_log=$(mktemp)
     ffmpeg -hide_banner -loglevel info -stats -nostdin -y -i "$input_file" \
     -vf "$filter_cmd" -sws_flags bilinear \
-    -c:v "$encoder" -q:v $quality $tag_opt \
+    -c:v "$encoder" "${q_opt[@]}" $tag_opt \
     "${bitrate_flags[@]}" \
     -af "$audio_filter" \
-    -c:a aac -pix_fmt yuv420p -movflags +faststart "$output" 2> >(tee "$ffmpeg_error_log" >&2) | while read -d $'\r' -r line; do
-        printf "\r⏳ Processing... %s" "$line"
-    done
+    -c:a aac -pix_fmt yuv420p -movflags +faststart "$output" 2> >(tee "$ffmpeg_error_log" >&2) | ffmpeg_progress_bar "$duration_seconds"
     local ffmpeg_exit=${PIPESTATUS[0]:-$?}
     printf "\r⏳ Processing... Done!                                        \n"
 
@@ -824,12 +837,51 @@ run_video_cut() {
 # --- Table Helpers (The Scientific Way) ---
 # Functions get_visual_width and pad_to_width are now globally available via amir_lib.sh
 
-    # Execute
-    # Direct execution without pipe to avoid subshell/signal issues
-    "${cmd[@]}"
+    # Execute with animated progress bar
+    # 1. Get the duration for the progress bar
+    local duration_seconds=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null | awk '{print int($1)}')
+    
+    # If a specific duration (-t) was passed in the cmd array, use that instead
+    local extracted_duration=""
+    for ((i=0; i<${#cmd[@]}; i++)); do
+        if [[ "${cmd[$i]}" == "-t" ]]; then
+            extracted_duration="${cmd[$i+1]}"
+            break
+        fi
+    done
+    
+    if [[ -n "$extracted_duration" ]]; then
+        # Check if HH:MM:SS format
+        if [[ "$extracted_duration" == *":"* ]]; then
+            local h=$(echo "$extracted_duration" | cut -d':' -f1)
+            local m=$(echo "$extracted_duration" | cut -d':' -f2)
+            local s=$(echo "$extracted_duration" | cut -d':' -f3)
+            duration_seconds=$(awk -v h="$h" -v m="$m" -v s="$s" 'BEGIN {print (h*3600) + (m*60) + s}')
+        else
+            duration_seconds=$(echo "$extracted_duration" | awk '{print int($1)}')
+        fi
+    fi
+
+    # 2. Run ffmpeg through our universal progress bar
+    # cmd starts with ffmpeg, so we just run it directly
+    local ffmpeg_error_log=$(mktemp)
+    
+    # Ensure -nostdin and standard logging are set
+    local display_cmd=("${cmd[@]}")
+    # Inject non-interactive flags if missing
+    if [[ ! " ${display_cmd[*]} " =~ " -nostdin " ]]; then
+        display_cmd=("-hide_banner" "-loglevel" "info" "-stats" "-nostdin" "${display_cmd[@]:1}")
+        display_cmd=("ffmpeg" "${display_cmd[@]}")
+    fi
+    
+    "${display_cmd[@]}" 2> >(tee "$ffmpeg_error_log" >&2) | ffmpeg_progress_bar "$duration_seconds"
+    local ffmpeg_exit=${PIPESTATUS[0]:-$?}
+    
+    # Clear the progress line after completion
+    printf "\r\033[K"
     
     # Check result
-    if [[ -f "$output_file" ]]; then
+    if [[ -f "$output_file" && $ffmpeg_exit -eq 0 ]]; then
         # Print Stats Table (Restored Premium Unicode Format)
         local in_size=$(du -hL "$input_file" 2>/dev/null | cut -f1)
         local out_size=$(du -h "$output_file" 2>/dev/null | cut -f1)
@@ -879,9 +931,15 @@ run_video_cut() {
         echo ""
         echo "📍 Output: $(realpath "$output_file")"
     else
-        echo "❌ Operation failed."
+        echo "❌ Error: Operation failed! (ffmpeg exit code: $ffmpeg_exit)"
+        if [[ -f "$ffmpeg_error_log" ]]; then
+            echo "── ffmpeg error ──"
+            cat "$ffmpeg_error_log" | grep -i 'error\|invalid\|failed\|cannot' | tail -20
+        fi
+        rm -f "$ffmpeg_error_log" "$output_file"
         return 1
     fi
+    rm -f "$ffmpeg_error_log"
 }
 
 # ==============================================================================
