@@ -4449,7 +4449,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         indices_to_translate = [i for i in range(len(texts)) if final_result[i] is None]
         if not indices_to_translate:
             self._save_local_translation_cache()
-            return [final_result[i] if final_result[i] is not None else texts[i] for i in range(len(texts))]
+            # CRITICAL: Write the SRT file to disk even when ALL translations came from cache.
+            # Without this, the output file is never created, breaking bilingual ASS rendering.
+            result_texts = [final_result[i] if final_result[i] is not None else texts[i] for i in range(len(texts))]
+            if output_srt and original_entries:
+                try:
+                    with open(output_srt, 'w', encoding='utf-8-sig') as f:
+                        for idx_srt, entry in enumerate(original_entries, 1):
+                            t_text = result_texts[idx_srt-1] if idx_srt-1 < len(result_texts) else entry['text']
+                            f.write(f"{idx_srt}\n{entry['start']} --> {entry['end']}\n{t_text}\n\n")
+                    self.logger.info(f"✓ Cache-only save completed: {Path(output_srt).name}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to save cache-only SRT: {e}")
+            return result_texts
         
         # Build unique text → list of original indices
         unique_text_map: Dict[str, List[int]] = {}
