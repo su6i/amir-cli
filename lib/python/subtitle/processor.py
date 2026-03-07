@@ -3598,8 +3598,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if save_formats:
                 try:
                     from .exporter import export_subtitles
-                    srt_paths = {lang: path for lang, path in result.items()
-                                 if isinstance(path, str) and path.endswith('.srt')}
+                    
+                    # Determine which languages to export.
+                    # If target_langs specified, export them. Otherwise export source_lang.
+                    export_langs = set(self.target_langs) if self.target_langs else {source_lang}
+                    
+                    srt_paths = {
+                        lang: path for lang, path in result.items()
+                        if isinstance(path, str) and path.endswith('.srt') and lang in export_langs
+                    }
+                    
                     if srt_paths:
                         created = export_subtitles(
                             srt_paths=srt_paths,
