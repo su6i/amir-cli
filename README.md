@@ -19,7 +19,7 @@ Built with modularity and ease of use in mind, `amir` works seamlessly across **
 
 - **🎬 Smart Video Compression:** Auto-detects hardware (Apple Silicon, NVENC, QSV) and optimizes settings for the best quality/size ratio. Features `--gpu`/`--cpu` encoding toggle, real-time progress bar with ETA, output size validation, and "AI Learning" to adapt to your preferences over time.
 - **🖼️ Advanced Image Processing:** AI-powered upscaling (Real-ESRGAN), document enhancement lab (140 variations), smart stacking (front/back), and professional corner rounding.
-- **🌍 Advanced Subtitle System:** AI-powered multilingual subtitles supporting **32 languages**. Features automatic translation, multi-platform hardware encoding (Mac/Ubuntu) with 1:1 size parity, and Whisper Turbo as the default high-performance model.
+- **🌍 Advanced Subtitle System:** AI-powered multilingual subtitles supporting **32 languages**. Features automatic translation, multi-platform hardware encoding (Mac/Ubuntu) with 1:1 size parity, Whisper Turbo as default, and `--save txt/md/html/pdf` document export.
 - **🤖 AI Powered:** Chat with Gemini/Gemma, generate code, and fetch model lists from 5 LLM providers (Gemini, OpenAI, DeepSeek, Groq, Anthropic).
 - **🛠️ System Utilities:** One-command system cleanup, password generation, file locking/unlocking, and QR code generation.
 - **☁️ File Transfer:** Instantly upload files to temporary hosting services and get a shareable link.
@@ -144,7 +144,7 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir img <file> <size> [g]` | Legacy mode (detects resize vs crop). |
 | `amir pdf [files] [opts]` | **Multi-Engine A4 PDF Generator**: Render Markdown/Text/Images to PDF. Supports piping (e.g., `amir clip | amir pdf`), Puppeteer (Default), WeasyPrint, PIL (Robust Fallback). Features: High-fidelity Persian RTL (B Nazanin), auto-pagination, ExFAT compatibility, and `--free-size` (`-f`) for continuous/custom dimensions. |
 | `amir watermark <file> [text]` | Add watermark to image (auto-saved or `-o output`). |
-| `amir subtitle <file/URL> [options]` | **AI-Powered Multilingual Subtitles**: Transcribe, translate (32 languages), and render. Accepts a **local file or a direct URL** (auto-downloads). Key flags: `-s en -t fa` (source/target lang), `-l 120` (test first 120 sec), `--llm gemini`, `--no-render` (SRT only), `--whisper-model large-v3`. See [SUBTITLE.md](docs/SUBTITLE.md). |
+| `amir subtitle <file/URL> [options]` | **AI-Powered Multilingual Subtitles**: Transcribe, translate (32 languages), and render. Key flags: `-s en --sub fa` (source/target lang), `--save txt pdf` (export as clean documents), `-l 120` (test first 120 sec), `--no-render` (SRT only). See [SUBTITLE.md](docs/SUBTITLE.md). |
 | `amir info <file>` | Show detailed technical metadata for any file. |
 
 ### 🧠 AI & Productivity

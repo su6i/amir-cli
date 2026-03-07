@@ -133,6 +133,12 @@ Note:
                         help=("Languages to generate posts for (default: fa only). "
                               "Example: --post-lang fa de en"))
 
+    # Document Export
+    parser.add_argument("--save", nargs='+', dest="save_formats", default=None,
+                        metavar='FMT',
+                        help=("Export subtitle text as clean document(s) without timestamps. "
+                              "Formats: txt, md, html, pdf. Multiple allowed: --save txt pdf"))
+
     args = parser.parse_args()
 
     # Resolve platform lists
@@ -187,6 +193,7 @@ Note:
         post_only=_post_only,
         prompt_file=args.prompt_file,
         post_langs=args.post_langs,
+        save_formats=args.save_formats,
     )
 
 if __name__ == "__main__":
