@@ -721,9 +721,6 @@ run_video_cut() {
     fi
 
     # 2. Run ffmpeg through our universal progress bar
-    # cmd starts with ffmpeg, so we just run it directly
-    local ffmpeg_error_log=$(mktemp)
-    
     # Ensure -nostdin and standard logging are set
     local display_cmd=("${cmd[@]}")
     # Inject non-interactive flags if missing
@@ -732,11 +729,8 @@ run_video_cut() {
         display_cmd=("ffmpeg" "${display_cmd[@]}")
     fi
     
-    "${display_cmd[@]}" 2>&1 | tee "$ffmpeg_error_log" | ffmpeg_progress_bar "$duration_seconds"
-    local ffmpeg_exit=${PIPESTATUS[0]:-$?}
-    
-    # Clear the progress line after completion
-    printf "\r\033[K"
+    run_ffmpeg_with_progress "$duration_seconds" "${display_cmd[@]}"
+    local ffmpeg_exit=$?
     
     # Check result
     if [[ -f "$output_file" && $ffmpeg_exit -eq 0 ]]; then
@@ -780,15 +774,10 @@ run_video_cut() {
         echo ""
         echo "📍 Output: $(realpath "$output_file")"
     else
-        echo "❌ Error: Operation failed! (ffmpeg exit code: $ffmpeg_exit)"
-        if [[ -f "$ffmpeg_error_log" ]]; then
-            echo "── ffmpeg error ──"
-            cat "$ffmpeg_error_log" | grep -i 'error\|invalid\|failed\|cannot' | tail -20
-        fi
-        rm -f "$ffmpeg_error_log" "$output_file"
+        # run_ffmpeg_with_progress automatically prints the ffmpeg error log if exit code is non-zero
+        rm -f "$output_file"
         return 1
     fi
-    rm -f "$ffmpeg_error_log"
 }
 
 # ==============================================================================
