@@ -3601,7 +3601,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     
                     # Determine which languages to export.
                     # If target_langs specified, export them. Otherwise export source_lang.
-                    export_langs = set(self.target_langs) if self.target_langs else {source_lang}
+                    export_langs = set(target_langs) if target_langs else {source_lang}
                     
                     srt_paths = {
                         lang: path for lang, path in result.items()
