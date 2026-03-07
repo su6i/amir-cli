@@ -3559,71 +3559,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     except Exception:
                         pass
 
-                    # Execute and stream output
-                    render_start_wall = time.time()
-                    process = subprocess.Popen(
-                        render_cmd,
-                        env=current_env,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        text=True,
-                        bufsize=1,
-                        universal_newlines=True
-                    )
+                    # Execute natively — 'amir video cut' provides its own ASCII progress bar
+                    try:
+                        process = subprocess.run(
+                            render_cmd,
+                            env=current_env,
+                            check=False
+                        )
+                    except KeyboardInterrupt:
+                        self.logger.warning("Rendering interrupted by user.")
+                        return None
                     
-                    def _ffmpeg_time_to_seconds(t: str) -> float:
-                        """Parse ffmpeg time string HH:MM:SS.xx to seconds"""
-                        try:
-                            parts = t.strip().split(':')
-                            return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
-                        except Exception:
-                            return 0.0
-
-                    for line in process.stdout:
-                        # Forward the progress from video.sh
-                        line_stripped = line.strip()
-                        if not line_stripped:
-                            continue
-                        
-                        # Filter out noisy logs (SVT, FFmpeg config, etc.)
-                        if re.match(r'^Svt\[', line_stripped):
-                            continue
-                        if re.match(r'^ffmpeg version|^input #|^output #|^stream mapping', line_stripped, re.IGNORECASE):
-                            continue
-                        if 'bitrate=' not in line_stripped and line_stripped.startswith(('frame=', 'size=')):
-                            continue
-
-                        # Output progress in one line (\r for progress stats)
-                        if line_stripped.startswith("frame=") or \
-                           ("time=" in line_stripped and "bitrate=" in line_stripped):
-                            # Parse time= field for progress display
-                            time_match = re.search(r'time=(\S+)', line_stripped)
-                            elapsed_wall = time.time() - render_start_wall
-                            progress_str = ""
-                            if time_match and render_total_duration > 0:
-                                encoded_secs = _ffmpeg_time_to_seconds(time_match.group(1))
-                                pct = min(encoded_secs / render_total_duration * 100, 100)
-                                remaining = (render_total_duration - encoded_secs) / max(encoded_secs / elapsed_wall, 0.001) if encoded_secs > 0 else 0
-                                elapsed_str = time.strftime('%M:%S', time.gmtime(elapsed_wall))
-                                remain_str  = time.strftime('%M:%S', time.gmtime(remaining))
-                                progress_str = f" | {pct:5.1f}% | elapsed: {elapsed_str} | remaining: {remain_str}"
-                            elif time_match:
-                                elapsed_str = time.strftime('%M:%S', time.gmtime(elapsed_wall))
-                                progress_str = f" | elapsed: {elapsed_str}"
-                            
-                            # Use VT100 clear line to prevent word-wrapping spam on narrow terminals
-                            out_str = f"{line_stripped}{progress_str}"[:110] # Cap length to avoid wrap
-                            sys.stdout.write(f"\r\033[K{out_str}")
-                            sys.stdout.flush()
-                        else:
-                            # Allow errors, warnings, completion events OR the Dashboard Table to print
-                            if any(keyword in line_stripped.lower() for keyword in ['error', 'warning', 'failed', 'complete', 'finished', 'rendered']):
-                                print(f"\n{line_stripped}", flush=True)
-                            elif any(c in line_stripped for c in ['╭', '│', '╰', '─', '┌', '├', '└', '┬', '┼', '┴', '┐', '┤', '┘', '📥', '📤', '📊', '📈', '✅', '═']):
-                                print(line_stripped, flush=True)
-                        
-                    process.wait()
-                    print() # Final newline after loop finishes
+                    print() # Final newline after completion
                     
                     if process.returncode != 0:
                         self.logger.error("❌ Rendering failed in 'amir video' engine.")
