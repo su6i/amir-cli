@@ -145,12 +145,23 @@ run_pdf() {
 
     if [[ ${#final_ready[@]} -gt 0 ]]; then
         rm -f "$output" 2>/dev/null
-        if $cmd -density 300 "${final_ready[@]}" -compress jpeg -quality 100 "$output"; then
-            touch "$output"
+        
+        # Optimization: if there's exactly one PDF, copy it directly to preserve vector text/fonts and prevent massive file bloat
+        if [[ ${#final_ready[@]} -eq 1 && "${final_ready[0]}" == *.pdf* ]]; then
+            local src_pdf="${final_ready[0]}"
+            # Strip ImageMagick page range syntax if present (e.g. file.pdf[0-999] -> file.pdf)
+            src_pdf="${src_pdf%\[*\]}"
+            cp "$src_pdf" "$output"
             local abs_output=$(python3 -c "import os; print(os.path.abspath('$output'))")
             echo "✅ PDF Created: $abs_output"
         else
-            echo "❌ Final assembly failed."
+            if $cmd -density 300 "${final_ready[@]}" -compress jpeg -quality 100 "$output"; then
+                touch "$output"
+                local abs_output=$(python3 -c "import os; print(os.path.abspath('$output'))")
+                echo "✅ PDF Created: $abs_output"
+            else
+                echo "❌ Final assembly failed."
+            fi
         fi
     else
         echo "❌ No rendered pages found."
