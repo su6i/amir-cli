@@ -732,7 +732,7 @@ run_video_cut() {
         display_cmd=("ffmpeg" "${display_cmd[@]}")
     fi
     
-    "${display_cmd[@]}" 2> >(tee "$ffmpeg_error_log" >&2) | ffmpeg_progress_bar "$duration_seconds"
+    "${display_cmd[@]}" 2>&1 | tee "$ffmpeg_error_log" | ffmpeg_progress_bar "$duration_seconds"
     local ffmpeg_exit=${PIPESTATUS[0]:-$?}
     
     # Clear the progress line after completion
