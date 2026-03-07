@@ -3010,6 +3010,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         post_only: bool = False,
         prompt_file: Optional[str] = None,
         post_langs: Optional[List[str]] = None,
+        save_formats: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Complete workflow with fixed path handling and memory management"""
         
@@ -3645,6 +3646,28 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                                         prompt_file=prompt_file, post_langs=post_langs)
                 except Exception as _pe:
                     self.logger.warning(f"⚠️ Post generation failed (workflow continues): {_pe}")
+
+            # Document export (--save flag)
+            if save_formats:
+                try:
+                    from .exporter import export_subtitles
+                    srt_paths = {lang: path for lang, path in result.items()
+                                 if isinstance(path, str) and path.endswith('.srt')}
+                    if srt_paths:
+                        created = export_subtitles(
+                            srt_paths=srt_paths,
+                            base_name=original_stem,
+                            formats=save_formats,
+                            output_dir=original_dir,
+                            title=original_stem.replace('_', ' ').replace('-', ' '),
+                            logger=self.logger
+                        )
+                        if created:
+                            result['exported_docs'] = created
+                    else:
+                        self.logger.warning("⚠️ No SRT files available for document export.")
+                except Exception as _exp_e:
+                    self.logger.warning(f"⚠️ Document export failed: {_exp_e}")
 
             self.logger.info("Execution sequence finalized.")
             return result

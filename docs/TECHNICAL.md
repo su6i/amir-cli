@@ -387,16 +387,29 @@ amir video download <url> [options]
    - **Font Selection:** `B Nazanin` (Persian), `Noto Sans` (Fallback)
    - **Resolution Scaling:** `font_size = (height / 1080) * 25`
 
+9. **Document Export (`--save` flag):**
+   - **Module:** `lib/python/subtitle/exporter.py`
+   - **Formats:** `txt` (plain text), `md` (Markdown), `html` (styled, RTL/LTR, dark mode), `pdf` (via `amir pdf` Puppeteer engine)
+   - **Usage:** `--save txt pdf` → generates `video_en.txt`, `video_fa.txt`, `video_en.pdf`, `video_fa.pdf`
+   - **Overwrite Protection:** Interactive confirmation before overwriting existing files
+   - **Output Location:** Same directory as input file
+
 #### Workflow Example
 ```bash
 # Full pipeline: Transcribe + Translate + Render
-amir subtitle video.mp4 -t en fa -r
+amir subtitle video.mp4 --sub en fa
+
+# Export as document (no video rendering)
+amir subtitle video.mp4 --sub en fa --save txt md --no-render
+
+# Export multiple formats
+amir subtitle video.mp4 --sub en fa --save txt pdf html
 
 # Resume interrupted translation
-amir subtitle video.mp4 -t en fa -rc
+amir subtitle video.mp4 --sub en fa -rc
 
 # Multiple languages
-amir subtitle video.mp4 -t en fa ar es -r
+amir subtitle video.mp4 --sub en fa ar es
 ```
 
 #### Technical Implementation Details
