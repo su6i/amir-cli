@@ -353,7 +353,7 @@ run_ffmpeg_with_progress() {
     
     local ffmpeg_error_log=$(mktemp)
     
-    "$@" 2> >(tee "$ffmpeg_error_log" >&2) | ffmpeg_progress_bar "$duration"
+    "$@" 2>&1 | tee "$ffmpeg_error_log" | ffmpeg_progress_bar "$duration"
     local exit_code=${PIPESTATUS[0]:-$?}
     
     printf "\r\033[K"
