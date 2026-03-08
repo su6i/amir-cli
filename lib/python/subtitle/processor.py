@@ -2461,10 +2461,9 @@ if __name__ == "__main__":
                 "FORMAT: Return ONLY a valid JSON object where keys are the input line numbers and values are the translations.\n"
                 "EXAMPLE: {\"1\": \"سلام\", \"2\": \"چطوری؟\"}\n"
                 f"RULE: For technical terms (API, AGI, etc.), write the {lang_name} translation first, then the English in parentheses (e.g. 'هزینه‌ها (CapEx)').\n"
-                "CRITICAL 1: You MUST translate EACH line strictly independently. Do NOT merge two lines into one key. The output JSON must have the EXACT SAME NUMBER of keys as the input TARGET LINES, with NO skipped numbers.\n"
-                "CRITICAL 2: PREVENT LINE SHIFTING! The translation for line N MUST correspond EXACTLY to the English text in line N. Do NOT shift the translation of line N+1 into line N.\n"
-                "CRITICAL 3: SVO to SOV SPLITTING: If an English sentence spans multiple lines (e.g., Line 1 has the subject, Line 2 has the object, Line 3 has the verb), you MUST split your Persian translation across those EXACT SAME lines. Put the Persian subject in Line 1, the Persian object in Line 2, and the Persian verb in Line 3. DO NOT put the entire translated sentence into Line 1. The timing of the subtitles relies on you keeping the fragments in their respective line keys!\n"
-                "CRITICAL 4: NEVER echo or repeat the original English source text in your output.\n"
+                "CRITICAL 1: You MUST translate EACH numbered item independently. The output JSON must have the EXACT SAME NUMBER of keys as the input items.\n"
+                "CRITICAL 2: Translate each sentence naturally and completely. Each input item is a complete sentence or paragraph.\n"
+                "CRITICAL 3: NEVER echo or repeat the original English source text in your output.\n"
                 "NO commentary, NO extra text."
             )
         
@@ -3184,29 +3183,66 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     
                     texts = [e['text'] for e in entries]
                     
+                    # ── TRANSLATE-THEN-RESEGMENT (Industry Standard) ──
+                    # Instead of translating individual subtitle fragments (which causes
+                    # line drift when the LLM merges partial sentences), we:
+                    # 1. Group entries into complete sentence paragraphs
+                    # 2. Translate full paragraphs (giving the LLM complete context)
+                    # 3. Re-segment translated text back onto original timecodes
+                    
+                    paragraph_groups = self._group_entries_into_paragraphs(entries)
+                    paragraph_texts = []
+                    for group in paragraph_groups:
+                        # Join all fragment texts in this paragraph group
+                        paragraph_texts.append(' '.join(entries[idx]['text'] for idx in group))
+                    
+                    self.logger.info(f"📐 Paragraph grouping: {len(entries)} fragments → {len(paragraph_texts)} paragraphs")
+                    
+                    # Create virtual entries for the paragraph-level translation
+                    # (needed for incremental SRT save inside the translation function)
+                    para_entries = []
+                    for group in paragraph_groups:
+                        para_entries.append({
+                            'start': entries[group[0]]['start'],
+                            'end': entries[group[-1]]['end'],
+                            'text': ' '.join(entries[idx]['text'] for idx in group),
+                        })
+                    
                     # Choose translation strategy based on llm_choice
-                    translated = []
+                    translated_paragraphs = []
                     
                     # If user specified a particular LLM via --llm flag, respect that choice
                     if self.llm_choice == "gemini":
-                        translated = self.translate_with_gemini(texts, tgt, source_lang, original_entries=entries, output_srt=tgt_srt, existing_translations=recovered_map)
+                        translated_paragraphs = self.translate_with_gemini(paragraph_texts, tgt, source_lang, original_entries=para_entries, output_srt=tgt_srt, existing_translations=recovered_map)
                     elif self.llm_choice == "litellm":
-                        translated = self.translate_with_litellm(texts, tgt, source_lang, original_entries=entries, output_srt=tgt_srt, existing_translations=recovered_map)
+                        translated_paragraphs = self.translate_with_litellm(paragraph_texts, tgt, source_lang, original_entries=para_entries, output_srt=tgt_srt, existing_translations=recovered_map)
                     elif self.llm_choice == "minimax":
-                        translated = self.translate_with_minimax(texts, tgt, source_lang, original_entries=entries, output_srt=tgt_srt, existing_translations=recovered_map)
+                        translated_paragraphs = self.translate_with_minimax(paragraph_texts, tgt, source_lang, original_entries=para_entries, output_srt=tgt_srt, existing_translations=recovered_map)
                     elif self.llm_choice == "grok":
-                        translated = self.translate_with_grok(texts, tgt, source_lang, original_entries=entries, output_srt=tgt_srt, existing_translations=recovered_map)
+                        translated_paragraphs = self.translate_with_grok(paragraph_texts, tgt, source_lang, original_entries=para_entries, output_srt=tgt_srt, existing_translations=recovered_map)
                     else:
                         # Default: Use per-batch fallback chain for optimal rate limit distribution
-                        # Each batch tries models in sequence: deepseek -> minimax -> gemini -> grok
-                        translated = self.translate_with_batch_fallback_chain(
-                            texts,
+                        translated_paragraphs = self.translate_with_batch_fallback_chain(
+                            paragraph_texts,
                             tgt,
                             source_lang,
-                            original_entries=entries,
+                            original_entries=para_entries,
                             output_srt=tgt_srt,
                             existing_translations=recovered_map
                         )
+                    
+                    # Re-segment translated paragraphs back onto original timecodes
+                    translated = self._resegment_translation(entries, paragraph_groups, translated_paragraphs)
+                    
+                    # Apply Persian text fixes after re-segmentation
+                    if tgt == 'fa':
+                        translated = [self.fix_persian_text(self.strip_english_echo(t)) if t and t.strip() else t for t in translated]
+                    
+                    # Write the final re-segmented SRT with original timecodes
+                    with open(tgt_srt, 'w', encoding='utf-8-sig') as f:
+                        for idx_srt, entry in enumerate(entries, 1):
+                            t_text = translated[idx_srt - 1] if idx_srt - 1 < len(translated) else entry['text']
+                            f.write(f"{idx_srt}\n{entry['start']} --> {entry['end']}\n{t_text}\n\n")
 
                     
                     # FINAL VERIFICATION: Ensure we actually got some Persian if tgt is FA
@@ -4357,6 +4393,178 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     time.sleep(wait_time)
         
         raise ValueError(f"Unknown model: {model_name}")
+
+    # ==================== TRANSLATE-THEN-RESEGMENT ====================
+    # Industry-standard approach: translate full sentences, then re-segment
+    # back onto original timecodes using character-proportional splitting.
+
+    @staticmethod
+    def _group_entries_into_paragraphs(entries: List[Dict]) -> List[List[int]]:
+        """Group consecutive subtitle entries into sentence-level paragraphs.
+        
+        A paragraph boundary is placed after any entry whose text ends with
+        sentence-ending punctuation (. ! ? … 。？！). This ensures the LLM
+        receives complete sentences for translation.
+        
+        Returns:
+            List of groups, where each group is a list of indices into `entries`.
+            Example: [[0,1,2], [3,4], [5], ...]
+        """
+        sentence_enders = {'.', '!', '?', '…', '。', '？', '！'}
+        groups = []
+        current_group = []
+        
+        for i, entry in enumerate(entries):
+            current_group.append(i)
+            text = entry.get('text', '').strip()
+            
+            # Check if this entry ends a sentence
+            ends_sentence = False
+            if text:
+                last_char = text.rstrip()[-1] if text.rstrip() else ''
+                if last_char in sentence_enders:
+                    ends_sentence = True
+                # Also break on ellipsis patterns
+                if text.rstrip().endswith('...') or text.rstrip().endswith('…'):
+                    ends_sentence = True
+            
+            # Flush group if sentence ends OR group is getting very large (safety cap)
+            if ends_sentence or len(current_group) >= 8:
+                groups.append(current_group)
+                current_group = []
+        
+        # Flush remaining
+        if current_group:
+            groups.append(current_group)
+        
+        return groups
+
+    @staticmethod
+    def _take_words_up_to(words: List[str], target_chars: int) -> tuple:
+        """Take words from the front of the list until we reach target_chars.
+        
+        OPTIMIZED: Uses 'Punctuation Snapping' to favor breaking at sentence or 
+        clause boundaries (. ! ? , : ; ...) if they are within a reasonable 
+        window (80% - 130% of target). If no punctuation is found, it uses 
+        'Lexical Snapping' to avoid breaking after dangling prepositions/conjunctions.
+        
+        Returns:
+            (segment_text, remaining_words)
+        """
+        if not words:
+            return ('', [])
+        
+        punctuations = {'.', '!', '?', '…', '。', '？', '！', ',', ';', ':', '،', '؛', '»', ')', '}', ']'}
+        
+        # Words we absolutely DO NOT want at the END of a subtitle line 
+        # (they should start the next line instead)
+        bad_enders = {
+            'و', 'در', 'به', 'که', 'از', 'با', 'برای', 'تا', 'چون', 'اگر', 
+            'یا', 'پس', 'اما', 'ولی', 'هم', 'نیز', 'را',
+            'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with', 'by', 'of', 'that'
+        }
+        
+        best_index = 0
+        chars_so_far = 0
+        best_punctuated_index = -1
+        
+        for i, word in enumerate(words):
+            word_len = len(word) + (1 if i > 0 else 0)
+            chars_so_far += word_len
+            
+            clean_word = word.rstrip(''.join(punctuations)).strip()
+            ends_in_punct = word.rstrip() and word.rstrip()[-1] in punctuations
+            
+            # --- PEAK SELECTION LOGIC ---
+            # 1. Punctuation Priority: Store index of last word with punctuation in window [80%, 130%]
+            if 0.8 * target_chars <= chars_so_far <= 1.3 * target_chars:
+                if ends_in_punct:
+                    best_punctuated_index = i
+            
+            # 2. Hard Stop: We have exceeded the window, we MUST break
+            if chars_so_far > 1.3 * target_chars and i > 0:
+                break
+            
+            # 3. Mathematical Best Fit (fallback)
+            if chars_so_far <= target_chars:
+                best_index = i
+            elif best_index == 0: # safety: take at least one word
+                best_index = i
+        
+        # FINAL DECISION TIER
+        if best_punctuated_index != -1:
+            final_idx = best_punctuated_index
+        else:
+            final_idx = best_index
+            # Lexical Snapping: Move the break back if it lands on a bad ender
+            # (e.g. don't end a line with "در")
+            clean_end_word = words[final_idx].rstrip(''.join(punctuations)).strip().lower()
+            if clean_end_word in bad_enders and final_idx > 0:
+                final_idx -= 1
+        
+        taken = words[:final_idx + 1]
+        remaining = words[final_idx + 1:]
+        
+        return (' '.join(taken).strip(), remaining)
+
+    def _resegment_translation(
+        self,
+        entries: List[Dict],
+        paragraph_groups: List[List[int]],
+        translated_paragraphs: List[str]
+    ) -> List[str]:
+        """Re-segment translated paragraphs back onto original timecodes.
+        
+        Uses character-proportional splitting: each subtitle line gets a
+        portion of the translated text proportional to its source character count.
+        Splits are always at word boundaries.
+        
+        Args:
+            entries: Original source subtitle entries
+            paragraph_groups: Groups of entry indices (from _group_entries_into_paragraphs)
+            translated_paragraphs: One translated string per paragraph group
+            
+        Returns:
+            List of translated texts, one per entry (same length as `entries`)
+        """
+        result = [''] * len(entries)
+        
+        for group_indices, translated_text in zip(paragraph_groups, translated_paragraphs):
+            if not translated_text or not translated_text.strip():
+                # Fallback: keep original text
+                for idx in group_indices:
+                    result[idx] = entries[idx].get('text', '')
+                continue
+            
+            # Single-entry group: no splitting needed
+            if len(group_indices) == 1:
+                result[group_indices[0]] = translated_text.strip()
+                continue
+            
+            # Multi-entry group: split proportionally
+            source_chars = []
+            for idx in group_indices:
+                text = entries[idx].get('text', '')
+                source_chars.append(max(len(text), 1))  # avoid division by zero
+            
+            total_source = sum(source_chars)
+            words = translated_text.strip().split()
+            total_trans_chars = len(translated_text.strip())
+            
+            for i, idx in enumerate(group_indices):
+                ratio = source_chars[i] / total_source
+                target_chars = max(int(total_trans_chars * ratio), 1)
+                
+                if i == len(group_indices) - 1:
+                    # Last segment gets all remaining words
+                    segment = ' '.join(words)
+                    words = []
+                else:
+                    segment, words = self._take_words_up_to(words, target_chars)
+                
+                result[idx] = segment.strip() if segment else entries[idx].get('text', '')
+        
+        return result
 
     def translate_with_batch_fallback_chain(
         self,
