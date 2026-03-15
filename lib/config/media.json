@@ -35,9 +35,9 @@
   },
   "video": {
     "subtitle": {
-      "merge_sec": 2.0,
+      "merge_sec": 3.5,
       "min_words": 5,
-      "max_words": 10,
+      "max_words": 14,
       "break_chars": [".", "?", "!", "...", "。", "？", "！", ",", ";", ":", "،", "؛"],
       "split_words": [
         "and", "but", "because", "so", "if", "when", "while", "although", "what", "why", "where", "how", "who", "the", "or"

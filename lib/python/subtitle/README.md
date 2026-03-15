@@ -25,6 +25,14 @@ The logic is encapsulated in the `SubtitleProcessor` class within `processor.py`
 -   **`create_ass_with_font()`**: ASS subtitle generation with bilingual support and RTL.
 -   **`_ingest_partial_srt()`**: Resume capability — recovers existing translations from partial SRT.
 
+### Behavior Notes
+
+- `--save` with no explicit format defaults to PDF export.
+- In bilingual mode, the top/source line is emitted as single-line in ASS events to avoid accidental multi-line wrap of English text.
+- Final render defaults to input video height when `--resolution` is not provided.
+- Final render quality can be tuned with `--quality` (`0-100`).
+- When a sidecar thumbnail is found near the source video, render can inject it as startup frame content (first ~80ms) in the same pass.
+
 ## 💻 Programmatic Usage
 
 You can use this package in your own Python scripts:

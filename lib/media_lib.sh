@@ -100,15 +100,19 @@ get_media_bitrate() {
 get_media_info() {
     local file="$1"
     
-    # Resolution + Rotation
-    local ff_output=$(ffprobe -v error -select_streams v:0 \
-        -show_entries stream=width,height,codec_name:stream_side_data=rotation \
-        -of csv=s=x:p=0 "$file" 2>/dev/null)
-    
-    MEDIA_WIDTH=$(echo "$ff_output" | cut -d'x' -f1)
-    MEDIA_HEIGHT=$(echo "$ff_output" | cut -d'x' -f2)
-    MEDIA_CODEC=$(echo "$ff_output" | cut -d'x' -f3)
-    MEDIA_ROTATION=$(echo "$ff_output" | cut -d'x' -f4)
+    # Probe fields by key (more robust than CSV positional parsing).
+    MEDIA_WIDTH=$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=width \
+        -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null | head -n1)
+    MEDIA_HEIGHT=$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=height \
+        -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null | head -n1)
+    MEDIA_CODEC=$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=codec_name \
+        -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null | head -n1)
+    MEDIA_ROTATION=$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream_side_data=rotation \
+        -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null | head -n1)
     
     # Clean rotation
     MEDIA_ROTATION=${MEDIA_ROTATION#-}
@@ -189,8 +193,14 @@ build_encoder_opts() {
         local target_br=$(calculate_target_bitrate "$input_bitrate" "$quality" "$encoder")
         MEDIA_Q_OPT=("-b:v" "$target_br")
     elif [[ "$encoder" == "libx265" ]]; then
-        # Software: use -q:v + maxrate/bufsize cap
-        MEDIA_Q_OPT=("-q:v" "$quality")
+        # Software HEVC: use CRF for quality control
+        # quality ≤ 51 → treat as CRF directly (e.g. extreme mode passes 28)
+        # quality > 51 → legacy -q:v path (100=best, 0=worst scale)
+        if [[ "$quality" -le 51 ]]; then
+            MEDIA_Q_OPT=("-crf" "$quality" "-preset" "slow")
+        else
+            MEDIA_Q_OPT=("-q:v" "$quality")
+        fi
         if [[ -n "$input_bitrate" && "$input_bitrate" =~ ^[0-9]+$ ]]; then
             local max_br=$(echo "$input_bitrate * 115 / 100" | bc)
             local buf_sz=$((max_br * 2))
@@ -248,6 +258,69 @@ format_duration() {
     local secs="${1:-0}"
     [[ -z "$secs" || "$secs" == "N/A" ]] && secs=0
     printf '%02d:%02d:%02d' $((secs/3600)) $((secs%3600/60)) $((secs%60))
+}
+
+# Split any media file into approximate N MB chunks without re-encoding.
+# Keyframe/container boundaries mean sizes are approximate, not exact.
+# Usage: split_media_approx_by_size "file.mp4" 10
+split_media_approx_by_size() {
+    local input_file="$1"
+    local split_mb="$2"
+
+    if [[ -z "$input_file" || ! -f "$input_file" || -z "$split_mb" || ! "$split_mb" =~ ^[0-9]+$ || "$split_mb" -le 0 ]]; then
+        return 1
+    fi
+
+    local file_bytes
+    local duration_seconds
+    file_bytes=$(stat -f%z "$input_file" 2>/dev/null || stat -c%s "$input_file" 2>/dev/null)
+    duration_seconds=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
+
+    if [[ -z "$file_bytes" || ! "$file_bytes" =~ ^[0-9]+$ || "$file_bytes" -le 0 || -z "$duration_seconds" ]]; then
+        return 1
+    fi
+
+    local split_bytes=$(( split_mb * 1024 * 1024 ))
+    if [[ "$file_bytes" -le "$split_bytes" ]]; then
+        echo "ℹ️  Split skipped: file is already <= ${split_mb}MB."
+        return 0
+    fi
+
+    local segment_time
+    segment_time=$(awk -v dur="$duration_seconds" -v total="$file_bytes" -v target="$split_bytes" 'BEGIN {
+        if (dur <= 0 || total <= 0 || target <= 0) {
+            print 0;
+        } else {
+            seg = (dur * target * 0.90) / total;
+            if (seg < 1) seg = 1;
+            printf "%.3f", seg;
+        }
+    }')
+
+    if [[ -z "$segment_time" || "$segment_time" == "0" || "$segment_time" == "0.000" ]]; then
+        return 1
+    fi
+
+    local out_ext="${input_file##*.}"
+    local split_pattern="${input_file%.*}_part%03d.${out_ext}"
+
+    echo "✂️  Splitting output into ~${split_mb}MB chunks..."
+    ffmpeg -hide_banner -loglevel error -y \
+        -i "$input_file" \
+        -map 0 -c copy \
+        -f segment -segment_time "$segment_time" \
+        -reset_timestamps 1 \
+        "$split_pattern"
+    local split_exit=$?
+
+    if [[ $split_exit -eq 0 ]]; then
+        echo "✅ Split complete (approximate sizes — based on bitrate/time, keyframe-bound):"
+        ls -lh "${input_file%.*}_part"*."${out_ext}" 2>/dev/null | awk '{printf "   %s  %s\n", $5, $NF}'
+        return 0
+    fi
+
+    echo "⚠️  Split failed, original output kept: $(basename "$input_file")"
+    return 1
 }
 
 # ==============================================================================
