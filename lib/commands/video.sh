@@ -262,6 +262,10 @@ process_video() {
     local target_h="$2"
     local quality="$3"
     local encoding_mode="${4:---gpu}"  # Default: GPU
+    local extreme_mode="${5:-0}"
+    local custom_fps="${6:-0}"
+    local split_mb="${7:-0}"
+    local force_reencode="${8:-0}"
 
     if [[ ! -f "$input_file" ]]; then
         return
@@ -296,11 +300,20 @@ process_video() {
         target_h_final=$target_h
     fi
 
-    local output="${input_file%.*}_${target_h}p_q${quality}.mp4"
+    local fps_suffix=""
+    [[ "$custom_fps" -gt 0 ]] && fps_suffix="_${custom_fps}fps"
+    local output="${input_file%.*}_${target_h}p_q${quality}${fps_suffix}.mp4"
     
-    if [[ -f "$output" ]]; then
-       echo "⏩ Skipping: $(basename "$input_file") (Output exists)"
-       return
+    if [[ -f "$output" && "$force_reencode" -ne 1 ]]; then
+        if [[ -n "$split_mb" && "$split_mb" =~ ^[0-9]+$ && "$split_mb" -gt 0 ]]; then
+            echo "⏩ Output exists: $(basename "$output")"
+            echo "🔁 Reusing existing compressed file and running split only..."
+            echo ""
+            split_media_approx_by_size "$output" "$split_mb"
+            return
+        fi
+        echo "⏩ Skipping: $(basename "$input_file") (Output exists)"
+        return
     fi
 
     local input_size=$(ls -lh "$input_file" | awk '{print $5}')
@@ -344,8 +357,40 @@ process_video() {
     local input_bitrate=$(get_media_bitrate "$input_file")
     build_encoder_opts "$encoder" "$quality" "$input_bitrate"
     
+    # For VideoToolbox (hardware GPU encoder) the default formula is:
+    #   target_bitrate = input_bitrate × quality/100
+    # This ignores the resolution change, so a 720p→240p encode still targets the
+    # same high bitrate and the file barely shrinks. Fix: scale the target bitrate
+    # proportionally to the pixel count change as well.
+    if [[ "$encoder" == *"videotoolbox"* && -n "$input_bitrate" && "$input_bitrate" =~ ^[0-9]+$ && "$in_w" -gt 0 && "$in_h" -gt 0 ]]; then
+        local corrected_br
+        corrected_br=$(awk -v br="$input_bitrate" -v q="$quality" \
+            -v iw="$in_w" -v ih="$in_h" -v tw="$target_w" -v th="$target_h_final" \
+            'BEGIN {
+                pixel_ratio = (tw * th) / (iw * ih);
+                if (pixel_ratio > 1) pixel_ratio = 1;
+                t = br * (q / 100) * pixel_ratio;
+                if (t < 100000) t = 100000;
+                printf "%d", t;
+            }')
+        MEDIA_Q_OPT=("-b:v" "$corrected_br")
+    fi
+
     local audio_filter="aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo"
-    local filter_cmd="fps=25,scale='min(${target_w},iw)':-2"
+    local audio_bitrate_opt=()
+    local target_fps=25
+
+    # Extreme mode: mono audio, 56kbps, 24fps, slow CPU preset for maximum compression
+    if [[ "$extreme_mode" -eq 1 ]]; then
+        audio_filter="aresample=22050,aformat=sample_fmts=fltp:channel_layouts=mono"
+        audio_bitrate_opt=("-b:a" "56k")
+        target_fps=24
+    fi
+
+    # --fps flag overrides everything (including extreme defaults)
+    [[ "$custom_fps" -gt 0 ]] && target_fps=$custom_fps
+
+    local filter_cmd="fps=${target_fps},scale='min(${target_w},iw)':-2"
 
     # ── Execute FFmpeg with Progress Bar ──
     run_ffmpeg_with_progress "$duration_seconds" \
@@ -354,7 +399,7 @@ process_video() {
         -c:v "$encoder" "${MEDIA_Q_OPT[@]}" $tag_opt \
         "${MEDIA_BITRATE_FLAGS[@]}" \
         -af "$audio_filter" \
-        -c:a aac -pix_fmt yuv420p -movflags +faststart "$output"
+        -c:a aac "${audio_bitrate_opt[@]}" -pix_fmt yuv420p -movflags +faststart "$output"
     local ffmpeg_exit=$?
 
     local output_bytes_check=0
@@ -420,9 +465,40 @@ process_video() {
     
     # ── Output Size Validation (via shared library) ──
     validate_output_size "$input_file" "$output" "$encoder"
+
+    # ── Split output into chunks if requested (--split N splits by ~N MB) ──
+    if [[ -n "$split_mb" && "$split_mb" -gt 0 && -f "$output" ]]; then
+        echo ""
+        split_media_approx_by_size "$output" "$split_mb"
+    fi
+}
+
+run_video_split() {
+    local input_file="$1"
+    local split_mb="$2"
+
+    if [[ -z "$input_file" || ! -f "$input_file" ]]; then
+        echo "❌ Error: No input file specified."
+        echo "Usage: amir video split <file> <mb>"
+        return 1
+    fi
+    if [[ -z "$split_mb" || ! "$split_mb" =~ ^[0-9]+$ || "$split_mb" -le 0 ]]; then
+        echo "❌ Error: Split size must be a positive integer in MB."
+        echo "Usage: amir video split <file> <mb>"
+        return 1
+    fi
+
+    split_media_approx_by_size "$input_file" "$split_mb"
 }
 
 video() {
+    # Direct shared split subcommand
+    if [[ "$1" == "split" ]]; then
+        shift
+        run_video_split "$@"
+        return $?
+    fi
+
     # Support explicit 'compress' subcommand by skipping it
     if [[ "$1" == "compress" ]]; then
         shift
@@ -432,6 +508,7 @@ video() {
     if [[ $# -eq 0 ]]; then
         echo "Usage: amir video compress <files...> [Resolution] [Quality] [--gpu|--cpu]"
         echo "       amir video cut / trim <file> [options]"
+        echo "       amir video split <file> <mb>"
         echo "       amir video batch <dir> [Resolution]"
         echo ""
         echo "Example (Compress): amir video compress movie.mp4 1080 60"
@@ -458,6 +535,10 @@ video() {
     # Smart Argument Parsing
     local inputs=()
     local encoding_mode="--gpu"  # Default: GPU
+    local extreme_mode=0
+    local custom_fps=0
+    local split_mb=0
+    local force_reencode=0
     # Load defaults from Config
     local target_h=$(get_config "video" "resolution" "720")
     local quality=$(get_config "video" "quality" "70")
@@ -465,11 +546,31 @@ video() {
     # Validation for config values
     [[ "$target_h" =~ ^[0-9]+$ ]] || target_h=720
     [[ "$quality" =~ ^[0-9]+$ ]] || quality=60
-    
-    for arg in "$@"; do
+
+    local args=("$@")
+    local i=0
+    while [[ $i -lt ${#args[@]} ]]; do
+        local arg="${args[$i]}"
         case "$arg" in
             --gpu) encoding_mode="--gpu" ;;
             --cpu) encoding_mode="--cpu" ;;
+            extreme|EXTREME)
+                extreme_mode=1
+                target_h=360
+                quality=28
+                encoding_mode="--cpu"
+                ;;
+            --fps)
+                i=$(( i + 1 ))
+                custom_fps="${args[$i]:-0}"
+                ;;
+            --split)
+                i=$(( i + 1 ))
+                split_mb="${args[$i]:-0}"
+                ;;
+            --force)
+                force_reencode=1
+                ;;
             *)
                 if [[ -f "$arg" || -d "$arg" ]]; then
                     inputs+=("$arg")
@@ -482,6 +583,7 @@ video() {
                 fi
                 ;;
         esac
+        i=$(( i + 1 ))
     done
 
     if [[ ${#inputs[@]} -eq 0 ]]; then
@@ -494,11 +596,11 @@ video() {
     # Process all inputs
     for input in "${inputs[@]}"; do
         if [[ -f "$input" ]]; then
-            process_video "$input" "$target_h" "$quality" "$encoding_mode"
+            process_video "$input" "$target_h" "$quality" "$encoding_mode" "$extreme_mode" "$custom_fps" "$split_mb" "$force_reencode"
         elif [[ -d "$input" ]]; then
             echo "📦 Batch processing directory: $input"
             find "$input" -maxdepth 1 -type f \( -name "*.mp4" -o -name "*.mov" -o -name "*.mkv" -o -name "*.MP4" -o -name "*.MOV" -o -name "*.MKV" \) | while read -r file; do
-                process_video "$file" "$target_h" "$quality" "$encoding_mode" < /dev/null
+                process_video "$file" "$target_h" "$quality" "$encoding_mode" "$extreme_mode" "$custom_fps" "$split_mb" "$force_reencode" < /dev/null
             done
         fi
     done
@@ -511,8 +613,13 @@ run_video_cut() {
     local duration=""
     local output_file=""
     local subtitle_file=""
+    local cover_frame_file=""
     local fonts_dir=""
     local encode=0
+    local render_resolution=""
+    local render_quality=""
+    local render_fps=""
+    local split_mb=""
     
     # UI Display Overrides (for symlinked/temp files)
     local display_in=""
@@ -527,9 +634,14 @@ run_video_cut() {
             -d|--duration) duration="$2"; shift 2 ;;
             -o|--output) output_file="$2"; shift 2 ;;
             --subtitles) subtitle_file="$2"; shift 2 ;;
+            --cover-frame) cover_frame_file="$2"; shift 2 ;;
             --fonts-dir) fonts_dir="$2"; shift 2 ;;
             --display-input) display_in="$2"; shift 2 ;;
             --display-output) display_out="$2"; shift 2 ;;
+            --resolution) render_resolution="$2"; shift 2 ;;
+            --quality) render_quality="$2"; shift 2 ;;
+            --fps) render_fps="$2"; shift 2 ;;
+            --split) split_mb="$2"; shift 2 ;;
             --render) encode=1; shift ;;
             *) 
                 if [[ -f "$1" && -z "$input_file" ]]; then
@@ -545,8 +657,20 @@ run_video_cut() {
 
     if [[ -z "$input_file" ]]; then
         echo "❌ Error: No input file specified."
-        echo "Usage: amir video cut <file> [-s start] [-e end] [-o output]"
+        echo "Usage: amir video cut <file> [-s start] [-e end] [-o output] [--resolution H] [--quality Q] [--fps N] [--split MB] [--cover-frame IMG]"
         return 1
+    fi
+
+    # Split-only fast path: if the user asked only for chunking, don't create an
+    # unnecessary *_cut file first. Just split the original input directly.
+    if [[ -n "$split_mb" && "$split_mb" =~ ^[0-9]+$ && "$split_mb" -gt 0 \
+          && -z "$start_time" && -z "$end_time" && -z "$duration" \
+          && -z "$subtitle_file" && -z "$fonts_dir" \
+          && -z "$render_resolution" && -z "$render_quality" && -z "$render_fps" \
+          && "$encode" -eq 0 && -z "$output_file" ]]; then
+        echo "✂️  Split-only mode: reusing source file without creating *_cut output"
+        split_video_approx_by_size "$input_file" "$split_mb"
+        return $?
     fi
 
     # Auto-generate output name if not provided
@@ -574,6 +698,11 @@ run_video_cut() {
         cmd+=("-to" "$end_time")
     elif [[ -n "$duration" ]]; then
         cmd+=("-t" "$duration")
+    fi
+
+    # Optional cover frame image: injected as first frame during render.
+    if [[ -n "$cover_frame_file" && -f "$cover_frame_file" ]]; then
+        cmd+=("-i" "$cover_frame_file")
     fi
 
     # Subtitle Filter Logic
@@ -631,8 +760,16 @@ run_video_cut() {
         # TODO: Refactor process_video to return flags to avoid duplication. 
         # For now, we use the simple "working well" logic + Bitrate Cap.
         
-        local target_h=$(get_config "video" "resolution" "720")
+        local target_h=""
+        # Default to input video height when no render resolution is provided.
+        target_h=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
+        [[ -z "$target_h" || ! "$target_h" =~ ^[0-9]+$ ]] && target_h=$(get_config "video" "resolution" "720")
         local quality=$(get_config "video" "quality" "70")
+
+        # Per-run render overrides (passed through subtitle/compress pipeline)
+        [[ -n "$render_resolution" && "$render_resolution" =~ ^[0-9]+$ ]] && target_h="$render_resolution"
+        [[ -n "$render_quality" && "$render_quality" =~ ^[0-9]+$ ]] && quality="$render_quality"
+        [[ -n "$render_fps" && "$render_fps" =~ ^[0-9]+$ ]] && render_fps="$render_fps"
         
         # Hardware Detection & Smart Encoder Selection
         # Always use H.264 for maximum compatibility (Telegram, QuickTime, etc.)
@@ -670,15 +807,46 @@ run_video_cut() {
         fi
 
         echo "📊 Settings: $encoder (Q:$quality) | Bitrate Target: ${target_bitrate_val:-Auto}"
+
+        # Build pre-filters (scale/fps) and combine with subtitle filter if present.
+        local pre_filter=""
+        if [[ -n "$render_fps" && "$render_fps" =~ ^[0-9]+$ && "$render_fps" -gt 0 ]]; then
+            pre_filter="fps=${render_fps}"
+        fi
+        if [[ -n "$target_h" && "$target_h" =~ ^[0-9]+$ && "$target_h" -gt 0 ]]; then
+            if [[ -n "$pre_filter" ]]; then
+                pre_filter+=","
+            fi
+            pre_filter+="scale=-2:${target_h}"
+        fi
+
+        local final_filter=""
+        if [[ -n "$pre_filter" && -n "$filter_complex" ]]; then
+            final_filter="${pre_filter},${filter_complex}"
+        elif [[ -n "$pre_filter" ]]; then
+            final_filter="$pre_filter"
+        else
+            final_filter="$filter_complex"
+        fi
         
         # Construct Filter Chain
-        if [[ -n "$filter_complex" ]]; then
-            # H.264 with CRF (match input quality, prevent bloat)
-            local crf_val=$(( (100 - quality) * 51 / 100 ))
-            [[ $crf_val -lt 18 ]] && crf_val=18
-            cmd+=("-vf" "$filter_complex" "-c:v" "libx264" "-crf" "$crf_val" "${bitrate_flags[@]}" "-preset" "medium" "-pix_fmt" "yuv420p")
-            # Audio Copy (preserve original quality)
-            cmd+=("-c:a" "copy")
+        local use_cover_frame=false
+        if [[ -n "$cover_frame_file" && -f "$cover_frame_file" ]]; then
+            use_cover_frame=true
+        fi
+
+        # H.264 with CRF (match input quality, prevent bloat)
+        local crf_val=$(( (100 - quality) * 51 / 100 ))
+        [[ $crf_val -lt 18 ]] && crf_val=18
+
+        if $use_cover_frame; then
+            local _vprep="null"
+            [[ -n "$final_filter" ]] && _vprep="$final_filter"
+            # Inject cover image only at startup (first ~80ms) in the same render pass.
+            local _fc="[0:v]${_vprep}[vmain];[1:v][vmain]scale2ref[cover][vref];[vref][cover]overlay=0:0:enable='lte(t,0.08)'[vout]"
+            cmd+=("-filter_complex" "$_fc" "-map" "[vout]" "-map" "0:a?" "-c:v" "libx264" "-crf" "$crf_val" "${bitrate_flags[@]}" "-preset" "medium" "-pix_fmt" "yuv420p" "-c:a" "copy")
+        elif [[ -n "$final_filter" ]]; then
+            cmd+=("-vf" "$final_filter" "-c:v" "libx264" "-crf" "$crf_val" "${bitrate_flags[@]}" "-preset" "medium" "-pix_fmt" "yuv420p" "-c:a" "copy")
         else
             # No filters path
             cmd+=("-c:v" "libx264" "-crf" "23" "${bitrate_flags[@]}" "-preset" "medium" "-c:a" "copy")
@@ -773,6 +941,12 @@ run_video_cut() {
         
         echo ""
         echo "📍 Output: $(realpath "$output_file")"
+
+        # Optional post-render split (approximate MB chunks; keyframe-bound)
+        if [[ -n "$split_mb" && "$split_mb" =~ ^[0-9]+$ && "$split_mb" -gt 0 ]]; then
+            echo ""
+            split_media_approx_by_size "$output_file" "$split_mb"
+        fi
     else
         # run_ffmpeg_with_progress automatically prints the ffmpeg error log if exit code is non-zero
         rm -f "$output_file"
@@ -783,6 +957,159 @@ run_video_cut() {
 # ==============================================================================
 # Video Download (web, YouTube, CloudflareStream, 1000+ sites via yt-dlp)
 # ==============================================================================
+sanitize_terminal_filename_stem() {
+    local _input="$1"
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - "$_input" <<'PY'
+import re
+import sys
+import unicodedata
+
+s = sys.argv[1] if len(sys.argv) > 1 else ""
+s = (
+    s.replace("’", "'")
+     .replace("‘", "'")
+     .replace("`", "'")
+     .replace("´", "'")
+)
+s = unicodedata.normalize("NFKD", s)
+s = s.encode("ascii", "ignore").decode("ascii")
+s = s.replace("'", "_")
+s = re.sub(r"[^A-Za-z0-9._-]+", "_", s)
+s = re.sub(r"_+", "_", s).strip("._-")
+print(s or "video")
+PY
+    else
+        # Minimal fallback when python3 is unavailable.
+        printf "%s" "$_input" | tr -cs 'A-Za-z0-9._-' '_' | sed -E 's/^[_\.-]+|[_\.-]+$//g; s/_+/_/g'
+    fi
+}
+
+stem_compare_key() {
+    local _input="$1"
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - "$_input" <<'PY'
+import re
+import sys
+import unicodedata
+
+s = sys.argv[1] if len(sys.argv) > 1 else ""
+s = (
+    s.replace("’", "'")
+     .replace("‘", "'")
+     .replace("`", "'")
+     .replace("´", "'")
+)
+s = unicodedata.normalize("NFKD", s)
+s = s.encode("ascii", "ignore").decode("ascii")
+s = s.lower()
+print(re.sub(r"[^a-z0-9]+", "", s))
+PY
+    else
+        printf "%s" "$_input" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9'
+    fi
+}
+
+find_video_thumbnail_file() {
+    local _video_file="$1"
+    local _base="${_video_file%.*}"
+    local _thumb=""
+    for _cand in "${_base}.jpg" "${_base}.jpeg" "${_base}.png" "${_base}.webp"; do
+        if [[ -f "$_cand" ]]; then
+            _thumb="$_cand"
+            break
+        fi
+    done
+    [[ -n "$_thumb" ]] && printf "%s" "$_thumb"
+}
+
+find_existing_downloaded_video() {
+    local _out_dir="$1"
+    local _raw_title="$2"
+    local _resolution="$3"
+
+    [[ -n "$_out_dir" && -n "$_raw_title" && -n "$_resolution" ]] || return 1
+
+    local _safe_stem
+    _safe_stem="$(sanitize_terminal_filename_stem "$_raw_title")"
+    [[ -n "$_safe_stem" ]] || return 1
+    local _target_key
+    _target_key="$(stem_compare_key "$_raw_title")"
+    [[ -n "$_target_key" ]] || _target_key="$(stem_compare_key "$_safe_stem")"
+
+    local _exact="${_out_dir}/${_safe_stem}_${_resolution}p.mp4"
+    if [[ -f "$_exact" ]]; then
+        printf "%s" "$_exact"
+        return 0
+    fi
+
+    local _candidate
+    for _candidate in "${_out_dir}"/${_safe_stem}_${_resolution}p*.mp4; do
+        [[ -f "$_candidate" ]] || continue
+        printf "%s" "$_candidate"
+        return 0
+    done
+
+    # Fallback: robust semantic match among all files with same resolution suffix.
+    # Handles legacy naming drift like: Bibi's -> Bibi_s / Bibis.
+    if [[ -n "$_target_key" ]]; then
+        local _cand_name _cand_stem _cand_base _cand_key
+        for _candidate in "${_out_dir}"/*_${_resolution}p*.mp4; do
+            [[ -f "$_candidate" ]] || continue
+            _cand_name="$(basename "$_candidate")"
+            _cand_stem="${_cand_name%.*}"
+            _cand_base="$(printf '%s' "$_cand_stem" | sed -E "s/_${_resolution}p(_[0-9]+)?$//")"
+            _cand_key="$(stem_compare_key "$_cand_base")"
+            if [[ -n "$_cand_key" && "$_cand_key" == "$_target_key" ]]; then
+                printf "%s" "$_candidate"
+                return 0
+            fi
+        done
+    fi
+
+    return 1
+}
+
+extract_video_thumbnail_fallback() {
+    local _video_file="$1"
+    local _thumb_out="$2"
+    local _ffmpeg_cmd="${FFMPEG_EXEC:-ffmpeg}"
+    "$_ffmpeg_cmd" -hide_banner -loglevel error -y \
+        -ss 1 -i "$_video_file" -frames:v 1 -q:v 2 "$_thumb_out" >/dev/null 2>&1
+}
+
+embed_video_cover_art() {
+    local _video_file="$1"
+    local _thumb_file="$2"
+
+    [[ -f "$_video_file" && -f "$_thumb_file" ]] || return 0
+
+    local _ext="${_video_file##*.}"
+    _ext="$(printf '%s' "$_ext" | tr '[:upper:]' '[:lower:]')"
+    case "$_ext" in
+        mp4|m4v|mov) ;;
+        *) return 0 ;;
+    esac
+
+    local _ffmpeg_cmd="${FFMPEG_EXEC:-ffmpeg}"
+    local _tmp_out="${_video_file%.*}.cover_tmp.${_ext}"
+
+    if "$_ffmpeg_cmd" -hide_banner -loglevel error -y \
+        -i "$_video_file" -i "$_thumb_file" \
+        -map 0 -map 1 \
+        -c copy -c:v:1 mjpeg \
+        -disposition:v:1 attached_pic \
+        -metadata:s:v:1 title="Cover" \
+        -metadata:s:v:1 comment="Cover (front)" \
+        "$_tmp_out"; then
+        mv -f "$_tmp_out" "$_video_file"
+        log_info "🖼️  Embedded cover art: $(basename "$_video_file")" >&2
+    else
+        rm -f "$_tmp_out"
+        log_info "⚠️  Could not embed cover art into: $(basename "$_video_file")" >&2
+    fi
+}
+
 video_download() {
     local URL=""
     local LANG="fa"
@@ -798,13 +1125,18 @@ video_download() {
     local BROWSER="chrome"
     local COOKIES_FILE=""
     local DL_RESOLUTION=$(get_config "video" "resolution" "720")
+    local KEEP_THUMB_FILE=true
+    local LIST_FORMATS=false
+    local EXTREME_DL=false
+    local -a _LANG_POSITIONALS=()
+    local -a SUB_LANG_TOKENS=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --subtitle|-s)   DO_SUBTITLE=true; DO_RENDER=true; shift ;;  # whisper+burn
             --yt-subs)       YT_SUBS=true; shift ;;              # youtube built-in subs
             --translate)     YT_TRANSLATE=true; YT_SUBS=true; shift ;; # download YT subs + translate
             --render|-r)     DO_RENDER=true; shift ;;
-            --no-render)     DO_RENDER=false; shift ;;
+            --sub-only|--no-render) DO_RENDER=false; shift ;;
             --only-subs)     ONLY_SUBS=true; shift ;;
             --sub-format)    SUB_FORMAT="$2"; shift 2 ;;
             --target|-t)
@@ -816,17 +1148,54 @@ video_download() {
                 fi ;;
             --browser|-b)    BROWSER="$2"; shift 2 ;;
             --cookies)       COOKIES_FILE="$2"; shift 2 ;;
+            --keep-thumb)    KEEP_THUMB_FILE=true; shift ;;
             -y|--yes)        AUTO_YES=true; shift ;;
             --get-link|-l)   GET_LINK=true; shift ;;
+            --formats|-F)    LIST_FORMATS=true; shift ;;
+            --extreme)       EXTREME_DL=true; shift ;;
             --resolution|-r) DL_RESOLUTION="$2"; shift 2 ;;
             -*)
                 log_error "Unknown option: $1" >&2
                 echo "Usage: amir video download <url> [options]" >&2
                 return 1
                 ;;
-            *)  URL="$1"; shift ;;
+            *)
+                # First bare argument is URL. Extra bare args (e.g. --subtitle en fa)
+                # are treated as language hints, not as URL overwrite.
+                if [[ -z "$URL" ]]; then
+                    URL="$1"
+                elif [[ "$1" != -* && ! "$1" =~ ^https?:// && ${#1} -le 10 && ( "$DO_SUBTITLE" == true || "$YT_SUBS" == true || "$YT_TRANSLATE" == true ) ]]; then
+                    _LANG_POSITIONALS+=("$1")
+                fi
+                shift
+                ;;
         esac
     done
+
+    # Support compact syntax with optional inline sizes:
+    #   --subtitle fa
+    #   --subtitle en fa
+    #   --subtitle en 18 fa 20
+    if [[ ${#_LANG_POSITIONALS[@]} -gt 0 ]]; then
+        SUB_LANG_TOKENS=("${_LANG_POSITIONALS[@]}")
+
+        local -a _lang_only=()
+        local _tok
+        for _tok in "${_LANG_POSITIONALS[@]}"; do
+            if [[ "$_tok" =~ ^[A-Za-z]{2,3}$ ]]; then
+                _lang_only+=("$_tok")
+            fi
+        done
+
+        if [[ ${#_lang_only[@]} -eq 1 ]]; then
+            # One language means target only; keep default source.
+            LANG="${_lang_only[0]}"
+        elif [[ ${#_lang_only[@]} -ge 2 ]]; then
+            # Two+ languages: first is source, last is primary target.
+            LANG_SRC="${_lang_only[0]}"
+            LANG="${_lang_only[${#_lang_only[@]}-1]}"
+        fi
+    fi
 
     # Strip shell-escaped backslashes (e.g. \? \= that zsh adds when URL is unquoted)
     URL="${URL//\\/}"
@@ -847,17 +1216,21 @@ video_download() {
         echo "Usage: amir video download <url> [options]" >&2
         echo "" >&2
         echo "Options:" >&2
-        echo "  --subtitle, -s        Transcribe + burn subtitles via Whisper AI (default lang: fa)" >&2
+        echo "  --subtitle, -s        Transcribe + burn subtitles via Whisper AI (e.g. --subtitle fa | --subtitle en fa | --subtitle en 18 fa 20)" >&2
         echo "  --yt-subs             Download YouTube's own subtitles (human first, auto-gen fallback)" >&2
         echo "  --target, -t [src] <target>  Subtitle language; optionally specify source then target (e.g. -t en fa)" >&2
         echo "  --render, -r          Burn subtitle into video (use with --yt-subs)" >&2
-        echo "  --no-render           Generate subtitle files only, no burning (use with --subtitle)" >&2
+        echo "  --sub-only            Generate subtitle files only, no burning (use with --subtitle)" >&2
         echo "  --only-subs           Keep subtitle files; prompt to delete raw video" >&2
         echo "  --sub-format <fmt>    Subtitle format: srt | ass | all (default: srt)" >&2
         echo "  -y, --yes             Auto-confirm deletion prompt (use with --only-subs)" >&2
         echo "  -l, --get-link        Print direct stream URL(s) — for use in a download manager" >&2
         echo "  --browser <name>      Browser for cookies (default: chrome)" >&2
         echo "  --cookies <file>      Path to Netscape cookies.txt file" >&2
+        echo "  --keep-thumb          Keep the downloaded thumbnail sidecar file" >&2
+        echo "  --formats, -F         Show available resolutions and sizes before downloading" >&2
+        echo "  --resolution, -R <h>  Download max height (e.g. 240/360/480/720/1080); for auto-min use --extreme" >&2
+        echo "  --extreme             Auto-pick smallest available resolution for minimum file size" >&2
         return 1
     fi
 
@@ -872,6 +1245,97 @@ video_download() {
         COOKIE_ARGS=(--cookies "$COOKIES_FILE")
     elif [[ -n "$BROWSER" && "$BROWSER" != "none" ]]; then
         COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
+    fi
+
+    # ── Extreme download: auto-pick smallest resolution ──────────────────
+    if $EXTREME_DL; then
+        log_info "🔍 Extreme mode: finding smallest available resolution..." >&2
+        local _best_res
+        _best_res=$(yt-dlp \
+            "${COOKIE_ARGS[@]}" \
+            --extractor-args "generic:impersonate" \
+            --no-playlist \
+            -j \
+            "$URL" 2>/dev/null | \
+        python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    print('')
+    raise SystemExit(0)
+fmts = data.get('formats', [])
+dur  = data.get('duration') or 0
+best_h, best_sz = None, float('inf')
+seen = {}
+for f in fmts:
+    h  = f.get('height') or 0
+    vb = f.get('vbr') or f.get('tbr') or 0
+    vc = (f.get('vcodec') or '').split('.')[0]
+    fs = f.get('filesize') or f.get('filesize_approx') or 0
+    # Extreme mode floor: ignore ultra-low formats below 240p for readability.
+    if h < 240 or not vc or vc in ('none',''):
+        continue
+    est = fs if fs else (vb * 1000 * dur / 8) if vb and dur else float('inf')
+    cur = seen.get(h)
+    if cur is None or est < cur:
+        seen[h] = est
+if seen:
+    best_h = min(seen, key=lambda h: seen[h])
+    print(best_h)
+")
+        if [[ -n "$_best_res" && "$_best_res" =~ ^[0-9]+$ ]]; then
+            log_info "📐 Smallest resolution (min 240p): ${_best_res}p — downloading that" >&2
+            DL_RESOLUTION="$_best_res"
+        else
+            log_info "⚠️  Could not determine smallest format, using default ${DL_RESOLUTION}p" >&2
+        fi
+    fi
+
+    # ── List-formats mode ──────────────────────────────────────────────────
+    if $LIST_FORMATS; then
+        log_info "📊 Fetching available formats for: $URL" >&2
+        echo "" >&2
+        # Use yt-dlp -j to get JSON, then extract video+audio combos per height
+        yt-dlp \
+            "${COOKIE_ARGS[@]}" \
+            --extractor-args "generic:impersonate" \
+            --no-playlist \
+            -j \
+            "$URL" 2>/dev/null | \
+        python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+title = data.get('title','?')
+fmts  = data.get('formats', [])
+print(f'  📹 {title}')
+print()
+print(f'  {\"Res\":<8} {\"Codec\":<8} {\"VBR kbps\":<12} {\"Size (est.)\":<14} {\"Note\"}')
+print('  ' + '-'*60)
+seen = {}
+for f in fmts:
+    h  = f.get('height') or 0
+    vb = f.get('vbr') or f.get('tbr') or 0
+    ab = f.get('abr') or 0
+    fs = f.get('filesize') or f.get('filesize_approx') or 0
+    vc = (f.get('vcodec') or '').split('.')[0]
+    note = f.get('format_note','') or ''
+    if h < 144 or not vc or vc in ('none',''):
+        continue
+    key = h
+    cur = seen.get(key)
+    if cur is None or vb > (cur[1] or 0):
+        seen[key] = (vc, vb, ab, fs, note)
+for h in sorted(seen.keys(), reverse=True):
+    vc, vb, ab, fs, note = seen[h]
+    vb_s  = f'{int(vb)} kbps'   if vb  else '?'
+    dur   = data.get('duration') or 0
+    sz_s  = f'{fs/1024/1024:.1f} MB' if fs else (f'~{vb * 1000 * dur / 8 / 1024 / 1024:.0f} MB' if vb and dur else '?')
+    print(f'  {str(h)+\"p\":<8} {vc:<8} {str(int(vb)) + \" kbps\" if vb else \"?\":<12} {sz_s:<14} {note}')
+print()
+print('  💡 Tip: smaller kbps = smaller file. Run with --resolution <N> to download.')
+"
+        return $?
     fi
 
     # ── Get-link mode ──────────────────────────────────────────────────────
@@ -893,52 +1357,155 @@ video_download() {
     OUT_DIR="$(pwd)"
     local OUT_TEMPLATE="${OUT_DIR}/%(title)s.%(ext)s"
 
-    log_info "⬇️  Starting download..." >&2
-
-    # Download:
-    #   stdout  → temp file  (line1 = title via before_dl, line2 = final filepath via after_move)
-    #   stderr  → filtered:  only [download] progress lines + ERROR/WARNING lines reach the terminal
-    #             everything else ([youtube], [info], [generic], …) is hidden
-    local _PATHFILE
-    _PATHFILE=$(mktemp /tmp/amir_dl_path.XXXXXX)
     local VIDEO_FILE
-    yt-dlp \
+    local THUMB_FILE=""
+    local THUMB_TMP=false
+    local INFO_JSON_FILE=""
+    local _VID_TITLE
+    _VID_TITLE=$(yt-dlp \
         "${COOKIE_ARGS[@]}" \
         --extractor-args "generic:impersonate" \
-        --remote-components "ejs:github" \
-        --newline \
-        --continue \
-        -f "bestvideo[height<=${DL_RESOLUTION}]+bestaudio/best[height<=${DL_RESOLUTION}]/best" \
-        --merge-output-format mp4 \
-        --print "before_dl:%(title)s" \
-        --print "after_move:filepath" \
-        -o "$OUT_TEMPLATE" \
-        "$URL" > "$_PATHFILE" \
-        2> >(grep --line-buffered -E '^\[download\]|^ERROR|^WARNING:' >&2)
-    local _DL_EXIT=$?
+        --no-playlist \
+        --print "%(title)s" \
+        --skip-download \
+        "$URL" 2>/dev/null | head -n1 | tr -d '\r')
 
-    local _VID_TITLE
-    _VID_TITLE=$(sed -n '1p' "$_PATHFILE" 2>/dev/null | tr -d '\r')
-    VIDEO_FILE=$(sed -n '2p' "$_PATHFILE" 2>/dev/null | tr -d '\r')
-    rm -f "$_PATHFILE"
-
-    if [[ $_DL_EXIT -ne 0 && -z "$VIDEO_FILE" ]]; then
-        log_error "Download failed (yt-dlp exit $_DL_EXIT)." >&2
-        return 1
+    if [[ -n "$_VID_TITLE" ]]; then
+        local _existing_video
+        _existing_video="$(find_existing_downloaded_video "$OUT_DIR" "$_VID_TITLE" "$DL_RESOLUTION")"
+        if [[ -n "$_existing_video" && -f "$_existing_video" ]]; then
+            VIDEO_FILE="$_existing_video"
+            log_info "⏩ Reusing existing downloaded video: $(basename "$VIDEO_FILE")" >&2
+        fi
     fi
 
-    # Show title after the progress bar
-    [[ -n "$_VID_TITLE" ]] && log_info "📹 $_VID_TITLE" >&2
+    if [[ -z "$VIDEO_FILE" ]]; then
+        log_info "⬇️  Starting download..." >&2
 
-    # Resolve relative path (some yt-dlp versions omit leading dir)
-    if [[ -n "$VIDEO_FILE" && ! "$VIDEO_FILE" = /* ]]; then
-        VIDEO_FILE="${OUT_DIR}/${VIDEO_FILE}"
+        # Download:
+        #   stdout  → temp file  (line1 = title via before_dl, line2 = final filepath via after_move)
+        #   stderr  → filtered:  only [download] progress lines + ERROR/WARNING lines reach the terminal
+        #             everything else ([youtube], [info], [generic], …) is hidden
+        local _PATHFILE
+        _PATHFILE=$(mktemp /tmp/amir_dl_path.XXXXXX)
+        # Some titles contain unicode slash-like characters that break fragmented
+        # merge/rename on certain yt-dlp + fs combinations. Force safe filenames.
+        yt-dlp \
+            "${COOKIE_ARGS[@]}" \
+            --extractor-args "generic:impersonate" \
+            --remote-components "ejs:github" \
+            --newline \
+            --continue \
+            --no-overwrites \
+            --restrict-filenames \
+            --windows-filenames \
+            --write-info-json \
+            --write-thumbnail \
+            --convert-thumbnails jpg \
+            -f "bestvideo[height<=${DL_RESOLUTION}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=${DL_RESOLUTION}]+bestaudio/best[height<=${DL_RESOLUTION}]" \
+            --merge-output-format mp4 \
+            --print "before_dl:%(title)s" \
+            --print "after_move:filepath" \
+            -o "$OUT_TEMPLATE" \
+            "$URL" > "$_PATHFILE" \
+            2> >(awk '/\[download\]|^ERROR|^WARNING:/{print; fflush()}' >&2)
+        local _DL_EXIT=$?
+
+        _VID_TITLE=$(sed -n '1p' "$_PATHFILE" 2>/dev/null | tr -d '\r')
+        VIDEO_FILE=$(sed -n '2p' "$_PATHFILE" 2>/dev/null | tr -d '\r')
+        rm -f "$_PATHFILE"
+
+        if [[ $_DL_EXIT -ne 0 && -z "$VIDEO_FILE" ]]; then
+            log_error "Download failed (yt-dlp exit $_DL_EXIT)." >&2
+            return 1
+        fi
+
+        # Show title after the progress bar
+        [[ -n "$_VID_TITLE" ]] && log_info "📹 $_VID_TITLE" >&2
+
+        # Resolve relative path (some yt-dlp versions omit leading dir)
+        if [[ -n "$VIDEO_FILE" && ! "$VIDEO_FILE" = /* ]]; then
+            VIDEO_FILE="${OUT_DIR}/${VIDEO_FILE}"
+        fi
+
+        # Verify the file actually exists
+        if [[ -z "$VIDEO_FILE" || ! -f "$VIDEO_FILE" ]]; then
+            log_error "Download failed or output path could not be determined." >&2
+            return 1
+        fi
     fi
 
-    # Verify the file actually exists
-    if [[ -z "$VIDEO_FILE" || ! -f "$VIDEO_FILE" ]]; then
-        log_error "Download failed or output path could not be determined." >&2
-        return 1
+    THUMB_FILE="$(find_video_thumbnail_file "$VIDEO_FILE")"
+    if [[ -f "${VIDEO_FILE}.info.json" ]]; then
+        INFO_JSON_FILE="${VIDEO_FILE}.info.json"
+    elif [[ -f "${VIDEO_FILE%.*}.info.json" ]]; then
+        INFO_JSON_FILE="${VIDEO_FILE%.*}.info.json"
+    fi
+
+    # Enforce terminal-safe filename in-place before entering subtitle pipeline.
+    local _dl_dir _dl_name _dl_stem _dl_ext _safe_stem _safe_path _n
+    _dl_dir="$(dirname "$VIDEO_FILE")"
+    _dl_name="$(basename "$VIDEO_FILE")"
+    _dl_stem="${_dl_name%.*}"
+    _dl_ext="${_dl_name##*.}"
+    _safe_stem="$(sanitize_terminal_filename_stem "$_dl_stem")"
+    if [[ -n "$_safe_stem" && "$_safe_stem" != "$_dl_stem" ]]; then
+        _safe_path="${_dl_dir}/${_safe_stem}.${_dl_ext}"
+        _n=2
+        while [[ -e "$_safe_path" ]]; do
+            _safe_path="${_dl_dir}/${_safe_stem}_${_n}.${_dl_ext}"
+            ((_n++))
+        done
+        mv "$VIDEO_FILE" "$_safe_path"
+        VIDEO_FILE="$_safe_path"
+        log_info "🧹 Normalized filename: ${_dl_name} -> $(basename "$VIDEO_FILE")" >&2
+        if [[ -n "$THUMB_FILE" && -f "$THUMB_FILE" ]]; then
+            local _thumb_ext="${THUMB_FILE##*.}"
+            local _safe_thumb="${VIDEO_FILE%.*}.${_thumb_ext}"
+            mv "$THUMB_FILE" "$_safe_thumb"
+            THUMB_FILE="$_safe_thumb"
+        fi
+        if [[ -n "$INFO_JSON_FILE" && -f "$INFO_JSON_FILE" ]]; then
+            local _safe_info="${VIDEO_FILE}.info.json"
+            mv "$INFO_JSON_FILE" "$_safe_info"
+            INFO_JSON_FILE="$_safe_info"
+        fi
+    fi
+
+    # ── Add resolution suffix to filename (e.g. _480p) ──────────────────────
+    if [[ -n "$DL_RESOLUTION" && "$VIDEO_FILE" != *"_${DL_RESOLUTION}p"* ]]; then
+        local _res_new="${VIDEO_FILE%.*}_${DL_RESOLUTION}p.${VIDEO_FILE##*.}"
+        local _res_n=2
+        while [[ -e "$_res_new" ]]; do
+            _res_new="${VIDEO_FILE%.*}_${DL_RESOLUTION}p_${_res_n}.${VIDEO_FILE##*.}"
+            ((_res_n++))
+        done
+        mv "$VIDEO_FILE" "$_res_new"
+        if [[ -n "$THUMB_FILE" && -f "$THUMB_FILE" ]]; then
+            local _res_thumb="${_res_new%.*}.${THUMB_FILE##*.}"
+            mv "$THUMB_FILE" "$_res_thumb"
+            THUMB_FILE="$_res_thumb"
+        fi
+        if [[ -n "$INFO_JSON_FILE" && -f "$INFO_JSON_FILE" ]]; then
+            mv "$INFO_JSON_FILE" "${_res_new}.info.json"
+            INFO_JSON_FILE="${_res_new}.info.json"
+        fi
+        VIDEO_FILE="$_res_new"
+    fi
+
+    # Keep every artifact in the current working directory.
+    # Do not create per-video folders; subtitle reuse and all follow-up checks
+    # should operate against the directory the user explicitly chose.
+    OUT_DIR="$PWD"
+
+    if [[ -z "$THUMB_FILE" || ! -f "$THUMB_FILE" ]]; then
+        THUMB_FILE="${VIDEO_FILE%.*}.cover.jpg"
+        if extract_video_thumbnail_fallback "$VIDEO_FILE" "$THUMB_FILE"; then
+            THUMB_TMP=true
+            log_info "🖼️  Generated fallback cover from video frame" >&2
+        else
+            THUMB_FILE=""
+        fi
     fi
 
     log_success "Saved → $(basename "$VIDEO_FILE")" >&2
@@ -1001,12 +1568,24 @@ video_download() {
             local AMIR_BIN
             AMIR_BIN="$(dirname "$LIB_DIR")/amir"
             local -a SUB_FLAGS=("-s" "$LANG_SRC" "-t" "$LANG")
+            [[ "$DL_RESOLUTION" =~ ^[0-9]+$ ]] && SUB_FLAGS+=("--resolution" "$DL_RESOLUTION")
             $ONLY_SUBS && SUB_FLAGS+=("--no-render")
             ! $DO_RENDER && SUB_FLAGS+=("--no-render")
 
             log_info "🌐 Translating ${LANG_SRC}→${LANG} via LLM (no Whisper)..." >&2
             "$AMIR_BIN" subtitle "$VIDEO_FILE" "${SUB_FLAGS[@]}"
-            return $?
+            local _sub_exit=$?
+            if [[ $_sub_exit -eq 0 && $DO_RENDER == true && $ONLY_SUBS == false ]]; then
+                local _rendered_translate="${VIDEO_FILE%.*}_${LANG}.mp4"
+                [[ -f "$_rendered_translate" ]] && VIDEO_FILE="$_rendered_translate"
+            fi
+            if [[ $_sub_exit -eq 0 && -n "$THUMB_FILE" && -f "$THUMB_FILE" && -f "$VIDEO_FILE" ]]; then
+                embed_video_cover_art "$VIDEO_FILE" "$THUMB_FILE"
+            fi
+            if [[ -n "$THUMB_FILE" && -f "$THUMB_FILE" ]] && { $THUMB_TMP || ! $KEEP_THUMB_FILE; }; then
+                rm -f "$THUMB_FILE"
+            fi
+            return $_sub_exit
         fi
 
         # ── --render without --translate: burn existing LANG or EN srt directly ──
@@ -1025,6 +1604,8 @@ video_download() {
                 --subtitles "$SRT_TO_BURN" \
                 --output "${VIDEO_FILE%.*}_subbed.mp4" \
                 --render >&2
+            local _rendered_ytsubs="${VIDEO_FILE%.*}_subbed.mp4"
+            [[ -f "$_rendered_ytsubs" ]] && VIDEO_FILE="$_rendered_ytsubs"
         fi
 
         # --only-subs: prompt to delete raw video
@@ -1041,9 +1622,21 @@ video_download() {
                 rm -f "$VIDEO_FILE"
                 log_info "🗑️  Deleted: $VIDEO_FILE" >&2
             fi
+            if [[ -n "$THUMB_FILE" && -f "$THUMB_FILE" ]] && { $THUMB_TMP || ! $KEEP_THUMB_FILE; }; then
+                rm -f "$THUMB_FILE"
+            fi
+            rm -f "$INFO_JSON_FILE"
             return 0
         fi
 
+        if [[ -n "$THUMB_FILE" && -f "$THUMB_FILE" ]]; then
+            embed_video_cover_art "$VIDEO_FILE" "$THUMB_FILE"
+            if $THUMB_TMP || ! $KEEP_THUMB_FILE; then
+                rm -f "$THUMB_FILE"
+            fi
+        fi
+
+        rm -f "$INFO_JSON_FILE"
         log_success "✅ Final file: $VIDEO_FILE" >&2
         echo "$VIDEO_FILE"
         return 0
@@ -1053,7 +1646,13 @@ video_download() {
     if $DO_SUBTITLE; then
         local AMIR_BIN
         AMIR_BIN="$(dirname "$LIB_DIR")/amir"
-        local -a SUB_FLAGS=("-t" "$LANG")
+        local -a SUB_FLAGS=("-s" "$LANG_SRC")
+        if [[ ${#SUB_LANG_TOKENS[@]} -gt 0 ]]; then
+            SUB_FLAGS+=("-t" "${SUB_LANG_TOKENS[@]}")
+        else
+            SUB_FLAGS+=("-t" "$LANG")
+        fi
+        [[ "$DL_RESOLUTION" =~ ^[0-9]+$ ]] && SUB_FLAGS+=("--resolution" "$DL_RESOLUTION")
         # Never burn when --only-subs is set (no point burning a video we're about to delete)
         ($DO_RENDER && ! $ONLY_SUBS) || SUB_FLAGS+=("--no-render")
 
@@ -1106,6 +1705,10 @@ video_download() {
             else
                 log_info "📁 Kept: $VIDEO_FILE" >&2
             fi
+            if [[ -n "$THUMB_FILE" && -f "$THUMB_FILE" ]] && { $THUMB_TMP || ! $KEEP_THUMB_FILE; }; then
+                rm -f "$THUMB_FILE"
+            fi
+            rm -f "$INFO_JSON_FILE"
             return 0
         fi
 
@@ -1116,8 +1719,53 @@ video_download() {
         fi
     fi
 
+    if [[ -n "$THUMB_FILE" && -f "$THUMB_FILE" ]]; then
+        embed_video_cover_art "$VIDEO_FILE" "$THUMB_FILE"
+        if $THUMB_TMP || ! $KEEP_THUMB_FILE; then
+            rm -f "$THUMB_FILE"
+        fi
+    fi
+
+    rm -f "$INFO_JSON_FILE"
     log_success "✅ Final file: $VIDEO_FILE" >&2
     echo "$VIDEO_FILE"
+}
+
+# ==============================================================================
+# TikTok Download — thin wrapper around video_download with TikTok-optimised
+# defaults: no browser cookie (public videos work without login), and the
+# standard best-quality format selector already avoids the watermarked
+# 'download' format_id (yt-dlp assigns it preference=-2).
+# Supports: vt.tiktok.com, vm.tiktok.com, www.tiktok.com & any tiktok URL.
+# Usage: amir video tiktok <url> [same options as 'video download']
+# ==============================================================================
+video_tiktok() {
+    if [[ -z "$1" || ( "$1" == --* && "$1" != "--subtitle" && "$1" != "-s" ) ]]; then
+        log_error "TikTok URL is required." >&2
+        echo "" >&2
+        echo "Usage: amir video tiktok <url> [options]" >&2
+        echo "       amir video tt     <url> [options]" >&2
+        echo "" >&2
+        echo "Examples:" >&2
+        echo "  amir video tiktok 'https://vt.tiktok.com/ZSu8LxsHC'" >&2
+        echo "  amir video tiktok 'https://vt.tiktok.com/ZSu8LxsHC' --subtitle -t fa" >&2
+        echo "  amir video tiktok 'https://vt.tiktok.com/ZSu8LxsHC' --translate -t en fa" >&2
+        echo "  amir video tiktok 'https://vt.tiktok.com/ZSu8LxsHC' --sub-only" >&2
+        echo "" >&2
+        echo "Options (same as 'amir video download'):" >&2
+        echo "  --subtitle, -s         Transcribe + burn subtitles via Whisper AI" >&2
+        echo "  --translate            Download YT-style subs + translate via LLM" >&2
+        echo "  --target, -t [s] <t>   Subtitle language (e.g. -t fa  or  -t en fa)" >&2
+        echo "  --sub-only             Generate SRT only, do not burn into video" >&2
+        echo "  --only-subs            Keep subtitle files, prompt to delete raw video" >&2
+        echo "  -l, --get-link         Print direct stream URL without downloading" >&2
+        return 1
+    fi
+
+    # Public TikTok videos need no browser login — pass --browser none so
+    # video_download skips the default '--cookies-from-browser chrome' flag.
+    # All other flags are forwarded as-is.
+    video_download --browser none "$@"
 }
 
 run_video() {
@@ -1144,6 +1792,9 @@ run_video() {
     elif [[ "$1" == "download" || "$1" == "dl" ]]; then
         shift
         video_download "$@"
+    elif [[ "$1" == "tiktok" || "$1" == "tt" ]]; then
+        shift
+        video_tiktok "$@"
     else
         video "$@"
     fi

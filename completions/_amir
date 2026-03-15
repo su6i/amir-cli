@@ -82,6 +82,7 @@ _amir() {
                 'subtitle:Transcribe + translate video (Whisper AI + LLM). Also accepts a URL'
                 'compress:Process video with smart selection'
                 'cut:Cut / Trim video segment'
+                'split:Split video into ~N MB chunks'
                 'batch:Batch process all videos in directory'
                 'download:Download video from any website (YouTube, news, etc.)'
                 'stats:Show AI learning statistics'
@@ -111,7 +112,14 @@ _amir() {
                         '(-e --end -t --to)'{-e,--end,-t,--to}'[End time]:format HH\:MM\:SS or seconds (e.g. 01\:30\:00 or 5400): ' \
                         '(-d --duration)'{-d,--duration}'[Duration]:format HH\:MM\:SS or seconds (e.g. 00\:05\:00 or 300): ' \
                         '(-o --output)'{-o,--output}'[Output filename]:output file:_files' \
+                        '--split[Split output into chunks of N MB]:size in MB: ' \
                         '--render[Re-encode video instead of copy stream]'
+                    ;;
+                split)
+                    _arguments -s \
+                        '1: : ' '2: : ' \
+                        '3:video file:_files -g "*.mp4 *.mov *.mkv *.avi *.webm *.MP4 *.MOV *.MKV *.WEBM"' \
+                        '4:chunk size in MB: '
                     ;;
                 compress)
                     _arguments -s \
@@ -119,6 +127,10 @@ _amir() {
                         '3:video file:_files -g "*.mp4 *.mov *.mkv *.avi *.webm *.MP4 *.MOV *.MKV *.WEBM"' \
                         '4:resolution:_amir_resolutions' \
                         '5:quality:_amir_qualities' \
+                        '--fps[Custom frame rate (e.g. 10 for 10fps)]:fps:(6 10 12 15 20 24 25 30)' \
+                        '--split[Split output into chunks of N MB]:size in MB: ' \
+                        '--gpu[Use hardware encoder (default on Apple Silicon)]' \
+                        '--cpu[Use software encoder (better compression ratio)]' \
                         '*:extra files:_files'
                     ;;
                 download|dl)
@@ -128,15 +140,19 @@ _amir() {
                         '(-s --subtitle)'{-s,--subtitle}'[Transcribe + burn subtitles via Whisper AI]' \
                         '--yt-subs[Download YouTube'\''s own subtitles (human first, auto-gen fallback)]' \
                         '--translate[With --yt-subs: translate EN→target via LLM — no Whisper needed]' \
+                        '--formats[Show available resolutions and estimated sizes before downloading]' \
+                        '--extreme[Auto-pick smallest available resolution for minimum file size]' \
                         '(-r --render)'{-r,--render}'[Burn subtitle into video (use with --yt-subs)]' \
-                        '--no-render[Save subtitle files only, skip burning (use with --subtitle)]' \
+                        '--sub-only[Generate subtitle files only, skip burning (use with --subtitle)]' \
+                        '--no-render[Alias for --sub-only (deprecated)]' \
                         '--only-subs[Keep subtitle files; prompt to delete raw video]' \
                         '--sub-format[Subtitle format]:format:(srt ass all)' \
                         '(-y --yes)'{-y,--yes}'[Auto-confirm delete prompt (use with --only-subs)]' \
                         '(-l --get-link)'{-l,--get-link}'[Print direct stream URL(s) only — for download managers]' \
                         '(-t --target)'{-t,--target}'[Subtitle target language (default\: fa)]:language:(fa en ar zh es fr de ru ja ko tr pt hi)' \
-                        '(-R --resolution)'{-R,--resolution}'[Compress to height after download (e.g. 720)]:height:(240 360 480 720 1080)' \
+                        '(-R --resolution)'{-R,--resolution}'[Compress to height after download (e.g. 720). For auto-min use --extreme]:height:(240 360 480 720 1080)' \
                         '(-b --browser)'{-b,--browser}'[Browser to extract cookies from (default\: chrome)]:browser:(chrome safari firefox brave chromium)' \
+                        '--keep-thumb[Keep downloaded thumbnail sidecar file]' \
                         '--cookies[Path to Netscape cookies.txt file]:cookies file:_files'
                     ;;
                 subtitle)
@@ -147,7 +163,8 @@ _amir() {
                         '(-s --source)'{-s,--source}'[Source language / audio language for Whisper]:source lang:(en zh es hi ar bn pt ru ja fr de fa tr ko)' \
                         '*'{--sub,-t}'[Subtitle display langs in top→bottom order (repeatable)]:lang:(fa en de ar zh es fr ru ja ko tr pt hi)' \
                         '(-r --render)'{-r,--render}'[Burn subtitles into video (default\: enabled)]' \
-                        '--no-render[Generate subtitle files only — do not burn into video]' \
+                        '--sub-only[Generate subtitle files only — do not burn into video]' \
+                        '--no-render[Alias for --sub-only (deprecated)]' \
                         '(-f --force)'{-f,--force}'[Force re-transcription]' \
                         '(-c --correct)'{-c,--correct}'[Correct transcription with AI]' \
                         '(-l --limit)'{-l,--limit}'[Time range — N seconds, or start end (use begin/start/end keywords)]:time:(begin end start)' \
@@ -155,6 +172,10 @@ _amir() {
                         '--model[Specific LLM model code (for LiteLLM)]:model' \
                         '--whisper-model[Whisper model size/name]:model:(turbo large-v3 large-v2 medium small base tiny)' \
                         '--style[Subtitle style template]:style:(lecture vlog game cinematic minimalist)' \
+                        '--resolution[Final burn resolution height]:height:(240 360 480 720 1080)' \
+                        '--quality[Final burn quality 0-100]:quality:(40 50 60 70 80)' \
+                        '--fps[Final burn FPS]:fps:(6 10 12 15 20 24 25 30)' \
+                        '--split[Split final rendered output into N MB chunks]:size in MB: ' \
                         '*--post[Generate posts after workflow (optional: telegram youtube linkedin)]:platform:(telegram youtube linkedin)' \
                         '*--post-only[Post only — skip processing (optional: telegram youtube linkedin)]:platform:(telegram youtube linkedin)' \
                         '--prompt-file[Custom prompt file for post generation]:file:_files'
@@ -188,6 +209,12 @@ _amir() {
                         case $((CURRENT)) in
                             4) _files -g "*.(mp4|mov|mkv|avi|webm|flv|MP4|MOV|MKV)" ;;
                             5) _amir_bitrates ;;
+                        esac
+                        ;;
+                    split)
+                        case $((CURRENT)) in
+                            4) _files -g "*.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)" ;;
+                            5) _message "Chunk size in MB" ;;
                         esac
                         ;;
                     concat)
@@ -607,7 +634,8 @@ _amir() {
                         '(-s --source)'{-s,--source}'[Source language / audio language for Whisper (default\: en)]:source lang:(en zh es hi ar bn pt ru ja fr ur pa vi tr ko id de fa gu it mr te ta th ha el he mg nl pl uk)' \
                         '*'{--sub,-t}'[Subtitle display langs in top→bottom order (repeatable)]:lang:(fa en de ar zh es fr ru ja ko tr pt hi ur pa vi id gu it)' \
                         '(-r --render)'{-r,--render}'[Burn subtitles into video (default\: enabled)]' \
-                        '--no-render[Generate subtitle files only — do not burn into video]' \
+                        '--sub-only[Generate subtitle files only — do not burn into video]' \
+                        '--no-render[Alias for --sub-only (deprecated)]' \
                         '(-f --force)'{-f,--force}'[Force re-transcription]' \
                         '(-c --correct)'{-c,--correct}'[Correct transcription with AI]' \
                         '(-l --limit)'{-l,--limit}'[Time range — N seconds, or two values: start end (use begin/start/end keywords)]:time:(begin end start)' \
@@ -680,6 +708,7 @@ _amir() {
 _amir_resolutions() {
     local -a resolutions
     resolutions=(
+        'extreme:Extreme compression (360p, mono audio, slow CPU — minimum file size)'
         '240:Very low quality (Fast transfer)'
         '360:Medium quality (Mobile)'
         '480:Medium quality (Standard SD)'

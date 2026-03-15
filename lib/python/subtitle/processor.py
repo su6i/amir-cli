@@ -29,7 +29,9 @@ import tempfile
 import shutil
 import logging
 import threading
-from datetime import timedelta
+import zipfile
+import unicodedata
+from datetime import timedelta, datetime
 from collections import deque
 from typing import List, Dict, Optional, Any
 from pathlib import Path
@@ -272,7 +274,7 @@ def has_target_language_chars(text: str, lang_code: str) -> bool:
     
     lang_config = get_language_config(lang_code)
     
-    # If language doesn't have a specific character range (Latin scripts), 
+    # If language doesn't have a specific character range (Latin scripts),
     # we can't validate by character presence alone
     if not lang_config.char_range:
         return True  # Assume valid for Latin scripts
@@ -416,6 +418,9 @@ class SubtitleProcessor:
         # Cost tracking (accumulated per session)
         self._cost_savings = {"local_cache_hits": 0, "deepseek_cache_hit_tokens": 0, "grok_cache_hit_tokens": 0, "gemini_cached_tokens": 0}
         
+        # Target words per subtitle line (adaptive: set by run_workflow based on video orientation)
+        self.target_words_per_line = 7
+        
         self.logger = logger or self._setup_logger()
         self._check_disk_space()
         
@@ -451,6 +456,248 @@ class SubtitleProcessor:
                 self.logger.warning(f"Resource threshold warning: available disk space is {free_gb}GB (minimum requirement: {min_gb}GB)")
         except:
             pass
+
+    @staticmethod
+    def _is_pid_alive(pid: int) -> bool:
+        """Return True if a process with pid exists."""
+        if pid <= 0:
+            return False
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            # Process exists but we don't have permission to signal it.
+            return True
+        except Exception:
+            return False
+
+    def _acquire_workflow_lock(self, lock_key: str, source_path: str) -> str:
+        """Acquire an exclusive lock for a subtitle workflow.
+
+        Prevents running the same source media in multiple terminals concurrently.
+        Returns the lock file path when lock is acquired.
+        """
+        lock_dir = os.path.join(tempfile.gettempdir(), "amir_subtitle_locks")
+        os.makedirs(lock_dir, exist_ok=True)
+
+        lock_name = hashlib.sha1(lock_key.encode("utf-8")).hexdigest() + ".lock"
+        lock_path = os.path.join(lock_dir, lock_name)
+
+        payload = {
+            "pid": os.getpid(),
+            "created_at": int(time.time()),
+            "source": source_path,
+            "key": lock_key,
+        }
+
+        for _ in range(2):
+            try:
+                fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(payload, f)
+                return lock_path
+            except FileExistsError:
+                # Check if existing lock is stale/crashed and can be reclaimed.
+                stale = False
+                holder = {}
+                try:
+                    with open(lock_path, "r", encoding="utf-8") as f:
+                        holder = json.load(f)
+                    holder_pid = int(holder.get("pid", 0))
+                    holder_ts = int(holder.get("created_at", 0))
+                    holder_alive = self._is_pid_alive(holder_pid)
+                    too_old = (time.time() - holder_ts) > 24 * 3600
+                    stale = (not holder_alive) or too_old
+                except Exception:
+                    stale = True
+
+                if stale:
+                    try:
+                        os.remove(lock_path)
+                    except Exception:
+                        pass
+                    continue
+
+                holder_src = holder.get("source", "unknown")
+                holder_pid = holder.get("pid", "?")
+                raise RuntimeError(
+                    f"Another subtitle workflow is already running for this source "
+                    f"(pid={holder_pid}, source={holder_src}). "
+                    f"Wait for it to finish or stop that process first."
+                )
+
+        raise RuntimeError("Failed to acquire workflow lock")
+
+    def _release_workflow_lock(self, lock_path: Optional[str]):
+        """Release workflow lock if currently held by this process."""
+        if not lock_path:
+            return
+        try:
+            with open(lock_path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            if int(payload.get("pid", -1)) == os.getpid() and os.path.exists(lock_path):
+                os.remove(lock_path)
+        except Exception:
+            # Best effort cleanup only.
+            pass
+
+    @staticmethod
+    def _sanitize_stem_for_fs(stem: str) -> str:
+        """Build a terminal-safe ASCII filename stem."""
+        if not stem:
+            return "video"
+        # Keep behavior aligned with the shell-side sanitizer used by
+        # video_download(), especially for apostrophes/curly quotes so
+        # legacy subtitle files and downloaded project folders resolve to the
+        # same canonical stem.
+        stem = (
+            stem.replace("’", "'")
+            .replace("‘", "'")
+            .replace("`", "'")
+            .replace("´", "'")
+        )
+        normalized = unicodedata.normalize('NFKD', stem)
+        ascii_only = normalized.encode('ascii', 'ignore').decode('ascii')
+        ascii_only = ascii_only.replace("'", "_")
+        safe = re.sub(r'[^A-Za-z0-9._-]+', '_', ascii_only)
+        safe = re.sub(r'_+', '_', safe).strip('._-')
+        return safe or "video"
+
+    def _ensure_safe_input_filename(self, file_path: str) -> str:
+        """Rename input file in-place before processing starts."""
+        if not file_path:
+            return file_path
+
+        src = os.path.abspath(file_path)
+        if not os.path.exists(src):
+            return src
+
+        parent = os.path.dirname(src)
+        name = os.path.basename(src)
+        stem, ext = os.path.splitext(name)
+        safe_stem = self._sanitize_stem_for_fs(stem)
+
+        if safe_stem == stem:
+            return src
+
+        candidate = os.path.join(parent, f"{safe_stem}{ext}")
+        if os.path.abspath(candidate) == src:
+            return src
+
+        idx = 2
+        while os.path.exists(candidate):
+            candidate = os.path.join(parent, f"{safe_stem}_{idx}{ext}")
+            idx += 1
+
+        os.replace(src, candidate)
+        self.logger.info(f"🧹 Input filename normalized: {name} → {os.path.basename(candidate)}")
+        return candidate
+
+    @staticmethod
+    def _collect_existing_output_files(result: Dict[str, Any]) -> List[str]:
+        files: List[str] = []
+
+        def _collect(value: Any):
+            if isinstance(value, str) and os.path.exists(value):
+                files.append(os.path.abspath(value))
+            elif isinstance(value, dict):
+                for v in value.values():
+                    _collect(v)
+            elif isinstance(value, list):
+                for v in value:
+                    _collect(v)
+
+        _collect(result)
+
+        seen = set()
+        unique: List[str] = []
+        for path in files:
+            if path not in seen:
+                seen.add(path)
+                unique.append(path)
+        return unique
+
+    def _bundle_outputs_zip(self, base_path: str, files: List[str]) -> Optional[str]:
+        zip_path = f"{base_path}.zip"
+        base_abs = os.path.abspath(base_path)
+        base_dir = os.path.dirname(base_abs)
+        base_name = os.path.basename(base_abs)
+
+        # Start with explicit workflow outputs, then enrich with every related
+        # artifact on disk (same base prefix) so ZIP is complete even when some
+        # files were produced by auxiliary steps and not registered in `result`.
+        merged_files = [os.path.abspath(f) for f in files if isinstance(f, str)]
+
+        try:
+            for p in Path(base_dir).glob(f"{base_name}_*"):
+                if p.is_file():
+                    merged_files.append(str(p.resolve()))
+        except Exception:
+            pass
+
+        # Keep only non-video deliverables in the ZIP.
+        include_ext = {'.srt', '.ass', '.txt', '.pdf', '.vtt', '.md'}
+        video_ext = {'.mp4', '.mov', '.mkv', '.webm', '.avi', '.m4v'}
+
+        filtered: List[str] = []
+        seen = set()
+        zip_abs = os.path.abspath(zip_path)
+        for f in merged_files:
+            abs_f = os.path.abspath(f)
+            if abs_f == zip_abs or not os.path.exists(abs_f):
+                continue
+            ext = Path(abs_f).suffix.lower()
+            if ext in video_ext or ext == '.zip':
+                continue
+            if ext not in include_ext:
+                continue
+
+            # Prefer canonical names without resolution in non-video artifacts.
+            # Example: keep "..._fa.srt", skip legacy "..._240p_fa.srt" if both exist.
+            base_name_only = os.path.basename(abs_f)
+            if re.search(r'_\d{3,4}p_([a-z]{2,3})(_|\.)', base_name_only, flags=re.IGNORECASE):
+                canonical_name = re.sub(r'_\d{3,4}p_', '_', base_name_only, count=1, flags=re.IGNORECASE)
+                canonical_path = os.path.join(base_dir, canonical_name)
+                if os.path.exists(canonical_path):
+                    continue
+
+            if abs_f in seen:
+                continue
+            seen.add(abs_f)
+            filtered.append(abs_f)
+
+        if not filtered:
+            return None
+
+        with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+            for f in filtered:
+                if os.path.exists(f):
+                    zf.write(f, arcname=os.path.basename(f))
+
+        return zip_path
+
+    def _detect_video_dimensions(self, video_path: str) -> tuple:
+        """Detect video width and height using ffprobe.
+
+        Returns:
+            (width, height) as ints, or (None, None) if undetectable.
+        """
+        try:
+            result = subprocess.run(
+                ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                 '-show_entries', 'stream=width,height',
+                 '-of', 'csv=p=0:s=x', video_path],
+                capture_output=True, text=True, timeout=10
+            )
+            dims = result.stdout.strip()
+            if dims and 'x' in dims:
+                w, h = dims.split('x')
+                return int(w), int(h)
+        except Exception:
+            pass
+        return None, None
 
     @staticmethod
     def load_api_key(config_file: str = '.config') -> str:
@@ -913,6 +1160,7 @@ if __name__ == "__main__":
                     return h * 3600 + m * 60 + s + ms_val
                 return None
 
+            _last_emitted_pct = [4]  # Start below 5 so first emission fires at 5%
             while True:
                 line = proc.stdout.readline()
                 if not line and proc.poll() is not None:
@@ -928,6 +1176,11 @@ if __name__ == "__main__":
                         pct = min(100, (curr_time / dur) * 100)
                         pbar.n = int(pct)
                         pbar.refresh()
+                        # Map 0-100% transcription → PROGRESS 5-50% (leaves headroom for translation)
+                        _trans_pct = max(5, min(50, int(5 + pct * 0.45)))
+                        if _trans_pct - _last_emitted_pct[0] >= 5:
+                            self.logger.info(f"PROGRESS:{_trans_pct}:🎙️ رونویسی ({int(pct)}%)")
+                            _last_emitted_pct[0] = _trans_pct
             
             proc.wait()
             pbar.n = 100
@@ -2457,23 +2710,28 @@ if __name__ == "__main__":
         if target_lang == 'fa':
             return (
                 f"You are a professional {lang_name} subtitle translator.\n"
-                "SYSTEM:Tehrani informal tone, max 45 chars/line.\n"
+                "SYSTEM: Tehrani informal tone.\n"
                 "FORMAT: Return ONLY a valid JSON object where keys are the input line numbers and values are the translations.\n"
                 "EXAMPLE: {\"1\": \"سلام\", \"2\": \"چطوری؟\"}\n"
                 f"RULE: For technical terms (API, AGI, etc.), write the {lang_name} translation first, then the English in parentheses (e.g. 'هزینه‌ها (CapEx)').\n"
                 "CRITICAL 1: You MUST translate EACH numbered item independently. The output JSON must have the EXACT SAME NUMBER of keys as the input items.\n"
-                "CRITICAL 2: Translate each sentence naturally and completely. Each input item is a complete sentence or paragraph.\n"
-                "CRITICAL 3: NEVER echo or repeat the original English source text in your output.\n"
+                "CRITICAL 2: Each item is a RAW SUBTITLE SEGMENT — it may be an incomplete sentence fragment that continues from the previous line or continues into the next. "
+                "Translate ONLY the exact words given. Do NOT complete the thought. Do NOT add words from context. Do NOT summarize multiple items into one.\n"
+                "CRITICAL 3: The translation for line N MUST cover the SAME semantic content as the input for line N — nothing more, nothing less. "
+                "If the input is short (e.g. 'guy but it almost'), the translation must also be short and faithful.\n"
+                "CRITICAL 4: NEVER echo or repeat the original English source text in your output.\n"
                 "NO commentary, NO extra text."
             )
-        
+
         # Generic prompt for other languages
         return (
             f"You are a professional {lang_name} subtitle translator.\n"
             "FORMAT: Return ONLY a valid JSON object where keys are the input line numbers and values are the translations.\n"
             "EXAMPLE: {\"1\": \"Hello\", \"2\": \"How are you?\"}\n"
             "CRITICAL 1: You MUST translate EACH line strictly independently. Do NOT merge two lines into one key. The output JSON must have the EXACT SAME NUMBER of keys as the input TARGET LINES, with NO skipped numbers.\n"
-            "CRITICAL 2: The translation for line N MUST correspond EXACTLY to the English text in line N. Do NOT shift translations up or down keys.\n"
+            "CRITICAL 2: Each item is a RAW SUBTITLE SEGMENT and may be an incomplete sentence fragment. "
+            "Translate ONLY the exact words given — do NOT complete the thought or add words from surrounding context.\n"
+            "CRITICAL 3: The translation for line N MUST correspond EXACTLY to the English text in line N. Do NOT shift translations up or down keys.\n"
             "NO commentary, NO extra text."
         )
 
@@ -2662,12 +2920,22 @@ if __name__ == "__main__":
 
     # ==================== ASS CREATION ====================
 
-    def create_ass_with_font(self, srt_path: str, ass_path: str, lang: str, secondary_srt: Optional[str] = None, time_offset: float = 0.0):
+    def create_ass_with_font(self, srt_path: str, ass_path: str, lang: str, secondary_srt: Optional[str] = None, time_offset: float = 0.0, video_width: int = 0, video_height: int = 0):
         """Generate ASS file"""
         title = f"{get_language_config(lang).name} + {get_language_config('fa').name}" if secondary_srt else get_language_config(lang).name
         self.logger.info(f"Generating ASS asset ({title})...")
         
         style = self.style_config
+        
+        # Portrait videos need stable margins; keep bilingual rows close so they
+        # look like two consecutive lines instead of widely separated tiers.
+        is_portrait = bool(video_width and video_height and video_height > video_width)
+        # Keep a safer side margin in portrait to avoid clipping on narrow frames.
+        margin_h = 64 if is_portrait else 64
+        fa_margin_v = 26 if is_portrait else 10
+        # Previous value (92/56) pushed the English row too high. Tighten the
+        # offset to keep EN directly above FA in bilingual mode.
+        top_margin_v = 44 if is_portrait else 24
         
         if lang == 'fa' or secondary_srt:
             # Calculate actual FA font size based on scales (style.font_size is already scaled by EN scale in __init__)
@@ -2680,7 +2948,7 @@ if __name__ == "__main__":
             fa_style = (
                 f"Style: FaDefault,{fa_font_name},{fa_font_size},&H00FFFFFF,&H000000FF,&H00000000,{style.back_color},"
                 f"-1,0,0,0,100,100,0,0,{style.border_style},{style.outline},{style.shadow},"
-                f"{style.alignment},10,10,10,1"
+                f"{style.alignment},{margin_h},{margin_h},{fa_margin_v},1"
             )
         
         # Standard V4+ Styles Format (23 entries)
@@ -2690,17 +2958,36 @@ if __name__ == "__main__":
         primary_style_full = (
             f"Style: Default,{style.font_name},{style.font_size},{style.primary_color},&H000000FF,&H00000000,{style.back_color},"
             f"0,0,0,0,100,100,0,0,{style.border_style},{style.outline},{style.shadow},"
-            f"{style.alignment},10,10,10,1"
+            f"{style.alignment},{margin_h},{margin_h},{fa_margin_v},1"
+        )
+
+        top_style = (
+            f"Style: TopDefault,{style.font_name},{style.font_size},{style.primary_color},&H000000FF,&H00000000,{style.back_color},"
+            f"0,0,0,0,100,100,0,0,{style.border_style},{style.outline},{style.shadow},"
+            f"{style.alignment},{margin_h},{margin_h},{top_margin_v},1"
         )
 
         # Build styles block: always include primary, conditionally add FA
+        # PlayResX/Y intentionally omitted — libass uses its default 640×480 coordinate
+        # space, which keeps Fontsize values at their intended visual weight.
+        # MarginL/R are already expressed in that same 640-wide space (see margin_h above).
+        # WrapStyle 2 (no-wrap) in bilingual mode: libass on darwin_arm64 ignores inline
+        # \q override tags, so the only reliable way to prevent the English top row from
+        # being "smart-balanced" into two lines is to set WrapStyle:2 in the header.
+        # Persian lines are pre-segmented and fit comfortably; if one ever overflows it
+        # is truncated at the margin, which is far better than a 3-line layout.
+        # WrapStyle 0 (smart wrap) is kept for monolingual mode as a safety net.
+        wrap_style = "2" if secondary_srt else "0"
+
         styles_block = f"{format_line}\n{primary_style_full}"
+        if secondary_srt:
+            styles_block += f"\n{top_style}"
         if lang == 'fa' or secondary_srt:
             styles_block += f"\n{fa_style}"
 
         header = f"""[Script Info]
 ScriptType: v4.00+
-WrapStyle: 2
+WrapStyle: {wrap_style}
 
 [V4+ Styles]
 {styles_block}
@@ -2738,8 +3025,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             text = e['text'].replace('\n', ' ').replace('\\N', ' ').replace('\\n', ' ').strip()
             # Reduce multiple spaces to one
             text = ' '.join(text.split())
+            # In bilingual mode, hard-truncate top line to keep it inside frame.
+            # Portrait videos need a stricter cap due narrower width.
+            max_top_chars = 38 if is_portrait else 52
+            # In bilingual mode, hard-truncate English to avoid wrap/clipping.
+            # rendering regardless of WrapStyle or libass version differences.
+            if secondary_srt and len(text) > max_top_chars:
+                text = text[:max_top_chars].rsplit(' ', 1)[0] + '…'
             
             final_text = text
+            _bi_fa_text = None  # Separate Persian event text for bilingual mode
             
             # --- PERSIAN SHAPING LOGIC REMOVED ---
             # FFmpeg is compiled with --enable-libharfbuzz, so it handles Arabic/Persian natively.
@@ -2762,11 +3057,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     # Top row (primary/source): smaller gray — fixed at 75%, never dynamic.
                     # Bottom row (secondary/FA): full size white bold — never changes.
                     # Font size MUST be constant per video; dynamic sizing causes jarring jumps.
-                    top_fs = max(16, int(style.font_size * 0.75))
+                    top_scale = 0.90 if is_portrait else 0.82
+                    top_fs = max(13, int(style.font_size * top_scale))
                     bot_fs = style.font_size
                     # RTL direction handled by FaDefault style (Vazirmatn is inherently RTL).
                     # Do NOT insert RLM here — libass renders it as a visible rectangle.
-                    final_text = f"{{\\fs{top_fs}}}{{\\c&H808080}}{text}\\N{{\\rFaDefault}}{{\\fs{bot_fs}}}{{\\b1}}{sec_text_formatted}"
+                    # Use TWO separate Dialogue events instead of one combined event.
+                    # Reason: \q is event-level in libass — the last \q tag wins for the entire
+                    # event. A single combined event with {\q2}EN\N{\q0}FA means \q0 cancels
+                    # \q2 and the English top line still word-wraps. Two events each have their
+                    # own independent wrap setting.
+                    # Persian event is added FIRST so libass places it at the natural bottom
+                    # position; the English event (added second) is pushed above by libass
+                    # collision avoidance.
+                    final_text = f"{{\\q2}}{{\\fs{top_fs}}}{{\\c&H808080}}{text}"
+                    _bi_fa_text = f"{{\\b1}}{{\\fs{bot_fs}}}{sec_text_formatted}"
                 else:
                     final_text = text
             
@@ -2794,12 +3099,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             for _cp in ('\u200f', '\u200e', '\u200d',
                         '\u202b', '\u202a', '\u202c', '\u202e', '\u202d'):
                 final_text = final_text.replace(_cp, '')
+                if _bi_fa_text:
+                    _bi_fa_text = _bi_fa_text.replace(_cp, '')
 
             # Use FaDefault style when primary lang is FA (RTL) and no secondary row.
             # In bilingual mode, Default is used for the top row and FaDefault is applied
             # inline (via {\rFaDefault}) for the bottom row.
             event_style = "FaDefault" if (lang == 'fa' and not secondary_map) else "Default"
-            events.append(f"Dialogue: 0,{ass_start},{ass_end},{event_style},,0,0,0,,{final_text}")
+            if _bi_fa_text:
+                # Two-event bilingual: Persian first → libass places it at bottom.
+                # English second → libass collision avoidance pushes it above Persian.
+                events.append(f"Dialogue: 0,{ass_start},{ass_end},FaDefault,,0,0,0,,{_bi_fa_text}")
+                events.append(f"Dialogue: 0,{ass_start},{ass_end},TopDefault,,0,0,0,,{final_text}")
+            else:
+                events.append(f"Dialogue: 0,{ass_start},{ass_end},{event_style},,0,0,0,,{final_text}")
         
         with open(ass_path, 'w', encoding='utf-8') as f:
             # Add BOM for good measure
@@ -3010,15 +3323,33 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         prompt_file: Optional[str] = None,
         post_langs: Optional[List[str]] = None,
         save_formats: Optional[List[str]] = None,
+        render_resolution: Optional[int] = None,
+        render_quality: Optional[int] = None,
+        render_fps: Optional[int] = None,
+        render_split_mb: Optional[int] = None,
+        progress_callback=None,
     ) -> Dict[str, Any]:
         """Complete workflow with fixed path handling and memory management"""
-        
+
+        def _emit_progress(pct: int, msg: str):
+            """Emit a structured progress line parseable by consumers (e.g. su6i_yar.py)."""
+            self.logger.info(f"PROGRESS:{pct}:{msg}")
+            if progress_callback:
+                try:
+                    progress_callback(pct, msg)
+                except Exception:
+                    pass
+
         # Resolve absolute path to properly handle inputs
         video_path = os.path.abspath(video_path)
+        # Normalize filename first so every downstream output uses a safe stem.
+        if os.path.exists(video_path) and not post_only:
+            video_path = self._ensure_safe_input_filename(video_path)
         self.logger.info(f"Processing sequence initiated: {Path(video_path).name}")
         
         result = {}
         temp_vid = None
+        workflow_lock_path = None
         
         # ORIGINAL BASE: This is where ALL output files (SRT, ASS, Video) MUST go.
         # It should be based on the user's input file, not any temp/safe copies.
@@ -3029,18 +3360,162 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if "safe_input" in original_stem or "temp_" in original_stem:
             original_stem = re.sub(r'^(temp_\d+_|safe_)', '', original_stem)
 
+        # Strip resolution suffix so all variants share one SRT/translation base.
+        # Handles both "_240p" and collision names like "_240p_2".
+        # e.g. "FooBar_480p", "FooBar_360p_2" -> original_base "FooBar"
+        original_stem = re.sub(r'_\d{3,4}p(?:_\d+)?$', '', original_stem)
+
         # Detect SRT-as-input: user passed a pre-existing transcript file directly.
         # Convention: file is named <base>_<lang>.srt — strip the `_<lang>` suffix so
         # that original_base points at the real base name (same as if the video was given).
         _is_srt_input = video_path.lower().endswith('.srt')
         if _is_srt_input:
-            _srt_lang_suffix = f'_{source_lang}'
-            if original_stem.endswith(_srt_lang_suffix):
-                original_stem = original_stem[:-len(_srt_lang_suffix)]
+            # Auto-detect language from SRT filename (e.g. video_fa.srt → source_lang='fa').
+            # This lets users pass `video_fa.srt` without needing `--source fa`.
+            _stem_lang_match = re.search(r'_([a-z]{2,3})$', original_stem)
+            if _stem_lang_match:
+                _detected_srt_lang = _stem_lang_match.group(1)
+                source_lang = _detected_srt_lang
+                original_stem = original_stem[:-len(f'_{_detected_srt_lang}')]
+            elif original_stem.endswith(f'_{source_lang}'):
+                original_stem = original_stem[:-len(f'_{source_lang}')]
 
-        original_base = os.path.join(original_dir, original_stem)
+        # Choose canonical base path by reusing an existing SRT set when present.
+        # This prevents re-transcription for variants like "..._360p_2.mp4" and
+        # also supports older/unsanitized project folders that may live in cwd.
+        _parent_dir = os.path.dirname(original_dir)
+        _cwd = os.getcwd()
+        self.logger.info(f"📁 Subtitle base resolution cwd: {_cwd}")
+        _normalized_target_stem = self._sanitize_stem_for_fs(original_stem)
+
+        def _stem_match_key(value: str) -> str:
+            return re.sub(r'[^a-z0-9]+', '', (value or '').lower())
+
+        _target_stem_key = _stem_match_key(_normalized_target_stem)
+
+        def _normalize_candidate_stem(value: str) -> str:
+            value = re.sub(r'_\d{3,4}p(?:_\d+)?$', '', value or '')
+            return self._sanitize_stem_for_fs(value)
+
+        _candidate_bases = [
+            os.path.join(_cwd, original_stem),
+            os.path.join(_cwd, _normalized_target_stem),
+            os.path.join(_cwd, original_stem, original_stem),
+            os.path.join(_cwd, _normalized_target_stem, _normalized_target_stem),
+            os.path.join(original_dir, original_stem),
+            os.path.join(_parent_dir, original_stem),
+            os.path.join(_parent_dir, original_stem, original_stem),
+        ]
+        _probe_langs = [source_lang] + [l for l in (target_langs or []) if l != source_lang]
+        _existing_base = None
+        for _b in _candidate_bases:
+            for _l in _probe_langs:
+                if os.path.exists(f"{_b}_{_l}.srt"):
+                    _existing_base = _b
+                    break
+            if _existing_base:
+                break
+
+        if not _existing_base:
+            _search_dirs = []
+            for _d in (_cwd, os.path.join(_cwd, original_stem), original_dir, _parent_dir, os.path.join(_parent_dir, original_stem)):
+                if _d and os.path.isdir(_d) and _d not in _search_dirs:
+                    _search_dirs.append(_d)
+
+            for _search_dir in _search_dirs:
+                for _l in _probe_langs:
+                    try:
+                        for _p in Path(_search_dir).glob(f"*_{_l}.srt"):
+                            if not _p.is_file():
+                                continue
+                            _cand_base = str(_p)[:-len(f"_{_l}.srt")]
+                            _cand_stem = os.path.basename(_cand_base)
+                            _cand_norm = _normalize_candidate_stem(_cand_stem)
+                            if _cand_norm == _normalized_target_stem or _stem_match_key(_cand_norm) == _target_stem_key:
+                                _existing_base = _cand_base
+                                break
+                    except Exception:
+                        continue
+                    if _existing_base:
+                        break
+                if _existing_base:
+                    break
+
+        original_base = _existing_base or os.path.join(original_dir, original_stem)
+        original_dir = os.path.dirname(original_base)
+        original_stem = os.path.basename(original_base)
+        lock_key = os.path.abspath(original_base).lower()
+
+        if _existing_base:
+            self.logger.info(f"♻️ Canonical base resolved to existing assets: {original_base}")
+        else:
+            self.logger.info(f"🆕 Canonical base resolved to new assets: {original_base}")
+
+        def _migrate_legacy_resolution_srt(lang_code: str, expected_path: str) -> bool:
+            """Promote legacy *_<res>p_<lang>.srt to shared base name if missing.
+
+            Returns True if expected_path exists after migration.
+            """
+            if os.path.exists(expected_path):
+                return True
+            try:
+                base_name = Path(original_base).name
+                parent_dir = Path(original_dir)
+                pattern = f"{base_name}_*p_{lang_code}.srt"
+                candidates = [p for p in parent_dir.glob(pattern) if p.is_file()]
+                if not candidates:
+                    return False
+                # Prefer richer files to maximize chance of full reuse.
+                candidates.sort(key=lambda p: (p.stat().st_size, p.stat().st_mtime), reverse=True)
+                best = candidates[0]
+                if best.stat().st_size < 50:
+                    return False
+                shutil.move(str(best), expected_path)
+                self.logger.info(f"📦 Reusing legacy SRT: {best.name} -> {Path(expected_path).name}")
+                return True
+            except Exception as e:
+                self.logger.warning(f"⚠️ Legacy SRT migration skipped for {lang_code}: {e}")
+                return os.path.exists(expected_path)
+
+        # ── Detect video orientation and compute subtitle geometry ───────────
+        # max_chars is derived from the 80% safe text area divided by the
+        # rendered character width, so long lines never overflow the frame.
+        #
+        # libass scales fonts from its default 480-line virtual space:
+        #   rendered_font_px = font_size × (video_height / 480)
+        # Glyph width ratio: Latin ≈ 0.55×, Arabic/Persian Naskh ≈ 0.40× (connected script).
+        #   max_chars = (video_width × 0.80) / (rendered_font_px × ratio)
+        _vw, _vh = 0, 0  # defaults for SRT-only input (no video dimensions available)
+        if not video_path.lower().endswith('.srt'):
+            _vw, _vh = self._detect_video_dimensions(video_path)
+            if _vw and _vh:
+                rendered_font_px = self.style_config.font_size * (_vh / 480.0)
+                text_area_px     = _vw * 0.80
+                # Glyph width ratio: Latin ≈ 0.55×, Arabic/Persian Naskh ≈ 0.64×.
+                # Vazirmatn and similar Naskh fonts have wider advance widths
+                # relative to cap-height (empirically ~0.62-0.66× font height).
+                # Using 0.64 gives max_chars ≈ 21 for 9:16 portrait with font 16,
+                # which correctly contains 4-word Persian lines without overflow.
+                _rtl_langs = {'fa', 'ar', 'ur', 'he'}
+                _is_rtl = target_langs and any(l in _rtl_langs for l in target_langs)
+                avg_glyph_w      = rendered_font_px * (0.64 if _is_rtl else 0.55)
+                max_chars_dyn    = max(10, int(text_area_px / avg_glyph_w))
+                # target ~4-8 words per line depending on how many chars fit
+                target_words_dyn = max(4, min(10, max_chars_dyn // 4))
+                self.style_config.max_chars   = max_chars_dyn
+                self.target_words_per_line    = target_words_dyn
+                orientation = "📱 Vertical" if _vh > _vw else "🖥️  Horizontal"
+                self.logger.info(
+                    f"{orientation} video ({_vw}×{_vh}): "
+                    f"font≈{rendered_font_px:.0f}px text_area={text_area_px:.0f}px "
+                    f"max_chars={max_chars_dyn} target_words={target_words_dyn}"
+                )
         
         try:
+            # Prevent accidental concurrent processing of the same source
+            # across multiple terminals.
+            workflow_lock_path = self._acquire_workflow_lock(lock_key, video_path)
+
             # Post-only mode: skip all processing and generate post from existing SRTs.
             if post_only:
                 try:
@@ -3079,6 +3554,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # 1. Transcription
             # Force SRT path to be at ORIGINAL location
             src_srt = f"{original_base}_{source_lang}.srt"
+            _migrate_legacy_resolution_srt(source_lang, src_srt)
+            self.logger.info(f"🔎 Source transcription candidate: {src_srt}")
             
             # Use regex to recover SRT if only temp version exists (migration logic)
             # (Skipped for now, assuming fresh run)
@@ -3098,12 +3575,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 os.remove(src_srt)
             
             if not os.path.exists(src_srt):
+                self.logger.info("🎙️ Reusable source transcription not found after probe; Whisper transcription will run.")
                 # We pass the current_video_input (which might be temp/limited) to transcribe
                 # BUT we need to ensure the OUTPUT saved is 'src_srt' (original path)
                 # The transcribe_video method currently saves based on input name.
                 # Let's rename it after generation if needed.
                 
                 _actual_dur = (limit_end - _limit_start) if limit_end is not None else 0
+                _emit_progress(5, "🎙️ رونویسی با Whisper...")
                 generated_srt = self.transcribe_video(current_video_input, source_lang, correct, detect_speakers, dur=_actual_dur)
                 
                 # CRITICAL: Unload model immediately after heavy transcription to free RAM for rendering/translation
@@ -3113,6 +3592,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 if os.path.abspath(generated_srt) != os.path.abspath(src_srt):
                     self.logger.info(f"📦 Moving temp SRT to final path: {Path(src_srt).name}")
                     shutil.move(generated_srt, src_srt)
+                
+                _src_is_fresh = True
+            else:
+                self.logger.info(f"✅ Reusing source transcription without Whisper: {Path(src_srt).name}")
+                _src_is_fresh = False  # Already merged on a previous run; do not re-merge.
             
             # MASTER TIMELINE LOCK: Establish the structural anchor once.
             # All downstream translations MUST follow this structure.
@@ -3138,22 +3622,37 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # Smart Merge: Fix split numbers (e.g. "1" + ",000") before saving
             src_entries = self._merge_split_numbers(src_entries)
             
-            # 📐 Merge short fragments into semantic clauses (shared with translation path)
-            # Ensures bilingual ASS file has matching English/Persian line counts
-            src_entries = self.merge_to_clauses(src_entries)
-            
-            with open(src_srt, 'w', encoding='utf-8-sig') as f:
-                for idx, entry in enumerate(src_entries, 1):
-                    f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
+            # 📐 Merge short fragments into semantic clauses.
+            # Freshly transcribed SRTs always need this pass.
+            # For pre-existing SRTs (e.g., downloaded auto-subs), enable merge only when
+            # they are clearly over-fragmented (word-level chunks), to avoid word-by-word output.
+            _avg_words = (
+                sum(len((e.get('text') or '').split()) for e in src_entries) / max(1, len(src_entries))
+            )
+            _src_is_fragmented = (len(src_entries) >= 60 and _avg_words < 2.3)
+
+            if _src_is_fresh or _src_is_fragmented:
+                if _src_is_fragmented and not _src_is_fresh:
+                    self.logger.info(
+                        f"📐 Detected fragmented source timeline (avg words/entry={_avg_words:.2f}); applying clause merge."
+                    )
+                src_entries = self.merge_to_clauses(src_entries)
+                with open(src_srt, 'w', encoding='utf-8-sig') as f:
+                    for idx, entry in enumerate(src_entries, 1):
+                        f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
             
             result[source_lang] = src_srt
             
             # 2. Translation
+            _tgt_langs_to_translate = [t for t in target_langs if t != source_lang]
+            _tgt_count = len(_tgt_langs_to_translate)
+            _emit_progress(55, f"🌐 شروع ترجمه به {', '.join(t.upper() for t in _tgt_langs_to_translate)}...")
             for tgt in target_langs:
                 if tgt == source_lang:
                     continue
                 
                 tgt_srt = f"{original_base}_{tgt}.srt"
+                _migrate_legacy_resolution_srt(tgt, tgt_srt)
                 
                 if os.path.exists(tgt_srt) and not force:
                     # ROBUST VALIDATION: Check entry parity AND language integrity
@@ -3169,6 +3668,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 # In any case, we proceed with translation.
                 
                 self.logger.info(f"--- Translation Sequence initiated (Target ISO: {tgt.upper()}) ---")
+                _tgt_idx = _tgt_langs_to_translate.index(tgt) if tgt in _tgt_langs_to_translate else 0
+                _start_pct = 55 + int(_tgt_idx / max(1, _tgt_count) * 20)
+                _emit_progress(_start_pct, f"🌐 ترجمه به {tgt.upper()}...")
                 
                 try:
                     entries = self.parse_srt(src_srt)
@@ -3356,33 +3858,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                             self.logger.warning(f"⚠️ Error printing table: {e}")
                             self.logger.info(f"📋 Untranslated line indices: {untranslated_indices[:10]}{'...' if len(untranslated_indices) > 10 else ''}")
                         
-                        # Ask user if they want to retry
-                        print(f"\n⚠️  Translation incomplete for {tgt.upper()}: {untranslated_count} lines remain untranslated.")
-                        print(f"   Translated: {total_count - untranslated_count}/{total_count} ({percentage:.1f}%)")
-                        print(f"\n   Do you want to retry translating ONLY the {untranslated_count} untranslated lines? (y/n): ", end="")
+                        # Log untranslated info; auto-retry will happen next iteration.
+                        self.logger.warning(f"⚠️ Incomplete translation (attempt {retry_count + 1}/{max_retries}): {untranslated_count}/{total_count} lines ({100-percentage:.1f}%) not translated to {tgt.upper()}")
                         
-                        try:
-                            response = input().strip().lower()
-                        except (EOFError, KeyboardInterrupt):
-                            response = 'n'
-                            print()  # newline after interrupt
-                        
-                        if response not in ['y', 'yes']:
-                            # Ask user if they want to proceed with incomplete translation
-                            try:
-                                print(f"\n⚠️ Translation is incomplete. Do you want to PROCEED with {percentage:.1f}% translated file? (y/n): ", end="")
-                                proceed = input().strip().lower()
-                            except (EOFError, KeyboardInterrupt):
-                                proceed = 'n'
-                                print()
-
-                            if proceed in ['y', 'yes']:
-                                self.logger.warning(f"❌ User declined retry but chose to proceed. Continuing with {percentage:.1f}% translated file.")
-                                break
-                            else:
-                                self.logger.warning("❌ User declined retry and chose to abort. Halting workflow before rendering.")
-                                return result
-                        
+                        # Auto-retry untranslated lines without prompting.
+                        # Continue looping; incremented retry_count will exit if >= max_retries.
                         retry_count += 1
                         self.logger.info(f"🔄 Retrying translation for {untranslated_count} lines (Attempt {retry_count}/{max_retries})...")
                         
@@ -3472,9 +3952,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                             for idx, entry in enumerate(tgt_entries, 1):
                                 f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
             
-            # 3. RENDERING
-            if render:
+            # 3. RENDERING (skip when input is SRT-only — no video source available)
+            if render and not _is_srt_input:
                 self.logger.info("Rendering sequence initiated.")
+                _emit_progress(80, "🎬 رندر زیرنویس ASS...")
                 
                 # Render order = sub_langs order (first = top, second = bottom).
                 # target_langs[0] is always the first -sub lang; source is also in result.
@@ -3497,136 +3978,187 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     ass_path,
                     primary,
                     result.get(secondary) if secondary else None,
-                    time_offset=_limit_start
+                    time_offset=_limit_start,
+                    video_width=_vw or 0,
+                    video_height=_vh or 0,
                 )
+                result['ass_file'] = ass_path
                 
-                # Output Video -> Original Base
-                output_video = f"{original_base}_subbed.mp4"
-                
-                # Nuclear Rendering Option (Sandbox)
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    safe_video_name = "safe_input.mp4"
-                    safe_ass_name = "safe_subs.ass"
-                    safe_output_name = "safe_output.mp4"
-                    
-                    safe_video_path = os.path.join(temp_dir, safe_video_name)
-                    safe_ass_path = os.path.join(temp_dir, safe_ass_name)
-                    safe_output_path = os.path.join(temp_dir, safe_output_name)
-                    
-                    # 1. Symlink Input Video (Use current_video_input which is the actual file tailored for length)
-                    try:
-                        os.symlink(os.path.abspath(current_video_input), safe_video_path)
-                    except OSError:
-                        shutil.copy(current_video_input, safe_video_path)
+                # Output Video -> Original Base (+render resolution for clarity)
+                _render_h = 0
+                try:
+                    if render_resolution and int(render_resolution) > 0:
+                        _render_h = int(render_resolution)
+                    else:
+                        _dw, _dh = self._detect_video_dimensions(current_video_input)
+                        _render_h = int(_dh) if _dh else 0
+                except Exception:
+                    _render_h = 0
+                output_video = f"{original_base}_{_render_h}p_subbed.mp4" if _render_h > 0 else f"{original_base}_subbed.mp4"
+                if os.path.exists(output_video) and not force:
+                    self.logger.info(f"✅ Reusing existing rendered video: {Path(output_video).name}")
+                    result['rendered_video'] = output_video
+                else:
+                    # Nuclear Rendering Option (Sandbox)
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        safe_video_name = "safe_input.mp4"
+                        safe_ass_name = "safe_subs.ass"
+                        safe_output_name = "safe_output.mp4"
                         
-                    # 2. Copy ASS to Sandbox
-                    shutil.copy(ass_path, safe_ass_path)
-                    
-                    # 3. FFmpeg Command with Quality-Priority (Git History Restore)
-                    # We prioritize constant quality (CRF/Q:V) to maintain file size parity.
-                    hw_info = detect_best_hw_encoder()
-                    encoder = hw_info['encoder']
-                    codec = hw_info['codec']
-                    platform = hw_info['platform']
-                    # Unified Rendering: Delegate to 'amir video cut'
-                    # This ensures we use the centralized logic in video.sh (Bitrate Cap, Encoder Selection, etc.)
-                    self.logger.info("🚀 Delegating rendering to 'amir video' engine...")
-                    
-                    # Resolve Font Directory (Mac & Linux support)
-                    fonts_dir = None
-                    font_paths = [
-                        os.path.expanduser("~/Library/Fonts"), # Mac User
-                        "/Library/Fonts",                      # Mac System
-                        os.path.expanduser("~/.local/share/fonts"), # Linux User
-                        "/usr/share/fonts/truetype",           # Linux System
-                        "/usr/share/fonts"                     # Linux System Fallback
-                    ]
-                    
-                    for p in font_paths:
-                        if os.path.exists(p):
-                            # Case-insensitive search for Vazirmatn (primary font in ASS styles)
-                            found_font = None
-                            try:
-                                for f in os.listdir(p):
-                                    fl = f.lower()
-                                    if "vazirmatn" in fl and (fl.endswith(".ttf") or fl.endswith(".otf")):
-                                        found_font = os.path.join(p, f)
-                                        break
-                            except OSError:
-                                continue
-                                
-                            if found_font:
-                                self.logger.info(f"Found font: {found_font}")
-                                # Standard Approach: Point to the directory containing the font
-                                fonts_dir = p
+                        safe_video_path = os.path.join(temp_dir, safe_video_name)
+                        safe_ass_path = os.path.join(temp_dir, safe_ass_name)
+                        safe_output_path = os.path.join(temp_dir, safe_output_name)
+                        
+                        # 1. Symlink Input Video (Use current_video_input which is the actual file tailored for length)
+                        try:
+                            os.symlink(os.path.abspath(current_video_input), safe_video_path)
+                        except OSError:
+                            shutil.copy(current_video_input, safe_video_path)
+                            
+                        # 2. Copy ASS to Sandbox
+                        shutil.copy(ass_path, safe_ass_path)
+                        
+                        # 3. FFmpeg Command with Quality-Priority (Git History Restore)
+                        # We prioritize constant quality (CRF/Q:V) to maintain file size parity.
+                        hw_info = detect_best_hw_encoder()
+                        encoder = hw_info['encoder']
+                        codec = hw_info['codec']
+                        platform = hw_info['platform']
+                        # Unified Rendering: Delegate to 'amir video cut'
+                        # This ensures we use the centralized logic in video.sh (Bitrate Cap, Encoder Selection, etc.)
+                        self.logger.info("🚀 Delegating rendering to 'amir video' engine...")
+                        _emit_progress(88, "🎞️ رندر ویدیو نهایی...")
+                        
+                        # Resolve Font Directory (Mac & Linux support)
+                        fonts_dir = None
+                        font_paths = [
+                            os.path.expanduser("~/Library/Fonts"), # Mac User
+                            "/Library/Fonts",                      # Mac System
+                            os.path.expanduser("~/.local/share/fonts"), # Linux User
+                            "/usr/share/fonts/truetype",           # Linux System
+                            "/usr/share/fonts"                     # Linux System Fallback
+                        ]
+                        
+                        for p in font_paths:
+                            if os.path.exists(p):
+                                # Case-insensitive search for Vazirmatn (primary font in ASS styles)
+                                found_font = None
+                                try:
+                                    for f in os.listdir(p):
+                                        fl = f.lower()
+                                        if "vazirmatn" in fl and (fl.endswith(".ttf") or fl.endswith(".otf")):
+                                            found_font = os.path.join(p, f)
+                                            break
+                                except OSError:
+                                    continue
+                                    
+                                if found_font:
+                                    self.logger.info(f"Found font: {found_font}")
+                                    # Standard Approach: Point to the directory containing the font
+                                    fonts_dir = p
+                                    break
+
+                        # Try to find a sidecar thumbnail to inject as startup cover frame.
+                        # This helps clients like Telegram that often preview from first frames.
+                        cover_frame_path = None
+                        _cover_candidates = [
+                            f"{current_video_input}.jpg",
+                            f"{current_video_input}.jpeg",
+                            f"{current_video_input}.png",
+                            f"{Path(current_video_input).with_suffix('').as_posix()}.jpg",
+                            f"{Path(current_video_input).with_suffix('').as_posix()}.jpeg",
+                            f"{Path(current_video_input).with_suffix('').as_posix()}.png",
+                            f"{original_base}.jpg",
+                            f"{original_base}.jpeg",
+                            f"{original_base}.png",
+                        ]
+                        for _cand in _cover_candidates:
+                            if _cand and os.path.exists(_cand):
+                                cover_frame_path = os.path.abspath(_cand)
                                 break
 
-                    render_cmd = [
-                        "amir", "video", "cut",
-                        safe_video_path,
-                        "--subtitles", safe_ass_path,
-                        "--output", safe_output_path,
-                        "--display-input", os.path.basename(current_video_input),
-                        "--display-output", os.path.basename(output_video),
-                        "--render"
-                    ]
-                    
-                    if fonts_dir:
-                        render_cmd.extend(["--fonts-dir", fonts_dir])
+                        render_cmd = [
+                            "amir", "video", "cut",
+                            safe_video_path,
+                            "--subtitles", safe_ass_path,
+                            "--output", safe_output_path,
+                            "--display-input", os.path.basename(current_video_input),
+                            "--display-output", os.path.basename(output_video),
+                            "--render"
+                        ]
 
-                    # Prepare environment with FFMPEG_EXEC override
-                    # static_ffmpeg puts binaries in PATH, so shutil.which should find it
-                    # This bypasses 'amir' script's PATH override (which prefers Homebrew)
-                    current_env = os.environ.copy()
-                    ffmpeg_bin = shutil.which("ffmpeg")
-                    if ffmpeg_bin:
-                        current_env["FFMPEG_EXEC"] = ffmpeg_bin
-                        self.logger.info(f"🔧 Forcing FFmpeg binary: {ffmpeg_bin}")
-
-                    # Get video duration for progress percentage
-                    render_total_duration = 0.0
-                    try:
-                        dur_result = subprocess.run(
-                            ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
-                             '-of', 'default=noprint_wrappers=1:nokey=1', safe_video_path],
-                            capture_output=True, text=True, timeout=10
-                        )
-                        render_total_duration = float(dur_result.stdout.strip())
-                    except Exception:
-                        pass
-
-                    # Execute natively — 'amir video cut' provides its own ASCII progress bar
-                    try:
-                        process = subprocess.run(
-                            render_cmd,
-                            env=current_env,
-                            check=False
-                        )
-                    except KeyboardInterrupt:
-                        self.logger.warning("Rendering interrupted by user.")
-                        return None
-                    
-                    print() # Final newline after completion
-                    
-                    if process.returncode != 0:
-                        self.logger.error("❌ Rendering failed in 'amir video' engine.")
-                        return None
+                        # Propagate user render intent all the way to final encoder stage.
+                        if render_resolution and int(render_resolution) > 0:
+                            render_cmd.extend(["--resolution", str(int(render_resolution))])
+                        if render_quality and int(render_quality) > 0:
+                            render_cmd.extend(["--quality", str(int(render_quality))])
+                        if render_fps and int(render_fps) > 0:
+                            render_cmd.extend(["--fps", str(int(render_fps))])
+                        if render_split_mb and int(render_split_mb) > 0:
+                            render_cmd.extend(["--split", str(int(render_split_mb))])
                         
-                    self.logger.info("✅ Rendering completed successfully via centralized engine.")
-                    
-                    # 4. Move Result to Final Destination
-                    if os.path.exists(output_video):
-                        os.remove(output_video)
-                    
-                    shutil.move(safe_output_path, output_video)
-                    result['rendered_video'] = output_video
-                    self.logger.info(f"Rendering process finalized: {Path(output_video).name}")
+                        if fonts_dir:
+                            render_cmd.extend(["--fonts-dir", fonts_dir])
+                        if cover_frame_path:
+                            render_cmd.extend(["--cover-frame", cover_frame_path])
+                            self.logger.info(f"🖼️ Using cover frame for startup preview: {Path(cover_frame_path).name}")
+
+                        # Prepare environment with FFMPEG_EXEC override
+                        # static_ffmpeg puts binaries in PATH, so shutil.which should find it
+                        # This bypasses 'amir' script's PATH override (which prefers Homebrew)
+                        current_env = os.environ.copy()
+                        ffmpeg_bin = shutil.which("ffmpeg")
+                        if ffmpeg_bin:
+                            current_env["FFMPEG_EXEC"] = ffmpeg_bin
+                            self.logger.info(f"🔧 Forcing FFmpeg binary: {ffmpeg_bin}")
+
+                        # Get video duration for progress percentage
+                        render_total_duration = 0.0
+                        try:
+                            dur_result = subprocess.run(
+                                ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                                 '-of', 'default=noprint_wrappers=1:nokey=1', safe_video_path],
+                                capture_output=True, text=True, timeout=10
+                            )
+                            render_total_duration = float(dur_result.stdout.strip())
+                        except Exception:
+                            pass
+
+                        # Execute natively — 'amir video cut' provides its own ASCII progress bar
+                        try:
+                            process = subprocess.run(
+                                render_cmd,
+                                env=current_env,
+                                check=False
+                            )
+                        except KeyboardInterrupt:
+                            self.logger.warning("Rendering interrupted by user.")
+                            return None
+                        
+                        print() # Final newline after completion
+                        
+                        if process.returncode != 0:
+                            self.logger.error("❌ Rendering failed in 'amir video' engine.")
+                            return None
+                            
+                        self.logger.info("✅ Rendering completed successfully via centralized engine.")
+                        _emit_progress(98, "✅ رندر ویدیو تمام شد!")
+                        
+                        # 4. Move Result to Final Destination
+                        if os.path.exists(output_video):
+                            os.remove(output_video)
+                        
+                        shutil.move(safe_output_path, output_video)
+                        result['rendered_video'] = output_video
+                        self.logger.info(f"Rendering process finalized: {Path(output_video).name}")
 
             # Social post generation (auto-triggered when platforms list is given)
             if platforms:
                 try:
-                    self.generate_posts(original_base, source_lang, result, platforms=platforms,
-                                        prompt_file=prompt_file, post_langs=post_langs)
+                    saved_posts = self.generate_posts(original_base, source_lang, result, platforms=platforms,
+                                                      prompt_file=prompt_file, post_langs=post_langs)
+                    if saved_posts:
+                        result['posts'] = saved_posts
                 except Exception as _pe:
                     self.logger.warning(f"⚠️ Post generation failed (workflow continues): {_pe}")
 
@@ -3660,6 +4192,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 except Exception as _exp_e:
                     self.logger.warning(f"⚠️ Document export failed: {_exp_e}")
 
+            output_files = self._collect_existing_output_files(result)
+            bundle_path = self._bundle_outputs_zip(original_base, output_files)
+            if bundle_path and os.path.exists(bundle_path):
+                result['bundle_zip'] = bundle_path
+                output_files.append(os.path.abspath(bundle_path))
+
+            if output_files:
+                self.logger.info("📦 Output files:")
+                for p in output_files:
+                    self.logger.info(f"   - {os.path.basename(p)}")
+
             self.logger.info("Execution sequence finalized.")
             return result
         
@@ -3668,6 +4211,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             raise
         
         finally:
+            self._release_workflow_lock(workflow_lock_path)
             if temp_vid and os.path.exists(temp_vid):
                 try:
                     os.remove(temp_vid)
@@ -3981,6 +4525,107 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             missing.append('hashtags (#)')
         return (len(missing) == 0, missing)
 
+    @staticmethod
+    def _format_publish_date(value: str) -> str:
+        """Normalize common date forms to YYYY-MM-DD (+ weekday) for post headers."""
+        if not value:
+            return ""
+        value = str(value).strip()
+        fa_weekdays = {
+            0: "دوشنبه",
+            1: "سه\u200cشنبه",
+            2: "چهارشنبه",
+            3: "پنج\u200cشنبه",
+            4: "جمعه",
+            5: "شنبه",
+            6: "یکشنبه",
+        }
+        for fmt in ("%Y%m%d", "%Y-%m-%d", "%Y.%m.%d", "%d.%m.%Y", "%Y/%m/%d"):
+            try:
+                dt = datetime.strptime(value, fmt)
+                return f"{dt.strftime('%Y-%m-%d')} ({fa_weekdays.get(dt.weekday(), dt.strftime('%A'))})"
+            except ValueError:
+                continue
+        return value
+
+    def _discover_video_metadata(self, original_base: str, srt_path: Optional[str] = None) -> Dict[str, str]:
+        """Best-effort metadata lookup from yt-dlp sidecars near the current video/SRT."""
+        candidates = []
+        if srt_path:
+            srt_path = os.path.abspath(srt_path)
+            candidates.extend([
+                f"{srt_path}.info.json",
+                f"{os.path.splitext(srt_path)[0]}.info.json",
+            ])
+        original_base_abs = os.path.abspath(original_base)
+        base_dir = os.path.dirname(original_base_abs)
+        base_name = os.path.basename(original_base_abs)
+        candidates.extend([
+            f"{original_base_abs}.info.json",
+            f"{original_base_abs}.mp4.info.json",
+            f"{original_base_abs}.mov.info.json",
+            f"{original_base_abs}.m4v.info.json",
+        ])
+
+        # Fallback for resolution/collision sidecars:
+        #   <base>_240p.info.json, <base>_240p.mp4.info.json, <base>_360p_2....
+        try:
+            dynamic_candidates = []
+            for pattern in (f"{base_name}_*.info.json", f"{base_name}*.info.json"):
+                for p in Path(base_dir).glob(pattern):
+                    if p.is_file():
+                        dynamic_candidates.append(str(p.resolve()))
+            dynamic_candidates = sorted(set(dynamic_candidates), key=lambda p: os.path.getmtime(p), reverse=True)
+            candidates.extend(dynamic_candidates)
+        except Exception:
+            pass
+
+        seen = set()
+        for meta_path in candidates:
+            if not meta_path or meta_path in seen or not os.path.exists(meta_path):
+                continue
+            seen.add(meta_path)
+            try:
+                with open(meta_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                title = str(data.get('title') or data.get('fulltitle') or '').strip()
+                publish_date = self._format_publish_date(
+                    data.get('upload_date') or data.get('release_date') or data.get('timestamp') or ''
+                )
+                webpage_url = str(data.get('webpage_url') or data.get('original_url') or '').strip()
+                uploader = str(data.get('uploader') or data.get('channel') or '').strip()
+                if title or publish_date or webpage_url or uploader:
+                    return {
+                        'title': title,
+                        'publish_date': publish_date,
+                        'webpage_url': webpage_url,
+                        'uploader': uploader,
+                    }
+            except Exception:
+                continue
+        return {}
+
+    @staticmethod
+    def _compose_post_file_header(platform: str, metadata: Dict[str, str], fallback_title: str) -> str:
+        """Human-readable header added above saved post text files."""
+        title = (metadata.get('title') or fallback_title or '').strip()
+        publish_date = (metadata.get('publish_date') or '').strip()
+        webpage_url = (metadata.get('webpage_url') or '').strip()
+        uploader = (metadata.get('uploader') or '').strip()
+
+        lines = []
+        if title:
+            lines.append(f"عنوان اصلی ویدیو: {title}")
+        if publish_date:
+            lines.append(f"تاریخ انتشار: {publish_date}")
+        if uploader:
+            lines.append(f"منتشرکننده: {uploader}")
+        if webpage_url:
+            lines.append(f"لینک مرجع: {webpage_url}")
+        if not lines:
+            return ""
+        return "\n".join(lines) + "\n\n" + ("─" * 48) + "\n\n"
+
     def generate_posts(
         self,
         original_base: str,
@@ -4065,6 +4710,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 # Remove surrogate characters that break UTF-8 encoding when sent to APIs
                 full_text = full_text.encode('utf-8', errors='replace').decode('utf-8')
                 title_clean = title.encode('utf-8', errors='replace').decode('utf-8')
+                video_metadata = self._discover_video_metadata(original_base, srt_path)
 
                 srt_lang_name = get_language_config(srt_lang).name
 
@@ -4152,12 +4798,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                                     self.logger.warning(f"⚠️ Retry failed: {_re}")
 
                         post_path = f"{original_base}_{srt_lang}_{platform}.txt"
+                        post_header = self._compose_post_file_header(platform, video_metadata, title_clean)
                         with open(post_path, 'w', encoding='utf-8') as f:
-                            f.write(post_text)
+                            f.write(post_header + post_text)
                         saved[f"{srt_lang}_{platform}"] = post_path
                         label = f"پست {platform} ({srt_lang.upper()})"
                         self.logger.info(f"📝 {label} saved: {Path(post_path).name}")
-                        print(f"\n{'━'*60}\n📝  {label}:\n{'━'*60}\n{post_text}\n{'━'*60}\n")
+                        _preview_text = post_header + post_text if post_header else post_text
+                        print(f"\n{'━'*60}\n📝  {label}:\n{'━'*60}\n{_preview_text}\n{'━'*60}\n")
                     except Exception as _we:
                         self.logger.warning(f"⚠️ Could not save post for {platform}/{srt_lang}: {_we}")
 
@@ -4406,6 +5054,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         sentence-ending punctuation (. ! ? … 。？！). This ensures the LLM
         receives complete sentences for translation.
         
+        Safety caps:
+          - 8 entries max per group (word count safety)
+          - 9 seconds max per group (time-domain safety for resegmentation)
+        
         Returns:
             List of groups, where each group is a list of indices into `entries`.
             Example: [[0,1,2], [3,4], [5], ...]
@@ -4413,8 +5065,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         sentence_enders = {'.', '!', '?', '…', '。', '？', '！'}
         groups = []
         current_group = []
+        group_start_sec = 0.0
+        MAX_GROUP_SECONDS = 9.0
+
+        def _ts_to_sec(ts: str) -> float:
+            ts = ts.replace(',', '.')
+            h, m, s = ts.split(':')
+            return int(h) * 3600 + int(m) * 60 + float(s)
         
         for i, entry in enumerate(entries):
+            # Track group start time
+            if not current_group:
+                group_start_sec = _ts_to_sec(entry.get('start', '00:00:00,000'))
+            
             current_group.append(i)
             text = entry.get('text', '').strip()
             
@@ -4427,9 +5090,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 # Also break on ellipsis patterns
                 if text.rstrip().endswith('...') or text.rstrip().endswith('…'):
                     ends_sentence = True
+
+            # Time span of this group so far
+            group_end_sec = _ts_to_sec(entry.get('end', entry.get('start', '00:00:00,000')))
+            group_duration = group_end_sec - group_start_sec
             
-            # Flush group if sentence ends OR group is getting very large (safety cap)
-            if ends_sentence or len(current_group) >= 8:
+            # Flush group if sentence ends OR safety cap reached
+            if ends_sentence or len(current_group) >= 8 or group_duration >= MAX_GROUP_SECONDS:
                 groups.append(current_group)
                 current_group = []
         
@@ -4507,6 +5174,68 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         
         return (' '.join(taken).strip(), remaining)
 
+    @staticmethod
+    def _take_n_words_with_punct_snap(words: List[str], target_n: int, min_n: int, max_n: int = None) -> tuple:
+        """Take ~target_n words from the front, preferring to end at punctuation.
+        
+        Looks for punctuation within [min_n, hard_max] word range.
+        Takes the LAST punctuation found in that window (closest to target).
+        Never takes fewer than min_n words (unless list is shorter).
+        Never takes more than max_n words — hard ceiling, defaults to target_n+1.
+        
+        Returns:
+            (taken_words_list, remaining_words_list)
+        """
+        if not words:
+            return ([], [])
+        
+        punctuations = {'.', '!', '?', '…', '،', '؟', '؛', ',', ';', ':', '。', '？', '！'}
+        bad_enders = {
+            'و', 'در', 'به', 'که', 'از', 'با', 'برای', 'تا', 'چون', 'اگر',
+            'یا', 'پس', 'اما', 'ولی', 'هم', 'نیز', 'را',
+            'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with', 'by', 'of', 'that'
+        }
+        
+        available = len(words)
+        # Hard ceiling: never take more than this many words
+        hard_max = min(max_n if max_n is not None else target_n + 1, available)
+        
+        final_n = max(min_n, min(target_n, hard_max))
+        
+        # Punctuation search window: near target_n (within ±1 word), bounded by hard_max.
+        # Using hard_max as the search ceiling would greedily take far too many words.
+        search_low = min_n - 1  # inclusive, 0-based
+        search_high = min(hard_max - 1, target_n + 1)  # near target, not up to hard_max
+        
+        best_punct_idx = -1  # 0-based index of best punctuation word
+        for i in range(search_low, search_high + 1):
+            w = words[i].rstrip()
+            if w and w[-1] in punctuations:
+                best_punct_idx = i  # keep updating: last punct in window wins
+        
+        if best_punct_idx >= 0:
+            final_n = best_punct_idx + 1  # convert to count
+        else:
+            # Lexical snapping: step back off dangling connectors
+            punct_chars = ''.join(punctuations)
+            while final_n > min_n:
+                w = words[final_n - 1].rstrip(punct_chars).strip().lower()
+                if w in bad_enders:
+                    final_n -= 1
+                else:
+                    break
+        
+        final_n = max(min_n, min(final_n, hard_max))
+        return (words[:final_n], words[final_n:])
+
+    @staticmethod
+    def _vis_len(s: str) -> int:
+        """Visual character length: excludes zero-width Unicode format
+        characters (ZWNJ U+200C, ZWJ U+200D, RLM, LRM …) that Python's
+        len() counts but that occupy no rendered width in the font."""
+        import unicodedata
+        return sum(1 for c in s if unicodedata.category(c) != 'Cf')
+
     def _resegment_translation(
         self,
         entries: List[Dict],
@@ -4514,56 +5243,131 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         translated_paragraphs: List[str]
     ) -> List[str]:
         """Re-segment translated paragraphs back onto original timecodes.
-        
-        Uses character-proportional splitting: each subtitle line gets a
-        portion of the translated text proportional to its source character count.
-        Splits are always at word boundaries.
-        
+
+        Uses TIME-proportional word distribution: each subtitle slot gets a share
+        of the translated words proportional to its duration in the source audio.
+        Enforces a minimum of MIN_WORDS_PER_SLOT words and targets
+        self.target_words_per_line words per line, with punctuation-snap
+        to prefer breaking at clause boundaries.
+
         Args:
             entries: Original source subtitle entries
             paragraph_groups: Groups of entry indices (from _group_entries_into_paragraphs)
             translated_paragraphs: One translated string per paragraph group
-            
+
         Returns:
             List of translated texts, one per entry (same length as `entries`)
         """
+        MIN_WORDS_PER_SLOT = 4
+
+        def _ts_to_sec(ts: str) -> float:
+            ts = ts.replace(',', '.')
+            h, m, s = ts.split(':')
+            return int(h) * 3600 + int(m) * 60 + float(s)
+
         result = [''] * len(entries)
-        
+
         for group_indices, translated_text in zip(paragraph_groups, translated_paragraphs):
             if not translated_text or not translated_text.strip():
-                # Fallback: keep original text
                 for idx in group_indices:
                     result[idx] = entries[idx].get('text', '')
                 continue
-            
-            # Single-entry group: no splitting needed
+
+            # The char budget for a single display line.
+            slot_max_chars = self.style_config.max_chars
+
+            # Single-entry group: no word-splitting needed, but still enforce
+            # the char cap so long translations don't wrap or overflow.
             if len(group_indices) == 1:
-                result[group_indices[0]] = translated_text.strip()
+                text = translated_text.strip()
+                if self._vis_len(text) > slot_max_chars:
+                    # Trim at word boundary — excess translation is discarded;
+                    # better to lose a few words than render multi-line text.
+                    words_tmp = text.split()
+                    fitted = []
+                    budget = 0
+                    for w in words_tmp:
+                        needed = self._vis_len(w) + (1 if fitted else 0)
+                        if budget + needed > slot_max_chars:
+                            break
+                        budget += needed
+                        fitted.append(w)
+                    text = ' '.join(fitted) if fitted else text[:slot_max_chars]
+                result[group_indices[0]] = text
                 continue
-            
-            # Multi-entry group: split proportionally
-            source_chars = []
-            for idx in group_indices:
-                text = entries[idx].get('text', '')
-                source_chars.append(max(len(text), 1))  # avoid division by zero
-            
-            total_source = sum(source_chars)
+
+            # Multi-entry group: time-proportional word distribution
+            n_slots = len(group_indices)
             words = translated_text.strip().split()
-            total_trans_chars = len(translated_text.strip())
-            
+            total_words = len(words)
+
+            # Adaptive minimum: aim for 4 words per slot but scale down if
+            # the translation is too short to satisfy every slot at that minimum.
+            avg_words = total_words / n_slots
+            MIN_WORDS_PER_SLOT = max(1, min(4, int(avg_words)))
+
+            # Compute time duration for each source slot
+            source_times = []
+            for idx in group_indices:
+                s = _ts_to_sec(entries[idx]['start'])
+                e = _ts_to_sec(entries[idx]['end'])
+                source_times.append(max(e - s, 0.1))
+            total_time = sum(source_times)
+
+            remaining_words = list(words)
+            remaining_time = total_time
+
             for i, idx in enumerate(group_indices):
-                ratio = source_chars[i] / total_source
-                target_chars = max(int(total_trans_chars * ratio), 1)
-                
-                if i == len(group_indices) - 1:
-                    # Last segment gets all remaining words
-                    segment = ' '.join(words)
-                    words = []
-                else:
-                    segment, words = self._take_words_up_to(words, target_chars)
-                
-                result[idx] = segment.strip() if segment else entries[idx].get('text', '')
-        
+                if i == n_slots - 1:
+                    # Last slot: take all remaining words, but still respect max_chars
+                    last_text = ' '.join(remaining_words).strip()
+                    if self._vis_len(last_text) > slot_max_chars:
+                        trimmed = list(remaining_words)
+                        while trimmed and self._vis_len(' '.join(trimmed)) > slot_max_chars:
+                            trimmed.pop()
+                        last_text = ' '.join(trimmed).strip()
+                    result[idx] = last_text or entries[idx].get('text', '')
+                    break
+
+                slots_left = n_slots - i
+                remaining_count = len(remaining_words)
+
+                if remaining_count == 0:
+                    # Ran out of translated words — fallback to source text for this slot
+                    result[idx] = entries[idx].get('text', '')
+                    remaining_time = max(remaining_time - source_times[i], 0.1)
+                    continue
+
+                t = source_times[i]
+                # Time-proportional share for this slot
+                proportional = max(1, round(remaining_count * t / remaining_time))
+                # Must leave at least 1 word for every remaining slot (no starvation)
+                max_take = max(1, remaining_count - (slots_left - 1))
+                # Prefer MIN_WORDS_PER_SLOT but never starve later slots
+                min_take = min(MIN_WORDS_PER_SLOT, max_take)
+                target_n = max(min_take, min(proportional, max_take))
+
+                # Hard cap: never take more words than fit in slot_max_chars chars.
+                # Strip Unicode format chars (ZWNJ etc.) for accurate visual count.
+                char_budget = 0
+                words_that_fit = 0
+                for w in remaining_words[:max_take]:
+                    needed = self._vis_len(w) + (1 if words_that_fit > 0 else 0)
+                    if char_budget + needed > slot_max_chars:
+                        break
+                    char_budget += needed
+                    words_that_fit += 1
+                words_that_fit = max(1, words_that_fit)  # always take at least 1
+                target_n  = min(target_n,  words_that_fit)
+                max_take   = min(max_take,  words_that_fit)
+                min_take   = min(min_take,  target_n)
+
+                taken, remaining_words = self._take_n_words_with_punct_snap(
+                    remaining_words, target_n, min_take, max_n=max_take
+                )
+                remaining_time = max(remaining_time - t, 0.1)
+                result[idx] = ' '.join(taken).strip() or entries[idx].get('text', '')
+
         return result
 
     def translate_with_batch_fallback_chain(
@@ -4721,7 +5525,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     # Update progress
                     pbar.update(len(batch))
                     success_batch = True
-                    # Success is implied by progress bar advancing, no need to spam the console.
+                    # Emit structured PROGRESS line for external consumers (e.g. su6i_yar.py)
+                    _done_frac = (batch_num + 1) / max(1, batch_count)
+                    _batch_pct = int(55 + _done_frac * 22)  # 55% → 77% across all batches
+                    self.logger.info(f"PROGRESS:{_batch_pct}:🌐 ترجمه ({batch_num+1}/{batch_count})")
                     
                     # Wait to avoid rate limit issues
                     time.sleep(1)

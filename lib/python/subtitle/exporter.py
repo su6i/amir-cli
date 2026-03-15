@@ -38,46 +38,124 @@ def _get_lang_meta(lang: str) -> dict:
     return LANG_META.get(lang, {"name": lang.upper(), "native": lang, "rtl": False, "font": "Inter"})
 
 
-def srt_to_plain_text(srt_path: str) -> str:
-    """Parse an SRT file and return clean text without timestamps.
-    
-    Joins consecutive subtitle entries into flowing paragraphs.
-    """
+def _clean_subtitle_text(text: str) -> str:
+    """Remove BiDi control marks and normalize subtitle text spacing."""
+    # Remove invisible directional controls commonly injected in RTL pipelines.
+    text = re.sub(r"[\u200e\u200f\u202a-\u202e\u2066-\u2069]", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _parse_srt_entries(srt_path: str) -> List[dict]:
+    """Parse SRT blocks into timed text entries."""
+    entries: List[dict] = []
     if not os.path.exists(srt_path):
-        return ""
-    
+        return entries
+
     with open(srt_path, 'r', encoding='utf-8-sig') as f:
         content = f.read()
-    
-    # Remove BOM if present
+
     content = content.lstrip('\ufeff')
-    
-    # Parse SRT blocks
+
+    def _to_sec(ts: str) -> float:
+        h, m, s_ms = ts.strip().split(':')
+        s, ms = s_ms.split(',')
+        return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
+
     blocks = re.split(r'\n\s*\n', content.strip())
-    texts = []
-    
     for block in blocks:
         lines = block.strip().split('\n')
         if len(lines) < 3:
             continue
-        
-        # Skip index line (line 0) and timestamp line (line 1)
-        # Remaining lines are the subtitle text
+
+        start_sec = 0.0
+        end_sec = 0.0
         text_lines = []
         for i, line in enumerate(lines):
-            # Skip pure number lines (index)
             if i == 0 and re.match(r'^\d+$', line.strip()):
                 continue
-            # Skip timestamp lines
             if '-->' in line:
+                m = re.match(
+                    r'^(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})$',
+                    line.strip(),
+                )
+                if m:
+                    start_sec = _to_sec(m.group(1))
+                    end_sec = _to_sec(m.group(2))
                 continue
-            text_lines.append(line.strip())
-        
-        text = ' '.join(text_lines).strip()
+            text_lines.append(line.strip().replace('\\N', ' '))
+
+        text = _clean_subtitle_text(' '.join(text_lines))
         if text:
-            texts.append(text)
-    
-    return '\n'.join(texts)
+            entries.append({'start': start_sec, 'end': end_sec, 'text': text})
+
+    return entries
+
+
+def srt_to_plain_text(srt_path: str) -> str:
+    """Parse an SRT file and reconstruct readable sentence/paragraph text.
+
+    This is intentionally different from subtitle timing granularity: we merge
+    short fragments into full sentences for document readability.
+    """
+    entries = _parse_srt_entries(srt_path)
+    if not entries:
+        return ""
+
+    sentence_end_re = re.compile(r'[.!?؟。！？]+["\'»”)]*$')
+    clauses: List[str] = []
+    buf: List[str] = []
+    buf_words = 0
+    buf_start = entries[0]['start']
+    prev_end = entries[0]['start']
+
+    for e in entries:
+        t = e['text']
+        if not t:
+            continue
+
+        # Large timing gap likely indicates a sentence/idea boundary.
+        gap = max(0.0, e['start'] - prev_end)
+        if gap >= 1.0 and buf:
+            clauses.append(' '.join(buf).strip())
+            buf = []
+            buf_words = 0
+            buf_start = e['start']
+
+        buf.append(t)
+        buf_words += len(t.split())
+
+        elapsed = max(0.0, e['end'] - buf_start)
+        ends_sentence = bool(sentence_end_re.search(t))
+
+        # Flush conditions tuned for subtitle-derived fragments.
+        if (ends_sentence and buf_words >= 5) or buf_words >= 22 or elapsed >= 8.0:
+            clauses.append(' '.join(buf).strip())
+            buf = []
+            buf_words = 0
+
+        prev_end = e['end']
+
+    if buf:
+        clauses.append(' '.join(buf).strip())
+
+    # Build paragraphs from clauses to avoid one giant text wall.
+    paragraphs: List[str] = []
+    pbuf: List[str] = []
+    p_words = 0
+    for c in clauses:
+        if not c:
+            continue
+        pbuf.append(c)
+        p_words += len(c.split())
+        if p_words >= 110:
+            paragraphs.append(' '.join(pbuf).strip())
+            pbuf = []
+            p_words = 0
+    if pbuf:
+        paragraphs.append(' '.join(pbuf).strip())
+
+    return '\n\n'.join(paragraphs)
 
 
 def export_txt(text: str, output_path: str, lang: str) -> bool:
@@ -94,7 +172,7 @@ def export_md(text: str, output_path: str, title: str, lang: str) -> bool:
     """Export as Markdown document with title and language header."""
     meta = _get_lang_meta(lang)
     
-    lines = text.split('\n')
+    paragraphs = [p.strip() for p in re.split(r'\n\s*\n', text) if p.strip()]
     
     # Build Markdown
     md_lines = [
@@ -106,14 +184,9 @@ def export_md(text: str, output_path: str, title: str, lang: str) -> bool:
         "",
     ]
     
-    # Group lines into paragraphs (every ~5 lines)
-    paragraph = []
-    for i, line in enumerate(lines):
-        paragraph.append(line)
-        if len(paragraph) >= 5 or i == len(lines) - 1:
-            md_lines.append(' '.join(paragraph))
-            md_lines.append("")
-            paragraph = []
+    for p in paragraphs:
+        md_lines.append(p)
+        md_lines.append("")
     
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write('\n'.join(md_lines))
@@ -128,16 +201,7 @@ def export_html(text: str, output_path: str, title: str, lang: str) -> bool:
     text_align = "right" if meta["rtl"] else "left"
     font = meta["font"]
     
-    lines = text.split('\n')
-    
-    # Group into paragraphs
-    paragraphs = []
-    current = []
-    for i, line in enumerate(lines):
-        current.append(line)
-        if len(current) >= 5 or i == len(lines) - 1:
-            paragraphs.append(' '.join(current))
-            current = []
+    paragraphs = [p.strip() for p in re.split(r'\n\s*\n', text) if p.strip()]
     
     body_html = '\n'.join(f'    <p>{p}</p>' for p in paragraphs if p.strip())
     
@@ -255,7 +319,7 @@ def export_html(text: str, output_path: str, title: str, lang: str) -> bool:
     return os.path.exists(output_path)
 
 
-def export_pdf(md_path: str, output_path: str) -> bool:
+def export_pdf(md_path: str, output_path: str) -> tuple[bool, str]:
     """Export as PDF by delegating to `amir pdf` (Puppeteer engine).
     
     Creates a temporary MD file, calls `amir pdf`, then renames the output.
@@ -265,9 +329,13 @@ def export_pdf(md_path: str, output_path: str) -> bool:
             ["amir", "pdf", md_path, "-o", output_path],
             capture_output=True, text=True, timeout=60
         )
-        return result.returncode == 0 and os.path.exists(output_path)
+        ok = result.returncode == 0 and os.path.exists(output_path)
+        if ok:
+            return True, ""
+        reason = (result.stderr or result.stdout or "Unknown exporter error").strip()
+        return False, reason
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-        return False
+        return False, str(e)
 
 
 def _confirm_overwrite(path: str) -> bool:
@@ -337,6 +405,7 @@ def export_subtitles(
         
         for fmt in formats:
             output_path = os.path.join(output_dir, f"{base_name}_{lang}.{fmt}")
+            pdf_error = ""
             
             # Overwrite confirmation
             if not _confirm_overwrite(output_path):
@@ -359,7 +428,7 @@ def export_subtitles(
                 # PDF path: generate MD first → amir pdf
                 tmp_md = os.path.join(output_dir, f".{base_name}_{lang}_tmp.md")
                 export_md(text, tmp_md, title, lang)
-                success = export_pdf(tmp_md, output_path)
+                success, pdf_error = export_pdf(tmp_md, output_path)
                 # Cleanup temp MD
                 try:
                     os.remove(tmp_md)
@@ -374,7 +443,8 @@ def export_subtitles(
                     print(f"✅ Exported: {output_path}")
             else:
                 if logger:
-                    logger.warning(f"❌ Failed to export: {os.path.basename(output_path)}")
+                    details = f" ({pdf_error})" if pdf_error else ""
+                    logger.warning(f"❌ Failed to export: {os.path.basename(output_path)}{details}")
                 else:
                     print(f"❌ Failed: {output_path}")
     

@@ -13,6 +13,10 @@
 ## Overview
 Automatically transcribe videos and translate subtitles into multiple languages using Whisper AI and DeepSeek API. Generate SRT/ASS files and render videos with embedded multilingual subtitles with real-time progress tracking.
 
+### Recent defaults and behavior
+- `--save` with no format now defaults to `pdf`.
+- In bilingual render mode (e.g. `--sub en fa`), the top/source row is forced to stay single-line to avoid unintended English auto-wrap into two lines.
+
 ## ✨ Features
 
 - 🎙️ **Automatic Speech Recognition** using Faster-Whisper (Large-v3 / MLX Optimized)
@@ -134,6 +138,12 @@ amir subtitle video.mp4 -c
 
 # Render without burning into video (SRT/ASS files only)
 amir subtitle video.mp4 --no-render
+
+# Export as PDF (default format when no value is provided)
+amir subtitle video.mp4 --save
+
+# Explicit export formats
+amir subtitle video.mp4 --save txt pdf
 ```
 
 **Time range & testing:**
@@ -328,7 +338,11 @@ amir video download "https://youtube.com/watch?v=XYZ" --subtitle -t fa
 
 | Flag | Short | Type | Description |
 |------|-------|------|-------------|
-| `--resolution` | `-R` | int | Compress downloaded video to height (e.g. `720`) |
+| `--resolution` | `-R` | int | URL mode: download height, and final render height in the same run (single knob). Local file mode: final render height only. |
+| `--quality` | — | int | Final render quality `0-100` (higher = better quality, larger output). |
+| `--extreme` | — | bool | URL mode only: auto-pick smallest practical downloadable resolution (floor: `240p`). |
+
+**Default Render Resolution:** If `--resolution` is omitted, final render uses the input video's own height.
 
 ---
 

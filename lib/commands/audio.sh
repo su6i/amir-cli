@@ -27,6 +27,9 @@ run_audio() {
         extract|mp3)
             audio_extract "$@"
             ;;
+        split)
+            audio_split "$@"
+            ;;
         concat)
             audio_concat "$@"
             ;;
@@ -37,11 +40,12 @@ run_audio() {
             audio_youtube "$@"
             ;;
         *)
-            echo "Usage: amir audio {extract|concat|to-video|youtube} [options]"
+            echo "Usage: amir audio {extract|split|concat|to-video|youtube} [options]"
             echo "       amir audio <directory>  (Smart folder-to-video flow)"
             echo ""
             echo "Subcommands:"
             echo "  extract <video_file> [bitrate]  Extract MP3 from video"
+            echo "  split <audio_file> <mb>         Split audio into ~N MB chunks"
             echo "  concat [files...] -o output     Join multiple audio files"
             echo "  to-video <audio> -i <image>     Create video from audio and image"
             echo "  youtube <url> [format] [bitrate] Download audio from YouTube"
@@ -49,6 +53,24 @@ run_audio() {
             return 1
             ;;
     esac
+}
+
+audio_split() {
+    local INPUT="$1"
+    local split_mb="$2"
+
+    if [[ -z "$INPUT" || ! -f "$INPUT" ]]; then
+        log_error "File not found: $INPUT" >&2
+        echo "Usage: amir audio split <audio_file> <mb>" >&2
+        return 1
+    fi
+    if [[ -z "$split_mb" || ! "$split_mb" =~ ^[0-9]+$ || "$split_mb" -le 0 ]]; then
+        log_error "Split size must be a positive integer in MB." >&2
+        echo "Usage: amir audio split <audio_file> <mb>" >&2
+        return 1
+    fi
+
+    split_media_approx_by_size "$INPUT" "$split_mb"
 }
 
 audio_extract() {

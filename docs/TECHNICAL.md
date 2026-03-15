@@ -203,14 +203,22 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
 ### `video` (Advanced Video Processing)
 - **Unified Entry:** Single command handles compression, trimming, and batch processing.
 - **Encoding Toggle:** `--gpu` (default on Apple Silicon) uses hardware encoder for speed. `--cpu` forces `libx265` for maximum compression efficiency.
+- **Compression Profiles:**
+  - Numeric mode: `<resolution> <quality>` (legacy-compatible).
+  - `extreme`: tuned for minimum size (`360p`, CPU mode, low audio footprint).
+  - `--fps <N>`: explicit output frame rate (can be lower than 24, e.g. 10fps).
+  - `--split <MB>`: post-encode split into approximate chunk sizes using FFmpeg segment muxer.
 - **Subcommands:**
     - `cut` (or `trim`): Fast video slicing. Uses `-c copy` (stream copy) by default for near-instant cutting without quality loss. Supports `-s` (start), `-e` (end), and `-d` (duration).
+  - `split`: Split an existing media file into approximate MB chunks without re-encoding.
     - `batch`: Optimized for directories.
     - `stats`: View AI learning statistics.
     - `download <url> [opts]`: Download from YouTube & 1000+ sites (see below).
+  - `tiktok <url> [opts]`: Thin wrapper around `download` with TikTok-oriented defaults.
 - **Orientation Awareness:** Automatically detects Portrait vs. Landscape orientation.
 - **Hardware Acceleration:** Auto-detects macOS Silicon (`videotoolbox`), NVIDIA (`nvenc`), or Intel (`qsv`). Toggle with `--gpu`/`--cpu` flags.
 - **Smart Encoding:** Output size is validated post-encoding. If output > input, user is warned with a suggestion to try `--cpu` mode.
+- **Split Semantics:** `--split` is size-targeted but keyframe-bound, so each chunk is approximate (not exact byte-perfect cuts).
 - **Real-Time Progress:** Universal `ffmpeg_progress_bar` displays percentage, ETA, speed, and bitrate for all media operations.
 - **Table Alignment:** Uses Python's `unicodedata` library to strictly calculate visual string width (East Asian Width). All tables rendered via shared `print_media_table()` function.
 - **AI Stats:** Log file tracks compression ratios to optimal settings.
@@ -232,6 +240,12 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
 | `format_duration(seconds)` | `HH:MM:SS` formatter. |
 | `run_ffmpeg_with_progress(duration, cmd...)` | Execute FFmpeg with automatic progress bar and error capture. |
 
+Notes:
+- In software HEVC mode (`libx265`), quality values `<= 51` are treated as CRF mode (`-crf`) to support aggressive profiles cleanly.
+- Subtitle burn path (`amir video cut --render`, used by `amir subtitle`) is a separate re-encode pipeline from `amir video compress`.
+- Subtitle render defaults to the input video height when `--resolution` is not provided.
+- If a sidecar thumbnail (`.jpg/.jpeg/.png`) exists near the source, subtitle render can inject it as startup frame content (first ~80ms) in the same render pass to improve client previews.
+
 #### `video download` — Download + Subtitle Pipeline
 
 ```bash
@@ -243,27 +257,36 @@ amir video download <url> [options]
 | `--yt-subs` | Download YouTube's built-in subtitles (human-curated first, auto-gen fallback). No Whisper. |
 | `--subtitle / -s` | Run Whisper AI transcription on the downloaded video, then burn. Sets `DO_RENDER=true`. |
 | `--translate` | Download YT subs + translate via DeepSeek → **burn into video by default** (`DO_RENDER=true`). Skip Whisper. |
-| `--no-render` | Override: generate SRT only, skip burning. Combine with `--translate` for subtitle-only output. |
+| `--sub-only` | Public flag for subtitle-only output (no burn). `--no-render` is still accepted as alias. |
 | `--target / -t [src] lang` | Subtitle language. Two-value form: `-t en fa` (source=en, target=fa). Single: `-t fa` (source stays default `en`). |
 | `--only-subs` | After subtitle generation, prompt to delete the raw downloaded video. |
 | `--get-link / -l` | Print the direct stream URL(s) without downloading (for external download managers). |
+| `--formats / -F` | List available resolutions and estimated sizes before downloading. |
+| `--resolution / -R <h>` | Explicit download max height (e.g. `240/360/480/720/1080`). For auto-min selection, use `--extreme`. |
+| `--extreme` | Auto-pick smallest practical available resolution (floor: 240p) for minimum size. |
 | `--browser <name>` | Browser for cookie extraction (default: `chrome`). |
 | `--cookies <file>` | Path to a Netscape `cookies.txt` file (for paywalled or geo-restricted content). |
+| `--keep-thumb` | Keep downloaded thumbnail sidecar file (otherwise temporary thumbs may be cleaned). |
 
 **Key design rules:**
 - `--translate` implies `DO_RENDER=true` — the translated subtitle is burned into the video automatically.
-- Use `--no-render` to get SRT-only output: `amir video download <url> --translate -t en fa --no-render`.
+- Use `--sub-only` (or `--no-render`) to get SRT-only output: `amir video download <url> --translate -t en fa --sub-only`.
 - The `-t` parser guards against consuming the URL as a language: values matching `^https?://` or longer than 10 chars are never parsed as language codes.
 - Shell-escaped backslashes are stripped from the URL automatically (`URL="${URL//\\/}"`) — users can paste unquoted zsh-escaped URLs without errors.
 - Same-source/target validation: `-t en` with default source `en` produces a clear error instead of a silent no-op.
+- Existing downloads in the current working directory are matched and reused before re-downloading (exact, prefix, then semantic normalized-title fallback).
+- Download outputs use `--no-overwrites` and are normalized to terminal-safe stems with an explicit `_<resolution>p` suffix.
+- Runtime artifacts are kept in the user's current working directory to maximize reuse across subtitle/translate/render reruns.
 
 **Translation workflow (`--translate`):**
-1. Download video with yt-dlp (`--print after_move:filepath` → captures final path without swallowing progress bar)
-2. Fetch YT built-in subtitles (`--skip-download --write-subs --write-auto-subs`, prefer `*.en.srt` over `*.en-orig.srt`)
-3. Copy chosen source SRT to `_en.srt` (triggers Whisper-skip in `amir subtitle`)
-4. Call `amir subtitle <video> -s en -t fa` with or without `--no-render`
-5. `amir subtitle` pre-processes the source SRT: **Clause Merging**. Automatically merges fragmented YouTube subtitle lines into semantically complete clauses (breaking only on `. , ? ! : ;`).
-6. `amir subtitle` does LLM translation → validates 100% → optionally burns with ffmpeg (Always forces **H.264 (`-pix_fmt yuv420p`)** for maximum cross-platform compatibility like Telegram/QuickTime, safely ignoring AV1 triggers).
+1. Probe title and attempt local reuse by normalized stem + resolution; only run yt-dlp when no reusable file is found.
+2. Download video with yt-dlp (`--print after_move:filepath`, `--no-overwrites`, filtered streaming progress) and normalize filename to terminal-safe ASCII.
+3. Apply resolution suffix (`_<resolution>p`) for deterministic reuse keys.
+4. Fetch YT built-in subtitles (`--skip-download --write-subs --write-auto-subs`, prefer `*.en.srt` over `*.en-orig.srt`)
+5. Copy chosen source SRT to `_en.srt` (triggers Whisper-skip in `amir subtitle`)
+6. Call `amir subtitle <video> -s en -t fa` with or without `--sub-only`
+7. `amir subtitle` pre-processes the source SRT: **Clause Merging**. Automatically merges fragmented YouTube subtitle lines into semantically complete clauses (breaking only on `. , ? ! : ;`).
+8. `amir subtitle` does LLM translation → validates 100% → optionally burns with ffmpeg (Always forces **H.264 (`-pix_fmt yuv420p`)** for maximum cross-platform compatibility like Telegram/QuickTime, safely ignoring AV1 triggers).
 
 **Robust `yt-dlp` Configuration & URL Parsing (Lessons Learned):**
 - **Strict URL Extraction (UTF-16 vs Unicode):** Never pass raw user input directly to `yt-dlp`. Always extract the URL using `extract_link_from_text` first. **CRITICAL WARNING:** Do not rely on Telegram's `entity.offset` and `entity.length` for raw `url` entities if mixing emojis or Persian characters. Telegram provides these offsets in **UTF-16 code units**, whereas Python 3 strings are Unicode characters. An emoji counts as 2 units in UTF-16 but 1 in Python, causing severe string slicing misalignments:
@@ -349,7 +372,7 @@ amir video download <url> [options]
      - Character range check for non-Latin scripts
      - Source comparison for Latin scripts
      - Technical term pattern detection (parenthetical English)
-     - Interactive user prompts for incomplete batches (max 3 retries)
+    - Automatic retry for incomplete batches (max 3 retries, no interactive blocking prompt)
      - **Guarantee:** No rendering until 100% translation or user decline
 
 5. **Resume Capability:**

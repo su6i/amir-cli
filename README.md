@@ -17,9 +17,9 @@ Built with modularity and ease of use in mind, `amir` works seamlessly across **
 
 ## ✨ Features
 
-- **🎬 Smart Video Compression:** Auto-detects hardware (Apple Silicon, NVENC, QSV) and optimizes settings for the best quality/size ratio. Features `--gpu`/`--cpu` encoding toggle, real-time progress bar with ETA, output size validation, and "AI Learning" to adapt to your preferences over time.
+- **🎬 Smart Video Compression:** Auto-detects hardware (Apple Silicon, NVENC, QSV) and optimizes settings for the best quality/size ratio. Features `--gpu`/`--cpu` encoding toggle, `extreme` profile for maximum reduction, custom frame rate via `--fps`, chunking via `--split <MB>`, real-time progress bar with ETA, output size validation, and "AI Learning" to adapt over time.
 - **🖼️ Advanced Image Processing:** AI-powered upscaling (Real-ESRGAN), document enhancement lab (140 variations), smart stacking (front/back), and professional corner rounding.
-- **🌍 Advanced Subtitle System:** AI-powered multilingual subtitles supporting **32 languages**. Features automatic translation, multi-platform hardware encoding (Mac/Ubuntu) with 1:1 size parity, Whisper Turbo as default, and `--save txt/md/html/pdf` document export.
+- **🌍 Advanced Subtitle System:** AI-powered multilingual subtitles supporting **32 languages**. Features automatic translation, multi-platform hardware encoding (Mac/Ubuntu) with 1:1 size parity, Whisper Turbo as default, and document export via `--save` (no argument defaults to `pdf`).
 - **🤖 AI Powered:** Chat with Gemini/Gemma, generate code, and fetch model lists from 5 LLM providers (Gemini, OpenAI, DeepSeek, Groq, Anthropic).
 - **🛠️ System Utilities:** One-command system cleanup, password generation, file locking/unlocking, and QR code generation.
 - **☁️ File Transfer:** Instantly upload files to temporary hosting services and get a shareable link.
@@ -125,9 +125,11 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 ### 🎬 Multimedia
 | Command | Description |
 | :--- | :--- |
-| `amir video <URL> [opts]` | **Unified Download + Process**: Download from YouTube & 1000+ sites. URL auto-detected and extracted strictly from mixed text input. Key flags: `--subtitle -t en fa` (Whisper AI), `--yt-subs --translate -t en fa` (platform subs → LLM translate), `--resolution 720 60` (compress after download), `--no-render` (SRT only), `--only-subs`, `--cookies`. |
-| `amir video <file/dir> [--gpu|--cpu]` | Advanced video processing (compress, cut, batch). `--gpu` for hardware acceleration (default on Apple Silicon), `--cpu` for better compression ratio. Features AI Learning, real-time progress bar with ETA, and output size validation. |
+| `amir video <URL> [opts]` | **Unified Download + Process**: Download from YouTube & 1000+ sites with smart reuse (existing matching downloads are reused to avoid `_2/_3` duplicates). Key flags: `--subtitle en fa` (Whisper AI), `--yt-subs --translate -t en fa` (platform subs → LLM translate), `--sub-only` (SRT only), `--only-subs`, `--formats` (list formats), `--resolution <h>` (explicit download height), `--extreme` (auto-min practical resolution), `--keep-thumb`, `--cookies`. |
+| `amir video <file/dir> [--gpu|--cpu]` | Advanced video processing (compress, cut, batch). Supports `extreme` (max compression profile), `--fps <N>` (e.g., 10fps), and `--split <MB>` (split encoded output to chunks). `--gpu` for hardware acceleration (default on Apple Silicon), `--cpu` for better compression ratio. |
 | `amir video cut <file> [opts]` | Cut video segments without re-encoding (instant) or with rendering. |
+| `amir video split <file> <mb>` | Split an existing video into approximate MB chunks (keyframe-bound, non re-encode). |
+| `amir video tiktok <url> [opts]` | TikTok-optimized wrapper around `video download` with the same subtitle/translate pipeline flags. |
 | `amir video stats` | View AI learning statistics & compression history. |
 | `amir mp3 <file>` | Extract high-quality MP3 audio from a video file. |
 | `amir img upscale <file> [scale] [model]` | AI-Upscale or quality enhancement (1x mode). |
@@ -144,7 +146,7 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir img <file> <size> [g]` | Legacy mode (detects resize vs crop). |
 | `amir pdf [files] [opts]` | **Multi-Engine A4 PDF Generator**: Render Markdown/Text/Images to PDF. Supports piping (e.g., `amir clip | amir pdf`), Puppeteer (Default), WeasyPrint, PIL (Robust Fallback). Features: High-fidelity Persian RTL (B Nazanin), auto-pagination, ExFAT compatibility, and `--free-size` (`-f`) for continuous/custom dimensions. |
 | `amir watermark <file> [text]` | Add watermark to image (auto-saved or `-o output`). |
-| `amir subtitle <file/URL> [options]` | **AI-Powered Multilingual Subtitles**: Transcribe, translate (32 languages), and render. Key flags: `-s en --sub fa` (source/target lang), `--save txt pdf` (export as clean documents), `-l 120` (test first 120 sec), `--no-render` (SRT only). See [SUBTITLE.md](docs/SUBTITLE.md). |
+| `amir subtitle <file/URL> [options]` | **AI-Powered Multilingual Subtitles**: Transcribe, translate (32 languages), and render. Key flags: `-s en --sub fa` (source/target lang), `--resolution <h>` and `--quality <0-100>` (final render controls), `--save` (default export: `pdf`), `--save txt pdf` (explicit export formats), `-l 120` (test first 120 sec), `--no-render` (SRT only). Default render height follows input video height when not provided. See [SUBTITLE.md](docs/SUBTITLE.md). |
 | `amir info <file>` | Show detailed technical metadata for any file. |
 
 ### 🧠 AI & Productivity
