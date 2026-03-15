@@ -4,7 +4,8 @@
 import argparse
 import os
 import sys
-from typing import Optional, Tuple
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 from .processor import SubtitleProcessor, SubtitleStyle
 
 
@@ -53,6 +54,48 @@ def _parse_limit_args(limit_args) -> Tuple[Optional[float], Optional[float]]:
     raise ValueError(f"--limit accepts 1 or 2 time arguments, got {len(limit_args)}")
 
 
+def _parse_sub_lang_tokens(tokens: List[str]) -> Tuple[List[str], Dict[str, int]]:
+    """Parse --sub tokens supporting inline size per language.
+
+    Examples:
+      --sub en fa            -> langs=['en','fa'], sizes={}
+      --sub en 18 fa 20      -> langs=['en','fa'], sizes={'en':18,'fa':20}
+      --sub fa 22            -> langs=['fa'],      sizes={'fa':22}
+    """
+    langs: List[str] = []
+    sizes: Dict[str, int] = {}
+
+    i = 0
+    while i < len(tokens):
+        tok = str(tokens[i]).strip()
+        if not tok:
+            i += 1
+            continue
+
+        if tok.isdigit():
+            raise ValueError(f"Unexpected size token '{tok}' without a preceding language in --sub")
+
+        lang = tok.lower()
+        langs.append(lang)
+
+        if i + 1 < len(tokens):
+            nxt = str(tokens[i + 1]).strip()
+            if nxt.isdigit():
+                sz = int(nxt)
+                if sz <= 0:
+                    raise ValueError(f"Invalid font size '{nxt}' for language '{lang}'")
+                sizes[lang] = sz
+                i += 2
+                continue
+
+        i += 1
+
+    if not langs:
+        langs = ['en', 'fa']
+
+    return langs, sizes
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Multi-language video subtitle generator (2026 Pro Edition)",
@@ -67,9 +110,10 @@ Note:
     )
     parser.add_argument("video", help="Video file path")
     parser.add_argument("-s", "--source", default="en", help="Source language (audio language for Whisper transcription)")
-    parser.add_argument("--sub", "-t", nargs='+', dest="sub_langs", default=['fa'], metavar='LANG',
+    parser.add_argument("--sub", "-t", nargs='+', dest="sub_langs", default=['en', 'fa'], metavar='LANG',
         help="Subtitle languages to display, in top-to-bottom order. "
              "Each language is translated from --source if needed. "
+             "Default: en fa. "
              "Examples: --sub fa | --sub en fa | --sub fr fa en")
     parser.add_argument("-r", "--render", action="store_true", default=True, help="Burn subtitles into video (default: enabled)")
     parser.add_argument("--no-render", action="store_false", dest="render", help="Skip burning — generate subtitle files only")
@@ -115,10 +159,11 @@ Note:
 
     # Social media post generation
     _post_platforms = ['telegram', 'youtube', 'linkedin']
-    parser.add_argument("--post", nargs='*', dest="post_platforms", default=None,
+    parser.add_argument("--post", nargs='*', dest="post_platforms", default=['telegram'],
                         metavar='PLATFORM',
                         help=("Generate social media post(s). "
                               "No value → telegram only. "
+                              "Default: telegram. "
                               f"Choices: {', '.join(_post_platforms)}. "
                               "Example: --post telegram youtube linkedin"))
     parser.add_argument("--post-only", nargs='*', dest="post_only_platforms", default=None,
@@ -134,12 +179,47 @@ Note:
                               "Example: --post-lang fa de en"))
 
     # Document Export
-    parser.add_argument("--save", nargs='+', dest="save_formats", default=None,
+    parser.add_argument("--save", nargs='*', dest="save_formats", default=['pdf'],
                         metavar='FMT',
                         help=("Export subtitle text as clean document(s) without timestamps. "
-                              "Formats: txt, md, html, pdf. Multiple allowed: --save txt pdf"))
+                              "Formats: txt, md, html, pdf. Multiple allowed: --save txt pdf. "
+                              "No value → pdf. "
+                              "Default: pdf"))
+
+    # Final render passthrough (applied when subtitle burn is enabled)
+    parser.add_argument("--resolution", type=int, default=None,
+                        help="Final burn resolution height (e.g., 360, 480, 720)")
+    parser.add_argument("--quality", type=int, default=None,
+                        help="Final burn quality 0-100 (mapped to CRF for libx264)")
+    parser.add_argument("--fps", type=int, default=None,
+                        help="Final burn output FPS (e.g., 10)")
+    parser.add_argument("--split", type=int, default=None,
+                        help="Split final rendered video into ~N MB chunks")
 
     args = parser.parse_args()
+
+    try:
+        parsed_sub_langs, per_lang_sizes = _parse_sub_lang_tokens(args.sub_langs or [])
+    except ValueError as e:
+        print(f"Error: {e}")
+        sys.exit(2)
+
+    args.sub_langs = parsed_sub_langs
+
+    # Map inline per-language sizes to existing primary/secondary font knobs.
+    # Explicit --font-size / --sec-font-size still have priority.
+    if per_lang_sizes:
+        primary_lang = args.sub_langs[0] if args.sub_langs else None
+        secondary_lang = args.sub_langs[1] if len(args.sub_langs) > 1 else None
+
+        if args.font_size is None and primary_lang in per_lang_sizes:
+            args.font_size = per_lang_sizes[primary_lang]
+        if args.sec_font_size is None and secondary_lang in per_lang_sizes:
+            args.sec_font_size = per_lang_sizes[secondary_lang]
+
+    # --save with no format argument → default to pdf
+    if args.save_formats is not None and len(args.save_formats) == 0:
+        args.save_formats = ['pdf']
 
     # Resolve platform lists
     # --post with no value → ['telegram'], --post telegram youtube → ['telegram', 'youtube']
@@ -179,7 +259,7 @@ Note:
         bert_model=args.bert_model
     )
     limit_start, limit_end = _parse_limit_args(args.limit)
-    processor.run_workflow(
+    result = processor.run_workflow(
         args.video,
         args.source,
         args.sub_langs,
@@ -194,7 +274,30 @@ Note:
         prompt_file=args.prompt_file,
         post_langs=args.post_langs,
         save_formats=args.save_formats,
+        render_resolution=args.resolution,
+        render_quality=args.quality,
+        render_fps=args.fps,
+        render_split_mb=args.split,
     )
+
+    def _collect_output_paths(value, acc):
+        if isinstance(value, str) and os.path.exists(value):
+            acc.add(os.path.abspath(value))
+        elif isinstance(value, dict):
+            for v in value.values():
+                _collect_output_paths(v, acc)
+        elif isinstance(value, list):
+            for v in value:
+                _collect_output_paths(v, acc)
+
+    output_paths = set()
+    if isinstance(result, dict):
+        _collect_output_paths(result, output_paths)
+
+    if output_paths:
+        print("\nGenerated files:")
+        for p in sorted(output_paths):
+            print(f" - {Path(p).name}")
 
 if __name__ == "__main__":
     main()

@@ -152,6 +152,27 @@ if [[ $AUTO_MODE -eq 0 ]]; then
     sudo ln -s "$PROJECT_DIR/amir" "$INSTALL_DIR/$EXECUTABLE_NAME"
 fi
 
+# 2b. Ensure $INSTALL_DIR is in PATH for both current session and shell config
+# Runs in AUTO_MODE too — so the bot server always finds 'amir' after install.
+_ensure_install_dir_in_path() {
+    local dir="$1"
+    case ":${PATH}:" in
+        *":${dir}:"*) return 0 ;;  # Already in PATH
+    esac
+    # Add to current session
+    export PATH="${dir}:${PATH}"
+    [[ $AUTO_MODE -eq 0 ]] && echo "⚠️  $dir was not in PATH — added to current session."
+    # Persist to shell config files (safe: checks for duplicates first)
+    local snippet="export PATH=\"${dir}:\$PATH\"  # added by amir install"
+    for rc in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.profile"; do
+        if [[ -f "$rc" ]] && ! grep -qF "$dir" "$rc" 2>/dev/null; then
+            echo "$snippet" >> "$rc"
+            [[ $AUTO_MODE -eq 0 ]] && echo "   ↳ Added to $rc"
+        fi
+    done
+}
+_ensure_install_dir_in_path "$INSTALL_DIR"
+
 # 3. Check & Install Dependencies
 [[ $AUTO_MODE -eq 0 ]] && echo "🔍 Checking dependencies..."
 
