@@ -91,7 +91,7 @@ def _parse_sub_lang_tokens(tokens: List[str]) -> Tuple[List[str], Dict[str, int]
         i += 1
 
     if not langs:
-        langs = ['en', 'fa']
+        langs = ['auto', 'fa']
 
     return langs, sizes
 
@@ -109,12 +109,12 @@ Note:
 """
     )
     parser.add_argument("video", help="Video file path")
-    parser.add_argument("-s", "--source", default="en", help="Source language (audio language for Whisper transcription)")
-    parser.add_argument("--sub", "-t", nargs='+', dest="sub_langs", default=['en', 'fa'], metavar='LANG',
+    parser.add_argument("-s", "--source", default="auto", help="Source language for Whisper transcription (default: auto-detect)")
+    parser.add_argument("--sub", "-t", nargs='+', dest="sub_langs", default=['auto', 'fa'], metavar='LANG',
         help="Subtitle languages to display, in top-to-bottom order. "
              "Each language is translated from --source if needed. "
-             "Default: en fa. "
-             "Examples: --sub fa | --sub en fa | --sub fr fa en")
+             "Default: auto fa. "
+             "Examples: --sub fa | --sub auto fa | --sub fr fa en")
     parser.add_argument("-r", "--render", action="store_true", default=True, help="Burn subtitles into video (default: enabled)")
     parser.add_argument("--no-render", action="store_false", dest="render", help="Skip burning — generate subtitle files only")
     
@@ -195,6 +195,10 @@ Note:
                         help="Final burn output FPS (e.g., 10)")
     parser.add_argument("--split", type=int, default=None,
                         help="Split final rendered video into ~N MB chunks")
+    parser.add_argument("--pad-bottom", type=int, default=0,
+                        help="Add black padding at the bottom (percentage of height, e.g., 15)")
+    parser.add_argument("--no-vad", action="store_false", dest="use_vad", default=True,
+                        help="Disable Voice Activity Detection (VAD) in Faster-Whisper")
 
     args = parser.parse_args()
 
@@ -254,9 +258,10 @@ Note:
         use_openai_fallback=args.openai_fallback,
         min_duration=args.min_duration,
         llm=args.llm,
-        custom_model=args.model
-        ,use_bert=args.use_bert,
-        bert_model=args.bert_model
+        custom_model=args.model,
+        use_bert=args.use_bert,
+        bert_model=args.bert_model,
+        use_vad=args.use_vad
     )
     limit_start, limit_end = _parse_limit_args(args.limit)
     result = processor.run_workflow(
@@ -278,6 +283,8 @@ Note:
         render_quality=args.quality,
         render_fps=args.fps,
         render_split_mb=args.split,
+        pad_bottom=args.pad_bottom,
+        use_vad=args.use_vad,
     )
 
     def _collect_output_paths(value, acc):
