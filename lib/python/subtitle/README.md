@@ -18,7 +18,7 @@ The logic is encapsulated in the `SubtitleProcessor` class within `processor.py`
 -   **`run_workflow(video_path, source_lang, target_langs, ..., post_langs=None)`**: Full pipeline orchestrator. `post_langs` restricts which language posts are generated (default: `['fa']` only).
 -   **`generate_posts(original_base, source_lang, result, platforms, post_langs=None)`**: Generates social media posts from SRT files. Returns `{lang_platform: output_path}` dict.
 -   **`_get_post_prompt(platform, title, ...)`**: Builds analytical/factual LLM prompt. Analytical journalist tone — no promotional language.
--   **`_telegram_sections_complete(text)`**: Validates all 8 required Telegram post sections (📽️ 🔴 🚨 ✨ 📌 ⏱️ 5×🔹 #). Returns `(bool, missing_list)`.
+-   **`_telegram_sections_complete(text)`**: Validates all 7 required Telegram post sections (📽️ 🔴 🚨 ✨ ⏱️ 4×🔹 #). Returns `(bool, missing_list)`.
 -   **`_sanitize_post(text, platform)`**: Strips markdown formatting, enforces 1024-char Telegram hard cap.
 -   **`_srt_duration_str(entries, lang='fa')`**: Formats video duration — Persian-Indic numerals for `fa`, Latin numerals for all others.
 -   **`translate_with_deepseek()`**: Batch translation with retry logic.

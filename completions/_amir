@@ -160,8 +160,8 @@ _amir() {
                     _arguments -s \
                         '1: : ' '2: : ' \
                         '3:video/SRT file or URL:_files -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM *.srt *.SRT"' \
-                        '(-s --source)'{-s,--source}'[Source language / audio language for Whisper]:source lang:(en zh es hi ar bn pt ru ja fr de fa tr ko)' \
-                        '*'{--sub,-t}'[Subtitle display langs in top→bottom order (repeatable)]:lang:(fa en de ar zh es fr ru ja ko tr pt hi)' \
+                        '(-s --source)'{-s,--source}'[Source language / audio language for Whisper (default\: auto)]:source lang:(auto en zh es hi ar bn pt ru ja fr de fa tr ko)' \
+                        '*'{--sub,-t}'[Subtitle display langs in top→bottom order (repeatable)]:lang:(auto fa en de ar zh es fr ru ja ko tr pt hi)' \
                         '(-r --render)'{-r,--render}'[Burn subtitles into video (default\: enabled)]' \
                         '--sub-only[Generate subtitle files only — do not burn into video]' \
                         '--no-render[Alias for --sub-only (deprecated)]' \
@@ -170,15 +170,18 @@ _amir() {
                         '(-l --limit)'{-l,--limit}'[Time range — N seconds, or start end (use begin/start/end keywords)]:time:(begin end start)' \
                         '--llm[LLM bridge for translation]:llm:(deepseek gemini litellm minimax grok)' \
                         '--model[Specific LLM model code (for LiteLLM)]:model' \
-                        '--whisper-model[Whisper model size/name]:model:(turbo large-v3 large-v2 medium small base tiny)' \
+                        '--whisper-model[Whisper model size/name]:model:((turbo\:Fastest\ reliable\ model large-v3\:Highest\ accuracy large-v2\:Legacy\ heavy\ model medium\:Balance\ of\ speed\ and\ accuracy small\:Fast\ but\ less\ accurate base\:Basic\ fallback tiny\:Ultra\ fast\ but\ inaccurate))' \
                         '--style[Subtitle style template]:style:(lecture vlog game cinematic minimalist)' \
                         '--resolution[Final burn resolution height]:height:(240 360 480 720 1080)' \
                         '--quality[Final burn quality 0-100]:quality:(40 50 60 70 80)' \
                         '--fps[Final burn FPS]:fps:(6 10 12 15 20 24 25 30)' \
                         '--split[Split final rendered output into N MB chunks]:size in MB: ' \
+                        '--extreme[Fast defaults for subtitle pipeline\: 360p + q30]' \
                         '*--post[Generate posts after workflow (optional: telegram youtube linkedin)]:platform:(telegram youtube linkedin)' \
                         '*--post-only[Post only — skip processing (optional: telegram youtube linkedin)]:platform:(telegram youtube linkedin)' \
-                        '--prompt-file[Custom prompt file for post generation]:file:_files'
+                        '--prompt-file[Custom prompt file for post generation]:file:_files' \
+                        '--pad-bottom[Add black padding at bottom (percentage)]:pct' \
+                        '--no-vad[Disable Voice Activity Detection]'
                     ;;
                 *)
                     # Fallback for old amir video <file>
@@ -631,8 +634,8 @@ _amir() {
                     _arguments -s \
                         '1: : ' \
                         '2:video/SRT file or URL:_files -g "*.mp4 *.mov *.mkv *.avi *.MP4 *.MOV *.MKV *.webm *.WEBM *.srt *.SRT"' \
-                        '(-s --source)'{-s,--source}'[Source language / audio language for Whisper (default\: en)]:source lang:(en zh es hi ar bn pt ru ja fr ur pa vi tr ko id de fa gu it mr te ta th ha el he mg nl pl uk)' \
-                        '*'{--sub,-t}'[Subtitle display langs in top→bottom order (repeatable)]:lang:(fa en de ar zh es fr ru ja ko tr pt hi ur pa vi id gu it)' \
+                        '(-s --source)'{-s,--source}'[Source language / audio language for Whisper (default\: auto)]:source lang:(auto en zh es hi ar bn pt ru ja fr ur pa vi tr ko id de fa gu it mr te ta th ha el he mg nl pl uk)' \
+                        '*'{--sub,-t}'[Subtitle display langs in top→bottom order (repeatable)]:lang:(auto fa en de ar zh es fr ru ja ko tr pt hi ur pa vi id gu it)' \
                         '(-r --render)'{-r,--render}'[Burn subtitles into video (default\: enabled)]' \
                         '--sub-only[Generate subtitle files only — do not burn into video]' \
                         '--no-render[Alias for --sub-only (deprecated)]' \
@@ -642,7 +645,7 @@ _amir() {
                         '--style[Subtitle style template]:style:(lecture vlog game cinematic minimalist)' \
                         '--max-lines[Maximum lines per subtitle]:lines:(1 2)' \
                         '--speaker[Enable Speaker Diarization]' \
-                        '--whisper-model[Whisper model size/name]:model:(turbo large-v3 large-v2 medium small base tiny)' \
+                        '--whisper-model[Whisper model size/name]:model:((turbo\:Fastest\ reliable\ model large-v3\:Highest\ accuracy large-v2\:Legacy\ heavy\ model medium\:Balance\ of\ speed\ and\ accuracy small\:Fast\ but\ less\ accurate base\:Basic\ fallback tiny\:Ultra\ fast\ but\ inaccurate))' \
                         '--llm[LLM bridge for translation]:llm:(deepseek gemini litellm minimax grok)' \
                         '--model[Specific LLM model code (for LiteLLM)]:model' \
                         '--initial-prompt[Whisper initial prompt (context)]:prompt' \
@@ -655,10 +658,13 @@ _amir() {
                         '--shadow[Shadow depth]:depth' \
                         '--outline[Outline width]:width' \
                         '--use-bert[Enable BERT collocation scoring]' \
+                        '--extreme[Fast defaults for subtitle pipeline\: 360p + q30]' \
                         '*--post[Generate posts after workflow (optional: telegram youtube linkedin)]:platform:(telegram youtube linkedin)' \
                         '*--post-only[Post only — skip processing (optional: telegram youtube linkedin)]:platform:(telegram youtube linkedin)' \
                         '--prompt-file[Custom prompt file for post generation]:file:_files' \
-                        '(-R --resolution)'{-R,--resolution}'[After URL download: compress to height]:height:(240 360 480 720 1080)'
+                        '(-R --resolution)'{-R,--resolution}'[After URL download: compress to height]:height:(240 360 480 720 1080)' \
+                        '--pad-bottom[Add black padding at bottom (percentage)]:pct' \
+                        '--no-vad[Disable Voice Activity Detection]'
                     ;;
             esac
             ;;

@@ -16,7 +16,6 @@ import subprocess
 import time
 import json
 import logging
-import os
 import gc
 import hashlib
 
@@ -27,13 +26,12 @@ os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "0"
 import configparser
 import tempfile
 import shutil
-import logging
 import threading
 import zipfile
 import unicodedata
 from datetime import timedelta, datetime
 from collections import deque
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
 from pathlib import Path
 from dataclasses import dataclass
 from enum import Enum
@@ -310,7 +308,8 @@ class SubtitleProcessor:
         llm: str = "deepseek",
         custom_model: Optional[str] = None,
         use_bert: bool = False,
-        bert_model: Optional[str] = None
+        bert_model: Optional[str] = None,
+        use_vad: bool = True
     ):
         self.api_key = api_key or self.load_api_key()
         # Support both naming conventions
@@ -331,6 +330,7 @@ class SubtitleProcessor:
         # BERT options (optional, lazy-loaded)
         self.use_bert = use_bert
         self.bert_model = bert_model or os.environ.get('AMIR_BERT_MODEL')
+        self.use_vad = use_vad
         
         # LiteLLM API Key Normalization: Ensure DEEPSEEK_API_KEY for LiteLLM
         if self.api_key and 'DEEPSEEK_API_KEY' not in os.environ:
@@ -365,7 +365,8 @@ class SubtitleProcessor:
                     setattr(self.style_config, k, v)
             
         except Exception as e:
-            self.logger.warning(f"Could not load media.json subtitle styles: {e}")
+            if hasattr(self, 'logger') and self.logger:
+                self.logger.warning(f"Could not load media.json subtitle styles: {e}")
             
         # Apply overrides from CLI arguments
         self.style_config.max_lines = max_lines
@@ -420,7 +421,7 @@ class SubtitleProcessor:
         
         # Target words per subtitle line (adaptive: set by run_workflow based on video orientation)
         self.target_words_per_line = 7
-        
+        self._model = None
         self.logger = logger or self._setup_logger()
         self._check_disk_space()
         
@@ -699,6 +700,25 @@ class SubtitleProcessor:
             pass
         return None, None
 
+    def _get_video_duration(self, video_path: str) -> float:
+        """Get video duration in seconds using ffprobe.
+        
+        Returns:
+            Duration in seconds as float, or 0.0 if undetectable.
+        """
+        try:
+            cmd = [
+                'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                '-of', 'default=noprint_wrappers=1:nokey=1', video_path
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            dur = result.stdout.strip()
+            if dur:
+                return float(dur)
+        except Exception:
+            pass
+        return 0.0
+
     @staticmethod
     def load_api_key(config_file: str = '.config') -> str:
         """Load API key from env, .env file, or config"""
@@ -758,7 +778,8 @@ class SubtitleProcessor:
     def model(self):
         """Lazy load Whisper model"""
         if self._model is None:
-            if HAS_MLX and HAS_PLATFORM and platform_module.system() == "Darwin" and platform_module.machine() == "arm64":
+            force_faster = os.environ.get("AMIR_FORCE_FASTER_WHISPER", "0") == "1"
+            if not force_faster and HAS_MLX and HAS_PLATFORM and platform_module.system() == "Darwin" and platform_module.machine() == "arm64":
                 self.logger.info(f"Utilizing MLX acceleration for {self.model_size}")
                 self._model = "MLX"
                 return self._model
@@ -782,27 +803,6 @@ class SubtitleProcessor:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.cleanup()
-
-    def cleanup(self):
-        if HAS_MLX:
-             # Try to clear Metal cache if mlx is loaded in main process
-             try:
-                 import mlx.core as mx
-                 mx.clear_cache()
-             except:
-                 pass
-        
-        # Explicitly clear torch cache too
-        if HAS_TORCH:
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            except:
-                pass
-        
-        # Force Python GC
-        gc.collect()
 
     # ==================== CHECKPOINT ====================
 
@@ -980,40 +980,276 @@ class SubtitleProcessor:
             self.logger.info(f"   • Gemini cached tokens: {gem_cached:,} (guaranteed discount)")
         self.logger.info("──────────────────────────────────────────")
 
+    def detect_source_language(self, video_path: str) -> str:
+        """Detect source language from audio using a lightweight Whisper pass."""
+        try:
+            from faster_whisper import WhisperModel
+
+            detector = WhisperModel("tiny", device="cpu", compute_type="int8")
+            segments, info = detector.transcribe(
+                video_path,
+                language=None,
+                task="transcribe",
+                word_timestamps=False,
+                beam_size=1,
+                condition_on_previous_text=False,
+                temperature=0.0,
+            )
+
+            # Start generator once so info metadata is reliably populated.
+            try:
+                next(iter(segments))
+            except StopIteration:
+                pass
+
+            detected = str(getattr(info, "language", "") or "").strip().lower()
+            if re.fullmatch(r"[a-z]{2,3}", detected):
+                self.logger.info(f"🌐 Auto-detected source language: {detected}")
+                return detected
+        except Exception as e:
+            self.logger.warning(f"⚠️ Source auto-detect failed, fallback=en: {e}")
+
+        return "en"
+
 
 
     def transcribe_video(
         self,
         video_path: str,
-        language: str = 'en',
+        language: str = 'auto',
         correct: bool = False,
         detect_speakers: bool = False,
         dur: float = 0
     ) -> str:
         """Main transcription gate"""
+        _lang = (language or 'auto').strip().lower()
         if HAS_MLX and HAS_PLATFORM and platform_module.system() == "Darwin" and platform_module.machine() == "arm64":
-            return self.transcribe_video_mlx(video_path, language, correct, detect_speakers, dur_override=dur)
-        return self.transcribe_video_whisper(video_path, language, correct, detect_speakers)
+            try:
+                return self.transcribe_video_mlx(video_path, _lang, correct, detect_speakers, dur_override=dur)
+            except Exception as e:
+                self.logger.warning(f"⚠️ MLX transcription failed, falling back to Whisper: {e}")
+        return self.transcribe_video_whisper(video_path, _lang, correct, detect_speakers)
+
+    def _run_faster_whisper_slice(self, video_path: str, max_duration: int = 60) -> Tuple[List[WordObj], str]:
+        """Extracts the first N seconds using FFmpeg and transcribes with Faster-Whisper + VAD to fix MLX hallucination bugs."""
+        import subprocess
+        import tempfile
+        from faster_whisper import WhisperModel
+        
+        # 1. Extract audio slice
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            slice_path = f.name
+        
+        try:
+            self.logger.info(f"🔪 Slicing first {max_duration}s for Faster-Whisper VAD anti-hallucination pass...")
+            # ffmpeg -y -i input -t 60 -q:a 0 -map a temp.wav
+            cmd = [
+                'ffmpeg', '-y', '-i', video_path, '-t', str(max_duration),
+                '-q:a', '0', '-vn', '-f', 'wav', slice_path
+            ]
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            
+            # 2. Transcribe slice
+            device = "cpu"
+            try:
+                import torch
+                if HAS_TORCH and torch.cuda.is_available():
+                    device = "cuda"
+            except Exception:
+                pass
+                
+            model = WhisperModel(self.model_size, device=device, compute_type="int8")
+            segments, info = model.transcribe(
+                slice_path,
+                word_timestamps=True,
+                initial_prompt=self.initial_prompt or "Clear punctuation and case sensitivity.",
+                temperature=self.temperature,
+                vad_filter=self.use_vad,
+                vad_parameters=dict(min_silence_duration_ms=700, speech_pad_ms=400)
+            )
+            
+            detected_lang = str(getattr(info, 'language', '') or '').strip().lower()
+            all_words = []
+            for segment in segments:
+                if segment.words:
+                    for w in segment.words:
+                        # Append the WordObj (start, end, word)
+                        all_words.append(WordObj(w.start, w.end, w.word))
+            
+            self.logger.info(f"✨ VAD slice complete. Retrieved {len(all_words)} words in the first {max_duration}s.")
+            return all_words, detected_lang
+            
+        except Exception as e:
+            self.logger.warning(f"⚠️ Faster-Whisper slicing pass failed: {e}. Falling back to full MLX.")
+            return [], ""
+        finally:
+            if os.path.exists(slice_path):
+                try: os.remove(slice_path)
+                except: pass
+
+    def _run_faster_whisper_full(self, video_path: str, language: str = '') -> Tuple[List[WordObj], str]:
+        """Full-video transcription using faster-whisper + VAD.
+        
+        This is the production-grade, hallucination-free transcription path.
+        - Uses VAD to cleanly skip silence/non-speech sections that cause MLX 30s lock bugs.
+        - Processes audio in 10-minute chunks (overlapping by 5s) so progress is shown.
+        - Falls back gracefully to an empty list on error (caller handles fallback).
+        """
+        import tempfile
+        from faster_whisper import WhisperModel
+        
+        _lang = (language or 'auto').strip().lower()
+        _lang_for_engine = None if _lang in ('auto', 'detect', '') else _lang
+
+        # Get total duration for progress reporting
+        total_dur = 0.0
+        try:
+            dur_cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                       '-of', 'default=noprint_wrappers=1:nokey=1', video_path]
+            res = subprocess.run(dur_cmd, capture_output=True, text=True)
+            if res.stdout.strip():
+                total_dur = float(res.stdout.strip())
+        except Exception:
+            pass
+
+        self.logger.info(f"🔬 Full-video faster-whisper VAD pass ({total_dur:.0f}s)...")
+
+        # Load model once
+        device = "cpu"
+        try:
+            import torch
+            if HAS_TORCH and torch.cuda.is_available():
+                device = "cuda"
+        except Exception:
+            pass
+        
+        try:
+            model = WhisperModel(self.model_size, device=device, compute_type="int8")
+        except Exception as e:
+            self.logger.warning(f"⚠️ faster-whisper model load failed: {e}. Falling back to MLX.")
+            return [], ''
+
+        CHUNK = 600   # 10-min chunks
+        OVERLAP = 5   # 5s overlap to avoid cutting mid-word at boundaries
+        all_words: List[WordObj] = []
+        detected_lang = ''
+        seen_ends: set = set()
+
+        start = 0.0
+        chunk_idx = 0
+        tmp_wav = None
+        try:
+            while True:
+                end = min(start + CHUNK, total_dur) if total_dur > 0 else start + CHUNK
+                duration = end - start
+
+                # Extract audio chunk
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                    tmp_wav = f.name
+
+                cmd = [
+                    'ffmpeg', '-y', '-i', video_path,
+                    '-ss', str(start), '-t', str(duration + OVERLAP),
+                    '-q:a', '0', '-vn', '-f', 'wav', tmp_wav
+                ]
+                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+
+                kw = dict(
+                    word_timestamps=True,
+                    initial_prompt=self.initial_prompt or "Clear punctuation and case sensitivity.",
+                    temperature=self.temperature,
+                    vad_filter=self.use_vad,
+                    vad_parameters=dict(min_silence_duration_ms=700, speech_pad_ms=400),
+                )
+                if _lang_for_engine:
+                    kw['language'] = _lang_for_engine
+                
+                segments, info = model.transcribe(tmp_wav, **kw)
+
+                if chunk_idx == 0 and not detected_lang:
+                    detected_lang = str(getattr(info, 'language', '') or '').strip().lower()
+
+                chunk_words = 0
+                for seg in segments:
+                    if not seg.words:
+                        continue
+                    for w in seg.words:
+                        abs_start = w.start + start
+                        abs_end = w.end + start
+                        # De-duplicate words from overlap window
+                        key = round(abs_end, 2)
+                        if key in seen_ends:
+                            continue
+                        seen_ends.add(key)
+                        all_words.append(WordObj(abs_start, abs_end, w.word))
+                        chunk_words += 1
+
+                pct = int((end / total_dur) * 100) if total_dur > 0 else 0
+                self.logger.info(f"PROGRESS:{5 + int(pct * 0.44)}:🎙️ VAD Transcription ({pct}%)")
+                self.logger.info(f"  ✅ Chunk {chunk_idx+1}: +{chunk_words} words (total {len(all_words)})")
+
+                os.remove(tmp_wav)
+                tmp_wav = None
+
+                chunk_idx += 1
+                if total_dur > 0 and start + CHUNK >= total_dur:
+                    break
+                start += CHUNK
+                if total_dur <= 0 and chunk_words == 0:
+                    # No more audio
+                    break
+
+        except Exception as e:
+            self.logger.warning(f"⚠️ faster-whisper full-video pass error: {e}. Falling back to MLX.")
+            if tmp_wav and os.path.exists(tmp_wav):
+                try: os.remove(tmp_wav)
+                except: pass
+            return [], ''
+
+        self.logger.info(f"✅ Full-video VAD transcription complete: {len(all_words)} words, lang={detected_lang or 'auto'}")
+        return all_words, detected_lang
+
 
     def transcribe_video_whisper(
         self,
         video_path: str,
-        language: str = 'en',
+        language: str = 'auto',
         correct: bool = False,
         detect_speakers: bool = False
     ) -> str:
         """Transcribe video with Whisper (Standard Torch)"""
         from faster_whisper import WhisperModel
         
-        self.logger.info(f"Transcription process initiated (ISO: {language.upper()})")
+        _lang = (language or 'auto').strip().lower()
+        _lang_for_engine = None if _lang in ('auto', 'detect', '') else _lang
+        self.logger.info(f"Transcription process initiated (ISO: {(_lang_for_engine or 'AUTO').upper()})")
         
-        segments, info = self.model.transcribe(
+        model = self.model
+        if not hasattr(model, "transcribe"):
+            # On Apple Silicon, self.model can be a sentinel string when MLX path is preferred.
+            device = "cpu"
+            try:
+                import torch
+                if HAS_TORCH and torch.cuda.is_available():
+                    device = "cuda"
+            except Exception:
+                pass
+            model = WhisperModel(self.model_size, device=device, compute_type="int8")
+
+        segments, info = model.transcribe(
             video_path,
-            language=language,
+            language=_lang_for_engine,
             word_timestamps=True,
             initial_prompt=self.initial_prompt or "Clear punctuation and case sensitivity.",
-            temperature=self.temperature
+            temperature=self.temperature,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=700, speech_pad_ms=400)
         )
+
+        detected_lang = str(getattr(info, 'language', '') or '').strip().lower()
+        out_lang = _lang if _lang_for_engine else (detected_lang if re.fullmatch(r"[a-z]{2,3}", detected_lang) else 'en')
+        if _lang_for_engine is None and out_lang:
+            self.logger.info(f"🌐 Whisper detected source language: {out_lang}")
         
         all_words = []
         pbar = tqdm(total=int(info.duration), unit="s", desc="  Processing")
@@ -1035,7 +1271,7 @@ class SubtitleProcessor:
         
         entries = self.resegment_to_sentences(all_words, None)
         
-        srt_path = os.path.splitext(video_path)[0] + f"_{language}.srt"
+        srt_path = os.path.splitext(video_path)[0] + f"_{out_lang}.srt"
         with open(srt_path, 'w', encoding='utf-8-sig') as f:
             for i, entry in enumerate(entries, 1):
                 f.write(f"{i}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
@@ -1044,26 +1280,42 @@ class SubtitleProcessor:
         return srt_path
 
     def transcribe_video_mlx(self, video_path: str, language: str, correct: bool, detect_speakers: bool, dur_override: float = 0) -> str:
-        """MLX-accelerated transcription (Isolated in Subprocess for Memory safety)"""
-        self.logger.info(f"☢️ Initiating Isolated MLX Transcription (ISO: {language.upper()})")
-        
-        # 1. Create temporary JSON for results
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
-            result_json_path = f.name
-        
-        # 2. Create the worker script
-        # Determine the correct MLX repo path
-        model_name = self.model_size
-        if "/" in model_name:
-            repo_path = model_name
-        elif model_name == "turbo":
-            repo_path = "mlx-community/whisper-turbo"
-        elif model_name.startswith("large-v3"):
-            repo_path = "mlx-community/whisper-large-v3-mlx"
-        else:
-            repo_path = f"mlx-community/whisper-{model_name}-mlx"
+        """Transcription: faster-whisper + VAD for hallucination-free output (primary path),
+        with MLX subprocess as fallback for speed on Apple Silicon."""
+        _lang = (language or 'auto').strip().lower()
+        _lang_for_worker = '' if _lang in ('auto', 'detect', '') else _lang
+        self.logger.info(f"☢️ Initiating Transcription (Primary: faster-whisper VAD, Fallback: MLX | ISO: {(_lang_for_worker or 'AUTO').upper()})")
 
-        worker_script = f"""
+        # --- PRIMARY PASS: full-video faster-whisper + VAD ---
+        vad_words, vad_lang = self._run_faster_whisper_full(video_path, language=_lang_for_worker)
+        if not _lang_for_worker and vad_lang:
+            _lang_for_worker = vad_lang
+            self.logger.info(f"🌐 VAD auto-detected language: {_lang_for_worker}")
+
+        all_words: List[WordObj] = vad_words
+        detected_lang: str = vad_lang
+
+        # --- FALLBACK: MLX subprocess if VAD produced no words ---
+        if not all_words:
+            self.logger.warning("⚠️ VAD produced no words. Falling back to MLX subprocess...")
+
+            # 1. Create temporary JSON for results
+            with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+                result_json_path = f.name
+            
+            # 2. Create the worker script
+            # Determine the correct MLX repo path
+            model_name = self.model_size
+            if "/" in model_name:
+                repo_path = model_name
+            elif model_name == "turbo":
+                repo_path = "mlx-community/whisper-turbo"
+            elif model_name.startswith("large-v3"):
+                repo_path = "mlx-community/whisper-large-v3-mlx"
+            else:
+                repo_path = f"mlx-community/whisper-{model_name}-mlx"
+
+            worker_script = f"""
 import os
 import sys
 import json
@@ -1081,18 +1333,19 @@ def run():
             pass
         
         # Suppress Hallucinations (Repetition Penalty)
-        result = mlx_whisper.transcribe(
-            "{video_path}",
-            language="{language}",
-            path_or_hf_repo="{repo_path}",
-            word_timestamps=True,
-            verbose=True, # Stream progress
-            condition_on_previous_text=False,
-            no_speech_threshold=0.6,
-            logprob_threshold=-1.0,
-            compression_ratio_threshold=2.4,
-            temperature=(0.0, 0.2, 0.4, 0.6, 0.8),
-        )
+        kwargs = {{
+            "path_or_hf_repo": "{repo_path}",
+            "word_timestamps": True,
+            "verbose": True,
+            "condition_on_previous_text": False,
+            "no_speech_threshold": 0.6,
+            "logprob_threshold": -1.0,
+            "compression_ratio_threshold": 2.4,
+            "temperature": (0.0, 0.2, 0.4, 0.6, 0.8),
+        }}
+        if "{_lang_for_worker}":
+            kwargs["language"] = "{_lang_for_worker}"
+        result = mlx_whisper.transcribe("{video_path}", **kwargs)
         
         simplified = []
         for segment in result.get('segments', []):
@@ -1100,8 +1353,9 @@ def run():
                 for w in segment['words']:
                     simplified.append({{'start': w['start'], 'end': w['end'], 'word': w['word']}})
         
+        payload = {{"language": result.get("language", ""), "words": simplified}}
         with open("{result_json_path}", "w", encoding="utf-8") as f:
-            json.dump(simplified, f)
+            json.dump(payload, f)
             
         # NUCLEAR EXIT: Force OS to reclaim all memory immediately
         try: mx.clear_cache()
@@ -1115,100 +1369,158 @@ def run():
 if __name__ == "__main__":
     run()
 """
-        with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as f:
-            worker_path = f.name
-            f.write(worker_script.encode('utf-8'))
-            
-        try:
-            # 3. Run the worker with streaming output
-            # Get video duration for progress bar
-            dur = dur_override or 0
-            if dur <= 0:
+            with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as f:
+                worker_path = f.name
+                f.write(worker_script.encode('utf-8'))
+                
+            try:
+                # 3. Run the worker with streaming output
+                # Get video duration for progress bar
+                dur = dur_override or 0
+                if dur <= 0:
+                    try:
+                        dur_cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                                   '-of', 'default=noprint_wrappers=1:nokey=1', video_path]
+                        res = subprocess.run(dur_cmd, capture_output=True, text=True)
+                        output = res.stdout.strip()
+                        if output:
+                            dur = float(output)
+                    except:
+                        pass
+                
+                if dur > 0:
+                    self.logger.info(f"📊 Tracking progress over {dur:.1f}s duration.")
+                else:
+                    self.logger.warning("⚠️ Could not detect duration; progress bar will be limited.")
+
+                cmd = ["python3", "-u", worker_path]
+                # Use Popen to stream stdout/stderr
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+                
+                pbar = tqdm(total=100, unit="%", desc=f"  Transcribing ({(_lang_for_worker or 'AUTO').upper()})")
+                
+                # Helper to parse [HH:MM:SS.mmm --> HH:MM:SS.mmm] or [MM:SS.mmm --> MM:SS.mmm]
+                def parse_time(line):
+                    # More robust pattern to match Whisper's timestamp formats
+                    match = re.search(r'-->\s+\[?(\d+:)?(\d+):(\d+)[\.,](\d+)\]?', line)
+                    if match:
+                        groups = match.groups()
+                        h = int(groups[0].strip(':')) if groups[0] else 0
+                        m = int(groups[1])
+                        s = int(groups[2])
+                        ms = int(groups[3])
+                        # Handle different lengths of milliseconds/centiseconds
+                        ms_val = ms / (10 ** len(groups[3]))
+                        return h * 3600 + m * 60 + s + ms_val
+                    return None
+
+                # --- Incremental checkpoint setup ---
+                partial_srt_path = os.path.splitext(video_path)[0] + f"_{_lang_for_worker or 'auto'}.partial.srt"
+                partial_entries = []
+
+                def _srt_tc(sec: float) -> str:
+                    h = int(sec // 3600); m = int((sec % 3600) // 60); s_i = int(sec % 60)
+                    return f"{h:02d}:{m:02d}:{s_i:02d},{int(round((sec - int(sec)) * 1000)):03d}"
+
+                def _parse_seg_line(raw: str):
+                    """Extract (start_s, end_s, text) from whisper verbose '[start --> end]  text' line."""
+                    mg = re.match(
+                        r'\[(?:(\d+):)?(\d+):(\d+[\.,]\d+)\s+-->\s+(?:(\d+):)?(\d+):(\d+[\.,]\d+)\]\s*(.*)',
+                        raw.strip()
+                    )
+                    if not mg:
+                        return None
+                    def _ts(hg, mg2, sg):
+                        return (int(hg) if hg else 0) * 3600 + int(mg2) * 60 + float(sg.replace(',', '.'))
+                    return _ts(mg.group(1), mg.group(2), mg.group(3)), _ts(mg.group(4), mg.group(5), mg.group(6)), mg.group(7)
+
+                def _flush_partial():
+                    if not partial_entries:
+                        return
+                    lines = []
+                    for idx, (s, e, t) in enumerate(partial_entries, 1):
+                        lines.extend([str(idx), f"{_srt_tc(s)} --> {_srt_tc(e)}", t.strip(), ""])
+                    try:
+                        with open(partial_srt_path, 'w', encoding='utf-8') as pf:
+                            pf.write("\n".join(lines))
+                    except Exception:
+                        pass
+
+                _last_emitted_pct = [4]  # Start below 5 so first emission fires at 5%
+                stdout_tail = []
+                while True:
+                    line = proc.stdout.readline()
+                    if not line and proc.poll() is not None:
+                        break
+                    
+                    if line:
+                        stdout_tail.append(line.strip())
+                        if len(stdout_tail) > 80:
+                            stdout_tail = stdout_tail[-80:]
+                        # Log errors from worker if any
+                        if "WORKER_ERROR" in line:
+                            self.logger.error(f"  {line.strip()}")
+
+                        # Incremental checkpoint: save every 20 parsed segments
+                        seg = _parse_seg_line(line)
+                        if seg:
+                            partial_entries.append(seg)
+                            if len(partial_entries) % 20 == 0:
+                                _flush_partial()
+                            
+                        curr_time = parse_time(line)
+                        if curr_time and dur > 0:
+                            pct = min(100, (curr_time / dur) * 100)
+                            pbar.n = int(pct)
+                            pbar.refresh()
+                            # Map 0-100% transcription → PROGRESS 5-50% (leaves headroom for translation)
+                            _trans_pct = max(5, min(50, int(5 + pct * 0.45)))
+                            if _trans_pct - _last_emitted_pct[0] >= 5:
+                                self.logger.info(f"PROGRESS:{_trans_pct}:🎙️ Transcription ({int(pct)}%)")
+                                _last_emitted_pct[0] = _trans_pct
+                
+                proc.wait()
+                pbar.n = 100
+                pbar.refresh()
+                pbar.close()
+                _flush_partial()  # Final checkpoint flush before reading result JSON
+                
+                if proc.returncode != 0:
+                    stderr = proc.stderr.read()
+                    stdout_excerpt = "\n".join(stdout_tail[-30:])
+                    combined = (f"stderr:\n{stderr.strip()}\n\nstdout:\n{stdout_excerpt.strip()}").strip()
+                    self.logger.error(f"❌ Isolated worker failed: {combined}")
+                    raise RuntimeError(f"Transcription worker failed: {combined}")
+                
+                # 4. Load results
+                if not os.path.exists(result_json_path):
+                    raise RuntimeError("Isolated worker exited without producing results.")
+                    
+                with open(result_json_path, 'r', encoding='utf-8') as f:
+                    payload = json.load(f)
+
+                if isinstance(payload, dict):
+                    word_dicts = payload.get('words', [])
+                    detected_lang = str(payload.get('language', '') or '').strip().lower()
+                else:
+                    word_dicts = payload
+                    detected_lang = ''
+                
+                all_words = [WordObj(w['start'], w['end'], w['word']) for w in word_dicts]
+                self.logger.info(f"✅ MLX fallback complete. {len(all_words)} words retrieved.")
+                
+            finally:
+                # Cleanup worker files
+                for p in [worker_path, result_json_path]:
+                    if os.path.exists(p):
+                        try: os.remove(p)
+                        except: pass
+                # Remove incremental checkpoint now that the final SRT is written
                 try:
-                    dur_cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
-                               '-of', 'default=noprint_wrappers=1:nokey=1', video_path]
-                    res = subprocess.run(dur_cmd, capture_output=True, text=True)
-                    output = res.stdout.strip()
-                    if output:
-                        dur = float(output)
-                except:
+                    if os.path.exists(partial_srt_path):
+                        os.remove(partial_srt_path)
+                except Exception:
                     pass
-            
-            if dur > 0:
-                self.logger.info(f"📊 Tracking progress over {dur:.1f}s duration.")
-            else:
-                self.logger.warning("⚠️ Could not detect duration; progress bar will be limited.")
-
-            cmd = ["python3", "-u", worker_path]
-            # Use Popen to stream stdout/stderr
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
-            
-            pbar = tqdm(total=100, unit="%", desc=f"  Transcribing ({language.upper()})")
-            
-            # Helper to parse [HH:MM:SS.mmm --> HH:MM:SS.mmm] or [MM:SS.mmm --> MM:SS.mmm]
-            def parse_time(line):
-                # More robust pattern to match Whisper's timestamp formats
-                match = re.search(r'-->\s+\[?(\d+:)?(\d+):(\d+)[\.,](\d+)\]?', line)
-                if match:
-                    groups = match.groups()
-                    h = int(groups[0].strip(':')) if groups[0] else 0
-                    m = int(groups[1])
-                    s = int(groups[2])
-                    ms = int(groups[3])
-                    # Handle different lengths of milliseconds/centiseconds
-                    ms_val = ms / (10 ** len(groups[3]))
-                    return h * 3600 + m * 60 + s + ms_val
-                return None
-
-            _last_emitted_pct = [4]  # Start below 5 so first emission fires at 5%
-            while True:
-                line = proc.stdout.readline()
-                if not line and proc.poll() is not None:
-                    break
-                
-                if line:
-                    # Log errors from worker if any
-                    if "WORKER_ERROR" in line:
-                        self.logger.error(f"  {line.strip()}")
-                        
-                    curr_time = parse_time(line)
-                    if curr_time and dur > 0:
-                        pct = min(100, (curr_time / dur) * 100)
-                        pbar.n = int(pct)
-                        pbar.refresh()
-                        # Map 0-100% transcription → PROGRESS 5-50% (leaves headroom for translation)
-                        _trans_pct = max(5, min(50, int(5 + pct * 0.45)))
-                        if _trans_pct - _last_emitted_pct[0] >= 5:
-                            self.logger.info(f"PROGRESS:{_trans_pct}:🎙️ رونویسی ({int(pct)}%)")
-                            _last_emitted_pct[0] = _trans_pct
-            
-            proc.wait()
-            pbar.n = 100
-            pbar.refresh()
-            pbar.close()
-            
-            if proc.returncode != 0:
-                stderr = proc.stderr.read()
-                self.logger.error(f"❌ Isolated worker failed: {stderr}")
-                raise RuntimeError(f"Transcription worker failed: {stderr}")
-            
-            # 4. Load results
-            if not os.path.exists(result_json_path):
-                raise RuntimeError("Isolated worker exited without producing results.")
-                
-            with open(result_json_path, 'r', encoding='utf-8') as f:
-                word_dicts = json.load(f)
-            
-            all_words = [WordObj(w['start'], w['end'], w['word']) for w in word_dicts]
-            
-            self.logger.info(f"✅ Isolated transcription successful. {len(all_words)} words retrieved.")
-            
-        finally:
-            # Cleanup worker files
-            for p in [worker_path, result_json_path]:
-                if os.path.exists(p):
-                    try: os.remove(p)
-                    except: pass
 
         entries = self.resegment_to_sentences(all_words, None)
         
@@ -1220,11 +1532,14 @@ if __name__ == "__main__":
         if "safe_input" in video_path or "temp_" in video_path:
             final_video_name = re.sub(r'^(temp_\d+_|safe_)', '', final_video_name)
             
-        srt_path = os.path.splitext(video_path)[0] + f"_{language}.srt"
+        out_lang = _lang if _lang_for_worker else (detected_lang if re.fullmatch(r"[a-z]{2,3}", detected_lang) else 'en')
+        if _lang_for_worker == '' and out_lang:
+            self.logger.info(f"🌐 Auto-detected source language: {out_lang}")
+        srt_path = os.path.splitext(video_path)[0] + f"_{out_lang}.srt"
         with open(srt_path, 'w', encoding='utf-8-sig') as f:
             for i, entry in enumerate(entries, 1):
                 f.write(f"{i}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
-        
+
         self.logger.info(f"MLX asset preservation complete: {Path(srt_path).name}")
         return srt_path
 
@@ -1269,97 +1584,150 @@ if __name__ == "__main__":
         return clean
 
     def resegment_to_sentences(self, words: List, speaker_segments) -> List[Dict]:
-        """Smart sentence segmentation - semantic-first"""
+        """Smart sentence segmentation - semantic-first, abbreviation-aware."""
         entries = []
         current_words = []
         current_len = 0
-        
-        sentence_enders = ('.', '?', '!', '...')
+
+        # Common English title/abbreviation prefixes whose trailing '.' must NOT trigger a break.
+        _ABBREVS = frozenset({
+            'dr', 'mr', 'mrs', 'ms', 'prof', 'sr', 'jr', 'st', 'vs',
+            'etc', 'approx', 'dept', 'gov', 'lt', 'sgt', 'cpl', 'pvt',
+            'co', 'corp', 'inc', 'ltd', 'gen', 'col', 'capt', 'maj',
+        })
+
+        # Clause starters: never break RIGHT BEFORE these words
+        # (they introduce subordinate clauses that belong with the preceding text)
+        _CLAUSE_STARTERS = frozenset({
+            'who', 'whom', 'whose', 'which', 'that',
+            'when', 'where', 'why', 'how',
+            'because', 'although', 'if', 'unless', 'until',
+            'while', 'after', 'before', 'since', 'as',
+            'what', 'whether',
+        })
+
+        sentence_enders = ('?', '!', '...')
+        # Note: '.' handled specially below (abbreviation detection)
         soft_break_chars = (',', ';', ':')
         limit = getattr(self.style_config, 'max_chars', 42)
-        hard_limit = limit * 2  # Absolute ceiling to prevent overly long lines
-        
+        _max_lines_cfg = max(1, int(getattr(self.style_config, 'max_lines', 1) or 1))
+        hard_limit = max(limit, limit * _max_lines_cfg)
+
         i = 0
         total = len(words)
-        
+
+        def _is_real_sentence_end(word_text: str, next_word_text: str) -> bool:
+            """Return True only when '.' represents a genuine sentence boundary."""
+            if not word_text.endswith('.'):
+                return False
+            # Abbreviation: single or two-letter word (e.g., 'U.S.', 'N.Y.')
+            stripped = word_text.rstrip('.')
+            if len(stripped) <= 2:
+                return False
+            # Known title / abbreviation
+            if stripped.lower() in _ABBREVS:
+                return False
+            # If the very next word starts with uppercase it's likely a new sentence,
+            # but if it starts with lowercase it's a continuation (e.g., "etc. cheaper")
+            if next_word_text and next_word_text[0].islower():
+                return False
+            return True
+
         while i < total:
             word_obj = words[i]
             text = word_obj.word.strip()
-            
+
             if not text:
                 i += 1
                 continue
-            
+
             current_words.append(word_obj)
             current_len += len(text) + 1
-            
+
             should_break = False
-            is_sentence_end = text.endswith(sentence_enders)
-            is_soft_break = text.endswith(soft_break_chars)
             is_last = (i == total - 1)
-            
+
+            # Peek at the next non-empty word for abbreviation detection
+            next_text = ''
+            if not is_last:
+                for j in range(i + 1, min(i + 3, total)):
+                    nt = words[j].word.strip()
+                    if nt:
+                        next_text = nt
+                        break
+
+            is_sentence_end = text.endswith(sentence_enders)
+            # Special-case '.' with abbreviation awareness
+            if text.endswith('.') and _is_real_sentence_end(text, next_text):
+                is_sentence_end = True
+            is_soft_break = text.endswith(soft_break_chars)
+
+            # Clause-starter guard: if the next word starts a subordinate clause,
+            # suppress any soft/comma break so the clause stays with its antecedent.
+            next_is_clause_starter = next_text.lower() in _CLAUSE_STARTERS if next_text else False
+
             if is_last:
                 should_break = True
-            
+
             elif is_sentence_end:
-                # Priority 1: Sentence end -> Always break
+                # Priority 1: True sentence end → Always break
                 should_break = True
-            
+
             elif current_len > hard_limit:
-                # Absolute ceiling: Must break, but try to break at comma if possible
+                # Absolute ceiling: Must break now (even before clause starters)
                 should_break = True
-            
-            elif is_soft_break and current_len > limit:
-                # Comma + exceeded limit -> Look ahead
-                # If the remaining part of the sentence is short and ends with a period, wait
+
+            elif is_soft_break and current_len > limit and not next_is_clause_starter:
+                # Comma exceeded limit → look ahead to decide
                 remaining_text = ""
                 j = i + 1
                 temp_len = 0
                 hits_sentence_end = False
-                
-                while j < total and temp_len < 30:  # Look ahead max 30 chars
+
+                while j < total and temp_len < 30:
                     next_word = words[j].word.strip()
                     temp_len += len(next_word) + 1
                     remaining_text += next_word + " "
-                    if next_word.endswith(sentence_enders):
+                    if next_word.endswith(('?', '!', '...')) or (
+                        next_word.endswith('.') and _is_real_sentence_end(next_word, '')
+                    ):
                         hits_sentence_end = True
                         break
                     if next_word.endswith(soft_break_chars):
-                        break  # Another comma found, break here
+                        break
                     j += 1
-                
+
                 if hits_sentence_end and temp_len <= 25:
-                    # Remaining part is short and hits sentence end -> Wait for full sentence
                     should_break = False
                 else:
                     should_break = True
-            
+
             if should_break and current_words:
                 t = " ".join([w.word.strip() for w in current_words])
                 t = re.sub(r'\s+', ' ', t).strip()
-                
-                # Orphan prevention
+
+                # Orphan prevention: tie last two words with NBSP
                 words_in_t = t.split()
                 if len(words_in_t) >= 3:
                     t = " ".join(words_in_t[:-2]) + " " + words_in_t[-2] + "\u00A0" + words_in_t[-1]
-                
+
                 entries.append({
                     'start': self.format_time(current_words[0].start),
                     'end': self.format_time(current_words[-1].end),
                     'text': t
                 })
-                
+
                 current_words = []
                 current_len = 0
-            
+
             i += 1
-        
+
         # Hallucination Suppression (Pre-Sanitization)
         entries = self.suppress_hallucinations(entries)
 
         # Sanitize entries (fix overlaps and short durations)
         entries = self.sanitize_entries(entries)
-        
+
         return entries
 
     def merge_to_clauses(self, entries: List[Dict]) -> List[Dict]:
@@ -1941,18 +2309,6 @@ if __name__ == "__main__":
         
         # If less than threshold valid, reject entire batch to trigger retry
         return []
-
-        # 3) Plain line fallback (for providers that ignore numbering)
-        plain_lines = []
-        for raw_line in cleaned.split('\n'):
-            line = raw_line.strip()
-            if not line:
-                continue
-            if re.match(r'^(translation|translations|ترجمه)\s*[:：]\s*$', line, flags=re.IGNORECASE):
-                continue
-            plain_lines.append(line.lstrip('-• ').strip())
-
-        return plain_lines[:expected_count] if len(plain_lines) >= expected_count else []
 
     # ==================== TRANSLATION ====================
 
@@ -2713,13 +3069,17 @@ if __name__ == "__main__":
                 "SYSTEM: Tehrani informal tone.\n"
                 "FORMAT: Return ONLY a valid JSON object where keys are the input line numbers and values are the translations.\n"
                 "EXAMPLE: {\"1\": \"سلام\", \"2\": \"چطوری؟\"}\n"
-                f"RULE: For technical terms (API, AGI, etc.), write the {lang_name} translation first, then the English in parentheses (e.g. 'هزینه‌ها (CapEx)').\n"
+                f"RULE: For ACRONYMS ONLY (API, AGI, CapEx), write the {lang_name} translation first, then the English acronym in parentheses. "
+                "For ALL other words, translate directly into Persian WITHOUT any English in parentheses.\n"
                 "CRITICAL 1: You MUST translate EACH numbered item independently. The output JSON must have the EXACT SAME NUMBER of keys as the input items.\n"
                 "CRITICAL 2: Each item is a RAW SUBTITLE SEGMENT — it may be an incomplete sentence fragment that continues from the previous line or continues into the next. "
                 "Translate ONLY the exact words given. Do NOT complete the thought. Do NOT add words from context. Do NOT summarize multiple items into one.\n"
                 "CRITICAL 3: The translation for line N MUST cover the SAME semantic content as the input for line N — nothing more, nothing less. "
                 "If the input is short (e.g. 'guy but it almost'), the translation must also be short and faithful.\n"
                 "CRITICAL 4: NEVER echo or repeat the original English source text in your output.\n"
+                "CRITICAL 5: NEVER put English words inside parentheses as clarification. "
+                "Do NOT write things like 'اطلاعاتی (intelligence)' — just write 'اطلاعاتی'. "
+                "If a fragment seems incomplete, translate what is given faithfully without annotation.\n"
                 "NO commentary, NO extra text."
             )
 
@@ -2732,6 +3092,7 @@ if __name__ == "__main__":
             "CRITICAL 2: Each item is a RAW SUBTITLE SEGMENT and may be an incomplete sentence fragment. "
             "Translate ONLY the exact words given — do NOT complete the thought or add words from surrounding context.\n"
             "CRITICAL 3: The translation for line N MUST correspond EXACTLY to the English text in line N. Do NOT shift translations up or down keys.\n"
+            "CRITICAL 4: NEVER add parenthetical clarifications with English words. Translate directly without annotation.\n"
             "NO commentary, NO extra text."
         )
 
@@ -3027,7 +3388,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             text = ' '.join(text.split())
             # In bilingual mode, hard-truncate top line to keep it inside frame.
             # Portrait videos need a stricter cap due narrower width.
-            max_top_chars = 38 if is_portrait else 52
+            # At fs13 in the default 640-wide ASS coordinate space, Latin glyphs average
+            # ~7 ASS units, giving ~80 usable chars per line. 70 is a safe generous cap for
+            # landscape; 42 for portrait (9:16 width is roughly 40% narrower in ASS space).
+            max_top_chars = 42 if is_portrait else 70
             # In bilingual mode, hard-truncate English to avoid wrap/clipping.
             # rendering regardless of WrapStyle or libass version differences.
             if secondary_srt and len(text) > max_top_chars:
@@ -3121,7 +3485,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         self.logger.info(f"ASS asset generation complete: {Path(ass_path).name}")
 
     @staticmethod
-    @staticmethod
     def _to_persian_digits(value) -> str:
         """Convert Arabic/Latin digits to Persian-Indic numerals (۰–۹)."""
         arabic_to_persian = str.maketrans('0123456789', '۰۱۲۳۴۵۶۷۸۹')
@@ -3142,29 +3505,45 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             hms, ms = last_end.split(',')
             h, m, s = map(int, hms.split(':'))
             total_sec = h * 3600 + m * 60 + s
-            hours = total_sec // 3600
-            mins  = (total_sec % 3600) // 60
-            secs  = total_sec % 60
+            return SubtitleProcessor._format_total_seconds(total_sec, lang=lang)
+        except Exception:
+            return ''
 
-            def _fa(n: int) -> str:
-                return str(n).translate(str.maketrans('0123456789', '۰۱۲۳۴۵۶۷۸۹'))
+    @staticmethod
+    def _format_total_seconds(total_sec: float, lang: str = 'fa') -> str:
+        """Format raw seconds into human-readable duration (e.g. 1 hr 44 min)."""
+        total_sec = int(total_sec)
+        hours = total_sec // 3600
+        mins  = (total_sec % 3600) // 60
+        secs  = total_sec % 60
 
-            if lang == 'fa':
-                if hours > 0:
-                    return f'{_fa(hours)} ساعت و {_fa(mins)} دقیقه'
-                elif secs >= 30:
+        def _fa(n: int) -> str:
+            return str(n).translate(str.maketrans('0123456789', '۰۱۲۳۴۵۶۷۸۹'))
+
+        if lang == 'fa':
+            if hours > 0:
+                ret = f'{_fa(hours)} ساعت'
+                if mins > 0: ret += f' و {_fa(mins)} دقیقه'
+                return ret
+            elif mins > 0:
+                if secs >= 30:
                     return f'{_fa(mins)} دقیقه و {_fa(secs)} ثانیه'
                 else:
                     return f'{_fa(mins)} دقیقه'
             else:
-                if hours > 0:
-                    return f'{hours} hr {mins} min'
-                elif secs >= 30:
+                return f'{_fa(secs)} ثانیه'
+        else:
+            if hours > 0:
+                ret = f'{hours} hr'
+                if mins > 0: ret += f' {mins} min'
+                return ret
+            elif mins > 0:
+                if secs >= 30:
                     return f'{mins} min {secs} sec'
                 else:
                     return f'{mins} min'
-        except Exception:
-            return ''
+            else:
+                return f'{secs} sec'
 
     def parse_srt(self, srt_path: str) -> List[Dict]:
         with open(srt_path, 'r', encoding='utf-8-sig') as f:
@@ -3233,22 +3612,30 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     def cleanup(self):
         """Force-unloading model and freeing system memory"""
-        # تغییر self._model به self.model
-        if hasattr(self, 'model') and self.model is not None:
+        # Unload model if held in main process
+        if hasattr(self, '_model') and self._model is not None:
             self.logger.info("♻️ Force-unloading model to reclaim memory...")
-            self.model = None
-            
-            # Python garbage collection
-            gc.collect()
-            
-            # Metal / CUDA memory reclaim
+            self._model = None
+
+        # Metal / MLX cache
+        if HAS_MLX:
             try:
-                if HAS_TORCH and torch.cuda.is_available():
+                import mlx.core as mx
+                mx.clear_cache()
+            except Exception:
+                pass
+
+        # CUDA cache
+        if HAS_TORCH:
+            try:
+                import torch
+                if torch.cuda.is_available():
                     torch.cuda.empty_cache()
             except Exception:
                 pass
-            
-            self.logger.info("✅ Memory reclamation sequence complete.")
+
+        # Python GC
+        gc.collect()
             
     def _ingest_partial_srt(self, source_entries: List[Dict], target_srt_path: str, target_lang: str):
         """Recover existing translations from a partial SRT file to avoid re-translation costs"""
@@ -3327,9 +3714,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         render_quality: Optional[int] = None,
         render_fps: Optional[int] = None,
         render_split_mb: Optional[int] = None,
+        pad_bottom: int = 0,
+        use_vad: bool = True,
         progress_callback=None,
     ) -> Dict[str, Any]:
         """Complete workflow with fixed path handling and memory management"""
+        self.use_vad = use_vad
 
         def _emit_progress(pct: int, msg: str):
             """Emit a structured progress line parseable by consumers (e.g. su6i_yar.py)."""
@@ -3342,6 +3732,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         # Resolve absolute path to properly handle inputs
         video_path = os.path.abspath(video_path)
+        source_lang = (source_lang or 'auto').strip().lower()
+        target_langs = [str(l).strip().lower() for l in (target_langs or ['auto', 'fa']) if str(l).strip()]
+
+        _source_auto_requested = source_lang in ('auto', 'detect', '')
         # Normalize filename first so every downstream output uses a safe stem.
         if os.path.exists(video_path) and not post_only:
             video_path = self._ensure_safe_input_filename(video_path)
@@ -3376,6 +3770,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if _stem_lang_match:
                 _detected_srt_lang = _stem_lang_match.group(1)
                 source_lang = _detected_srt_lang
+                _source_auto_requested = False
                 original_stem = original_stem[:-len(f'_{_detected_srt_lang}')]
             elif original_stem.endswith(f'_{source_lang}'):
                 original_stem = original_stem[:-len(f'_{source_lang}')]
@@ -3406,7 +3801,31 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             os.path.join(_parent_dir, original_stem),
             os.path.join(_parent_dir, original_stem, original_stem),
         ]
-        _probe_langs = [source_lang] + [l for l in (target_langs or []) if l != source_lang]
+        _probe_langs = [
+            l for l in ([source_lang] + [t for t in (target_langs or []) if t != source_lang])
+            if re.fullmatch(r"[a-z]{2,3}", str(l or '').lower())
+        ]
+        if source_lang in ('auto', 'detect', ''):
+            # Auto-source mode: also probe common and locally discovered language codes
+            # so existing *_en.srt can be reused before transcription.
+            for _fallback_lang in ('en', 'fa', 'ar', 'fr', 'de', 'es', 'tr', 'it', 'ru', 'pt', 'zh', 'ja', 'ko'):
+                if _fallback_lang not in _probe_langs:
+                    _probe_langs.append(_fallback_lang)
+
+            _scan_dirs = []
+            for _d in (_cwd, os.path.join(_cwd, original_stem), original_dir, _parent_dir, os.path.join(_parent_dir, original_stem)):
+                if _d and os.path.isdir(_d) and _d not in _scan_dirs:
+                    _scan_dirs.append(_d)
+            for _scan_dir in _scan_dirs:
+                try:
+                    for _p in Path(_scan_dir).glob("*_*.srt"):
+                        _m = re.search(r"_([a-z]{2,3})\.srt$", _p.name.lower())
+                        if _m:
+                            _lang = _m.group(1)
+                            if _lang not in _probe_langs:
+                                _probe_langs.append(_lang)
+                except Exception:
+                    continue
         _existing_base = None
         for _b in _candidate_bases:
             for _l in _probe_langs:
@@ -3445,6 +3864,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         original_dir = os.path.dirname(original_base)
         original_stem = os.path.basename(original_base)
         lock_key = os.path.abspath(original_base).lower()
+        if render_resolution:
+            lock_key += f"_{render_resolution}"
 
         if _existing_base:
             self.logger.info(f"♻️ Canonical base resolved to existing assets: {original_base}")
@@ -3550,6 +3971,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     cmd += ["-c", "copy", temp_vid]
                     subprocess.run(cmd, check=True)
                     current_video_input = temp_vid
+
+            # Auto source detection for video input if user did not provide --source.
+            if _source_auto_requested and not _is_srt_input:
+                source_lang = self.detect_source_language(current_video_input)
+
+            # Resolve target list now that source language is final.
+            resolved_targets: List[str] = []
+            for _t in target_langs:
+                _resolved = source_lang if _t in ('auto', 'detect', 'source') else _t
+                if _resolved and _resolved not in resolved_targets:
+                    resolved_targets.append(_resolved)
+            target_langs = resolved_targets or [source_lang, 'fa']
             
             # 1. Transcription
             # Force SRT path to be at ORIGINAL location
@@ -3582,7 +4015,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 # Let's rename it after generation if needed.
                 
                 _actual_dur = (limit_end - _limit_start) if limit_end is not None else 0
-                _emit_progress(5, "🎙️ رونویسی با Whisper...")
+                _emit_progress(5, "🎙️ Transcription with Whisper...")
                 generated_srt = self.transcribe_video(current_video_input, source_lang, correct, detect_speakers, dur=_actual_dur)
                 
                 # CRITICAL: Unload model immediately after heavy transcription to free RAM for rendering/translation
@@ -3637,6 +4070,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         f"📐 Detected fragmented source timeline (avg words/entry={_avg_words:.2f}); applying clause merge."
                     )
                 src_entries = self.merge_to_clauses(src_entries)
+                # Merge step may create long entries again; enforce width/timing constraints.
+                src_entries = self.sanitize_entries(src_entries)
                 with open(src_srt, 'w', encoding='utf-8-sig') as f:
                     for idx, entry in enumerate(src_entries, 1):
                         f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
@@ -3646,7 +4081,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # 2. Translation
             _tgt_langs_to_translate = [t for t in target_langs if t != source_lang]
             _tgt_count = len(_tgt_langs_to_translate)
-            _emit_progress(55, f"🌐 شروع ترجمه به {', '.join(t.upper() for t in _tgt_langs_to_translate)}...")
+            _emit_progress(55, f"🌐 Starting translation to {', '.join(t.upper() for t in _tgt_langs_to_translate)}...")
             for tgt in target_langs:
                 if tgt == source_lang:
                     continue
@@ -3670,7 +4105,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 self.logger.info(f"--- Translation Sequence initiated (Target ISO: {tgt.upper()}) ---")
                 _tgt_idx = _tgt_langs_to_translate.index(tgt) if tgt in _tgt_langs_to_translate else 0
                 _start_pct = 55 + int(_tgt_idx / max(1, _tgt_count) * 20)
-                _emit_progress(_start_pct, f"🌐 ترجمه به {tgt.upper()}...")
+                _emit_progress(_start_pct, f"🌐 Translating to {tgt.upper()}...")
                 
                 try:
                     entries = self.parse_srt(src_srt)
@@ -3955,7 +4390,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # 3. RENDERING (skip when input is SRT-only — no video source available)
             if render and not _is_srt_input:
                 self.logger.info("Rendering sequence initiated.")
-                _emit_progress(80, "🎬 رندر زیرنویس ASS...")
+                _emit_progress(80, "🎬 Rendering ASS subtitles...")
                 
                 # Render order = sub_langs order (first = top, second = bottom).
                 # target_langs[0] is always the first -sub lang; source is also in result.
@@ -3986,6 +4421,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 
                 # Output Video -> Original Base (+render resolution for clarity)
                 _render_h = 0
+                _render_q = 0
                 try:
                     if render_resolution and int(render_resolution) > 0:
                         _render_h = int(render_resolution)
@@ -3994,7 +4430,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         _render_h = int(_dh) if _dh else 0
                 except Exception:
                     _render_h = 0
-                output_video = f"{original_base}_{_render_h}p_subbed.mp4" if _render_h > 0 else f"{original_base}_subbed.mp4"
+
+                try:
+                    if render_quality and int(render_quality) > 0:
+                        _render_q = int(render_quality)
+                    else:
+                        _render_q = int(get_default_quality())
+                except Exception:
+                    _render_q = 65
+
+                output_video = (
+                    f"{original_base}_{_render_h}p_q{_render_q}_subbed.mp4"
+                    if _render_h > 0
+                    else f"{original_base}_q{_render_q}_subbed.mp4"
+                )
                 if os.path.exists(output_video) and not force:
                     self.logger.info(f"✅ Reusing existing rendered video: {Path(output_video).name}")
                     result['rendered_video'] = output_video
@@ -4027,7 +4476,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         # Unified Rendering: Delegate to 'amir video cut'
                         # This ensures we use the centralized logic in video.sh (Bitrate Cap, Encoder Selection, etc.)
                         self.logger.info("🚀 Delegating rendering to 'amir video' engine...")
-                        _emit_progress(88, "🎞️ رندر ویدیو نهایی...")
+                        _emit_progress(88, "🎞️ Rendering final video...")
                         
                         # Resolve Font Directory (Mac & Linux support)
                         fonts_dir = None
@@ -4090,12 +4539,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         # Propagate user render intent all the way to final encoder stage.
                         if render_resolution and int(render_resolution) > 0:
                             render_cmd.extend(["--resolution", str(int(render_resolution))])
-                        if render_quality and int(render_quality) > 0:
-                            render_cmd.extend(["--quality", str(int(render_quality))])
+                        # Always pass concrete quality so final filename and encoder settings stay aligned.
+                        render_cmd.extend(["--quality", str(_render_q)])
                         if render_fps and int(render_fps) > 0:
                             render_cmd.extend(["--fps", str(int(render_fps))])
                         if render_split_mb and int(render_split_mb) > 0:
                             render_cmd.extend(["--split", str(int(render_split_mb))])
+                        if pad_bottom and int(pad_bottom) > 0:
+                            render_cmd.extend(["--pad-bottom", str(int(pad_bottom))])
                         
                         if fonts_dir:
                             render_cmd.extend(["--fonts-dir", fonts_dir])
@@ -4142,7 +4593,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                             return None
                             
                         self.logger.info("✅ Rendering completed successfully via centralized engine.")
-                        _emit_progress(98, "✅ رندر ویدیو تمام شد!")
+                        _emit_progress(98, "✅ Video rendering complete!")
                         
                         # 4. Move Result to Final Destination
                         if os.path.exists(output_video):
@@ -4308,9 +4759,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     f"🔹 [موضوع دوم]: [یک جمله توصیفی ≤۱۲ کلمه]\n\n"
                     f"🔹 [موضوع سوم]: [یک جمله توصیفی ≤۱۲ کلمه]\n\n"
                     f"🔹 [موضوع چهارم]: [یک جمله توصیفی ≤۱۲ کلمه]\n\n"
-                    f"🔹 [موضوع پنجم]: [یک جمله توصیفی ≤۱۲ کلمه]\n\n"
                     f"✨ [یک جمله — موضوع اصلی این ویدیو در یک خط]\n\n"
-                    f"📌 [یک جمله — برای چه مخاطبی این ویدیو مفید است]\n\n"
                     f"⏱️ مدت: {_dur}\n\n"
                     f"#[هشتگ۱] #[هشتگ۲] #[هشتگ۳] #[هشتگ۴] #[هشتگ۵]\n\n"
                     f"اطلاعات ویدیو:\n"
@@ -4320,9 +4769,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     + f"زبان‌های زیرنویس: {', '.join(_lang_name_fa(l) for l in _all_langs)}\n\n"
                     f"محتوای زیرنویس:\n{full_text}\n\n"
                     f"⛔ قوانین اجباری — تخطی از اینها مجاز نیست:\n"
-                    f"① همه بخش‌های قالب را بنویس: 🔴 + پاراگراف + 🚨 (۵ بخش 🔹) + ✨ + 📌 + ⏱️ + هشتگ‌ها\n"
+                    f"① همه بخش‌های قالب را بنویس: 🔴 + پاراگراف + 🚨 (۴ بخش 🔹) + ✨ + ⏱️ + هشتگ‌ها\n"
                     f"② هرگز بخشی را حذف نکن\n"
-                    f"③ دقیقاً ۵ بخش 🔹\n"
+                    f"③ دقیقاً ۴ بخش 🔹\n"
                     f"④ ⏱️ مدت را دقیقاً همان‌طور که در اطلاعات ویدیو آمده بنویس\n"
                     f"⑤ ۵ هشتگ مرتبط\n"
                     f"⑥ نقل‌قول داخل « »\n"
@@ -4330,7 +4779,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     f"⑧ بدون markdown (نه ** نه __ نه *)\n"
                     f"⑨ کل پست فارسی (هشتگ‌ها می‌توانند انگلیسی باشند)\n"
                     f"⑩ هر 🔹 باید کوتاه باشد — حداکثر ۱۲ کلمه\n"
-                    f"⑪ هدف ۸۵۰–۹۵۰ کاراکتر — با کوتاه کردن هر بخش به این محدوده برس"
+                    f"⑪ هدف ۷۰۰–۸۵۰ کاراکتر — با کوتاه کردن هر بخش به این محدوده برس. فراتر رفتن از ۱۰۲۴ کاراکتر ممنوع است."
                 )
             else:
                 _lang_en = get_language_config(srt_lang).name
@@ -4354,9 +4803,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     f"🔹 [Topic 2]: [one descriptive sentence ≤12 words]\n\n"
                     f"🔹 [Topic 3]: [one descriptive sentence ≤12 words]\n\n"
                     f"🔹 [Topic 4]: [one descriptive sentence ≤12 words]\n\n"
-                    f"🔹 [Topic 5]: [one descriptive sentence ≤12 words]\n\n"
-                    f"\u2728 [One sentence: what is the main subject of this video]\n\n"
-                    f"\U0001f4cc [One sentence: for which audience this video is relevant]\n\n"
+                    f"✨ [One sentence: what is the main subject of this video]\n\n"
                     f"{_duration_line}\n\n"
                     f"#[hashtag1] #[hashtag2] #[hashtag3] #[hashtag4] #[hashtag5]\n\n"
                     f"Video info:\n"
@@ -4365,9 +4812,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     f"Subtitle languages: {', '.join(_all_langs)}\n\n"
                     f"Subtitle content:\n{full_text}\n\n"
                     f"⛔ MANDATORY RULES — no exceptions:\n"
-                    f"① Write ALL sections: 📽️ title + subtitle line + 🔴 + paragraph + 🚨 (5× 🔹) + ✨ + 📌 + ⏱️ + hashtags\n"
+                    f"① Write ALL sections: 📽️ title + subtitle line + 🔴 + paragraph + 🚨 (4× 🔹) + ✨ + ⏱️ + hashtags\n"
                     f"② NEVER drop a section to shorten the post\n"
-                    f"③ Exactly 5 bullet points (🔹) — not 3, not 4, exactly 5\n"
+                    f"③ Exactly 4 bullet points (🔹) — not 3, exactly 4\n"
                     f"④ ⏱️ Duration: copy it exactly from the video info above — do not omit\n"
                     f"⑤ Exactly 5 relevant hashtags at the end\n"
                     f"⑥ Quote inside « » — not inside \" \"\n"
@@ -4375,7 +4822,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     f"⑧ NO markdown — no ** no __ no * — Telegram renders them as literal characters\n"
                     f"⑨ Entire post in {_lang_en}\n"
                     f"⑩ Each 🔹 must be brief — max 12 words\n"
-                    f"⑪ Target 850–950 characters — shorten each section to fit, never drop sections"
+                    f"⑪ Target 700–850 characters — shorten each section to fit. NEVER exceed 1024 characters."
                 )
             return system, user
 
@@ -4487,10 +4934,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             text = re.sub(r'^-{3,}\s*\n?', '', text)
             text = re.sub(r'\n?-{3,}\s*$', '', text)
             text = text.strip()
-            # Hard cap: Telegram caption limit is 1024 characters; trim at last newline
+            # Hard cap: Telegram caption limit is 1024 characters; trim gracefully
             if len(text) > 1024:
+                # Try cutting at last newline within limit
                 cut = text[:1024].rfind('\n')
-                text = text[:cut if cut > 900 else 1024].rstrip()
+                if cut < 800: # If no newline or it's too early, try last space
+                    cut = text[:1024].rfind(' ')
+                
+                text = text[:cut if cut > 500 else 1024].rstrip()
+                if len(text) < len(text.strip()): # ensure we don't end on half word
+                     pass
+                text += "..." if len(text) < 1024 else ""
         return text
 
     @staticmethod
@@ -4513,14 +4967,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             ('\U0001f534',   '🔴 pull-quote'),
             ('\U0001f6a8',   '🚨 key-points header'),
             ('\u2728',       '✨ summary paragraph'),
-            ('\U0001f4cc',   '📌 call-to-action'),
             ('\u23f1',       '⏱️ duration'),
         ]:
             if marker not in text:
                 missing.append(label)
         bullet_count = text.count('\U0001f539')
-        if bullet_count < 5:
-            missing.append(f'🔹 bullet points (found {bullet_count}, need 5)')
+        if bullet_count < 4:
+            missing.append(f'🔹 bullet points (found {bullet_count}, need 4)')
         if '#' not in text:
             missing.append('hashtags (#)')
         return (len(missing) == 0, missing)
@@ -4568,13 +5021,22 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         ])
 
         # Fallback for resolution/collision sidecars:
-        #   <base>_240p.info.json, <base>_240p.mp4.info.json, <base>_360p_2....
+        # Also look in current working directory in case we are downloading to a fresh folder
+        # while original_base points to a canonical/existing one.
+        cwd = os.getcwd()
         try:
             dynamic_candidates = []
-            for pattern in (f"{base_name}_*.info.json", f"{base_name}*.info.json"):
-                for p in Path(base_dir).glob(pattern):
-                    if p.is_file():
-                        dynamic_candidates.append(str(p.resolve()))
+            for d in set([base_dir, cwd]):
+                for pattern in (f"{base_name}_*.info.json", f"{base_name}*.info.json", "*.info.json"):
+                    for p in Path(d).glob(pattern):
+                        if p.is_file():
+                            dynamic_candidates.append(str(p.resolve()))
+            
+            # Additional check: if original_base was renamed/canonicalized, maybe the info file
+            # matches the current folder's video files
+            for p in Path(cwd).glob("*.info.json"):
+                dynamic_candidates.append(str(p.resolve()))
+
             dynamic_candidates = sorted(set(dynamic_candidates), key=lambda p: os.path.getmtime(p), reverse=True)
             candidates.extend(dynamic_candidates)
         except Exception:
@@ -4595,15 +5057,59 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 webpage_url = str(data.get('webpage_url') or data.get('original_url') or '').strip()
                 uploader = str(data.get('uploader') or data.get('channel') or '').strip()
                 if title or publish_date or webpage_url or uploader:
+                    # Also try to get duration from video file itself for accuracy
+                    duration_sec = data.get('duration') or 0.0
+                    if not duration_sec:
+                        # Try to find the actual media file based on original_base
+                        for ext in ('.mp4', '.mkv', '.mov', '.m4v', '.webm', '.ts'):
+                            v_p = original_base + ext
+                            if os.path.exists(v_p):
+                                duration_sec = self._get_video_duration(v_p)
+                                if duration_sec > 0: break
+
                     return {
                         'title': title,
                         'publish_date': publish_date,
                         'webpage_url': webpage_url,
                         'uploader': uploader,
+                        'duration_sec': duration_sec,
                     }
             except Exception:
                 continue
-        return {}
+
+        # If no info.json or it lacked duration, try to find and probe the actual video file
+        # Check original_base + extensions AND check for quality suffixes (e.g. _720p.mp4)
+        duration_sec = duration_sec if 'duration_sec' in locals() and duration_sec > 0 else 0.0
+        if duration_sec <= 0:
+            base_dir = os.path.dirname(original_base_abs)
+            base_name = os.path.basename(original_base_abs)
+            exts = ('.mp4', '.mkv', '.mov', '.m4v', '.webm', '.ts')
+            
+            # 1. Try exact matches
+            for ext in exts:
+                v_p = original_base_abs + ext
+                if os.path.exists(v_p):
+                    duration_sec = self._get_video_duration(v_p)
+                    if duration_sec > 0: break
+            
+            # 2. Try glob for suffixes if still not found
+            if duration_sec <= 0:
+                try:
+                    for ext in exts:
+                        for p in Path(base_dir).glob(f"{base_name}*{ext}"):
+                            duration_sec = self._get_video_duration(str(p))
+                            if duration_sec > 0: break
+                        if duration_sec > 0: break
+                except Exception:
+                    pass
+
+        return {
+            'title': title if 'title' in locals() else '',
+            'publish_date': publish_date if 'publish_date' in locals() else '',
+            'webpage_url': webpage_url if 'webpage_url' in locals() else '',
+            'uploader': uploader if 'uploader' in locals() else '',
+            'duration_sec': duration_sec,
+        }
 
     @staticmethod
     def _compose_post_file_header(platform: str, metadata: Dict[str, str], fallback_title: str) -> str:
@@ -4615,16 +5121,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         lines = []
         if title:
-            lines.append(f"عنوان اصلی ویدیو: {title}")
+            lines.append(title)  # Just the title, no prefix as requested
         if publish_date:
-            lines.append(f"تاریخ انتشار: {publish_date}")
+            if platform == 'telegram':
+                # Concise date for Telegram (just the YYYY-MM-DD part)
+                clean_date = publish_date.split(' ')[0]
+                lines.append(f"\nDate: {clean_date}")
+            else:
+                lines.append(f"تاریخ انتشار: {publish_date}")
         if uploader:
-            lines.append(f"منتشرکننده: {uploader}")
+            lines.append(f"\nمنتشرکننده: {uploader}")
         if webpage_url:
-            lines.append(f"لینک مرجع: {webpage_url}")
+            lines.append(f"\nلینک مرجع:\n {webpage_url}")
         if not lines:
             return ""
-        return "\n".join(lines) + "\n\n" + ("─" * 48) + "\n\n"
+        return "\n".join(lines) + "\n\n" + ("─" * 20) + "\n\n"
 
     def generate_posts(
         self,
@@ -4699,7 +5210,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
                 # Extract clean subtitle text + compute duration
                 entries = self.parse_srt(srt_path)
-                duration = self._srt_duration_str(entries, lang=srt_lang)
+                video_metadata = self._discover_video_metadata(original_base, srt_path)
+                
+                # Prioritize probed duration from video file over SRT content length
+                meta_dur = video_metadata.get('duration_sec', 0.0)
+                if meta_dur > 0:
+                    duration = self._format_total_seconds(meta_dur, lang=srt_lang)
+                else:
+                    duration = self._srt_duration_str(entries, lang=srt_lang)
+
                 lines = []
                 for e in entries:
                     t = e['text']
@@ -4710,7 +5229,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 # Remove surrogate characters that break UTF-8 encoding when sent to APIs
                 full_text = full_text.encode('utf-8', errors='replace').decode('utf-8')
                 title_clean = title.encode('utf-8', errors='replace').decode('utf-8')
-                video_metadata = self._discover_video_metadata(original_base, srt_path)
 
                 srt_lang_name = get_language_config(srt_lang).name
 
@@ -5066,7 +5584,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         groups = []
         current_group = []
         group_start_sec = 0.0
-        MAX_GROUP_SECONDS = 9.0
+        MAX_GROUP_SECONDS = 15.0
 
         def _ts_to_sec(ts: str) -> float:
             ts = ts.replace(',', '.')
@@ -5528,7 +6046,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     # Emit structured PROGRESS line for external consumers (e.g. su6i_yar.py)
                     _done_frac = (batch_num + 1) / max(1, batch_count)
                     _batch_pct = int(55 + _done_frac * 22)  # 55% → 77% across all batches
-                    self.logger.info(f"PROGRESS:{_batch_pct}:🌐 ترجمه ({batch_num+1}/{batch_count})")
+                    self.logger.info(f"PROGRESS:{_batch_pct}:🌐 Translation ({batch_num+1}/{batch_count})")
                     
                     # Wait to avoid rate limit issues
                     time.sleep(1)

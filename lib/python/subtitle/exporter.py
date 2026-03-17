@@ -96,13 +96,33 @@ def srt_to_plain_text(srt_path: str) -> str:
     """Parse an SRT file and reconstruct readable sentence/paragraph text.
 
     This is intentionally different from subtitle timing granularity: we merge
-    short fragments into full sentences for document readability.
+    short fragments into full sentences for document readability.  Paragraphs
+    are formed by grouping sentences until a word-count threshold is reached.
     """
     entries = _parse_srt_entries(srt_path)
     if not entries:
         return ""
 
-    sentence_end_re = re.compile(r'[.!?؟。！？]+["\'»”)]*$')
+    # Common abbreviations whose trailing '.' is NOT a sentence end.
+    _ABBREVS = frozenset({
+        'dr', 'mr', 'mrs', 'ms', 'prof', 'sr', 'jr', 'st', 'vs',
+        'etc', 'approx', 'dept', 'gov', 'lt', 'gen', 'col',
+    })
+    sentence_end_re = re.compile(r'[.!?\u061f\u3002\uff01\uff1f]+["\'\u00bb\u201d)]*$')
+
+    def _is_real_end(text: str) -> bool:
+        """Check if text ends with a real sentence terminator (not an abbreviation)."""
+        if not sentence_end_re.search(text):
+            return False
+        # Check if the last word is an abbreviation
+        last_word = text.rstrip('.!?\u061f\u3002\uff01\uff1f"\'\u00bb\u201d) ').split()[-1] if text.split() else ''
+        stripped = last_word.rstrip('.')
+        if stripped.lower() in _ABBREVS:
+            return False
+        if len(stripped) <= 2 and '.' in last_word:
+            return False  # e.g. "U.S."
+        return True
+
     clauses: List[str] = []
     buf: List[str] = []
     buf_words = 0
@@ -116,7 +136,7 @@ def srt_to_plain_text(srt_path: str) -> str:
 
         # Large timing gap likely indicates a sentence/idea boundary.
         gap = max(0.0, e['start'] - prev_end)
-        if gap >= 1.0 and buf:
+        if gap >= 1.5 and buf:
             clauses.append(' '.join(buf).strip())
             buf = []
             buf_words = 0
@@ -126,10 +146,10 @@ def srt_to_plain_text(srt_path: str) -> str:
         buf_words += len(t.split())
 
         elapsed = max(0.0, e['end'] - buf_start)
-        ends_sentence = bool(sentence_end_re.search(t))
+        ends_sentence = _is_real_end(t)
 
         # Flush conditions tuned for subtitle-derived fragments.
-        if (ends_sentence and buf_words >= 5) or buf_words >= 22 or elapsed >= 8.0:
+        if (ends_sentence and buf_words >= 5) or buf_words >= 30 or elapsed >= 12.0:
             clauses.append(' '.join(buf).strip())
             buf = []
             buf_words = 0
@@ -148,7 +168,7 @@ def srt_to_plain_text(srt_path: str) -> str:
             continue
         pbuf.append(c)
         p_words += len(c.split())
-        if p_words >= 110:
+        if p_words >= 150:
             paragraphs.append(' '.join(pbuf).strip())
             pbuf = []
             p_words = 0

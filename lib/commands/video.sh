@@ -557,7 +557,7 @@ video() {
             extreme|EXTREME)
                 extreme_mode=1
                 target_h=360
-                quality=28
+                quality=30
                 encoding_mode="--cpu"
                 ;;
             --fps)
@@ -620,6 +620,7 @@ run_video_cut() {
     local render_quality=""
     local render_fps=""
     local split_mb=""
+    local pad_bottom_pct=0
     
     # UI Display Overrides (for symlinked/temp files)
     local display_in=""
@@ -642,6 +643,7 @@ run_video_cut() {
             --quality) render_quality="$2"; shift 2 ;;
             --fps) render_fps="$2"; shift 2 ;;
             --split) split_mb="$2"; shift 2 ;;
+            --pad-bottom) pad_bottom_pct="$2"; shift 2 ;;
             --render) encode=1; shift ;;
             *) 
                 if [[ -f "$1" && -z "$input_file" ]]; then
@@ -813,6 +815,17 @@ run_video_cut() {
         if [[ -n "$render_fps" && "$render_fps" =~ ^[0-9]+$ && "$render_fps" -gt 0 ]]; then
             pre_filter="fps=${render_fps}"
         fi
+
+        # ── Padding & Scaling ──
+        if [[ -n "$pad_bottom_pct" && "$pad_bottom_pct" -gt 0 ]]; then
+            # Build the padding filter. We scale down the video content and pad it 
+            # so it sits at the top, leaving a black bar at the bottom.
+            # Factor is (100 - P) / 100
+            local factor_num=$(( 100 - pad_bottom_pct ))
+            if [[ -n "$pre_filter" ]]; then pre_filter+=","; fi
+            pre_filter+="scale='iw*${factor_num}/100':-2,pad='iw*100/${factor_num}':'ih*100/${factor_num}':(ow-iw)/2:0:black"
+        fi
+
         if [[ -n "$target_h" && "$target_h" =~ ^[0-9]+$ && "$target_h" -gt 0 ]]; then
             if [[ -n "$pre_filter" ]]; then
                 pre_filter+=","
@@ -1113,7 +1126,7 @@ embed_video_cover_art() {
 video_download() {
     local URL=""
     local LANG="fa"
-    local LANG_SRC="en"
+    local LANG_SRC="auto"
     local DO_SUBTITLE=false
     local YT_SUBS=false           # download YouTube's own subtitles instead of Whisper
     local DO_RENDER=false         # burn subtitles into video
@@ -1122,9 +1135,12 @@ video_download() {
     local AUTO_YES=false
     local GET_LINK=false
     local YT_TRANSLATE=false       # translate downloaded YT subs via amir subtitle (skips Whisper)
-    local BROWSER="chrome"
+    local BROWSER="${AMIR_DEFAULT_BROWSER:-chrome}"
     local COOKIES_FILE=""
     local DL_RESOLUTION=$(get_config "video" "resolution" "720")
+    local DL_QUALITY=""
+    local DL_RESOLUTION_EXPLICIT=false
+    local DL_QUALITY_EXPLICIT=false
     local KEEP_THUMB_FILE=true
     local LIST_FORMATS=false
     local EXTREME_DL=false
@@ -1153,7 +1169,17 @@ video_download() {
             --get-link|-l)   GET_LINK=true; shift ;;
             --formats|-F)    LIST_FORMATS=true; shift ;;
             --extreme)       EXTREME_DL=true; shift ;;
-            --resolution|-r) DL_RESOLUTION="$2"; shift 2 ;;
+            --resolution|-R)
+                DL_RESOLUTION="$2"
+                DL_RESOLUTION_EXPLICIT=true
+                shift 2
+                # Optional quality value immediately after resolution: --resolution 360 60
+                if [[ -n "${1:-}" && "${1:-}" =~ ^[0-9]+$ && ${1} -le 100 ]]; then
+                    DL_QUALITY="$1"
+                    DL_QUALITY_EXPLICIT=true
+                    shift
+                fi
+                ;;
             -*)
                 log_error "Unknown option: $1" >&2
                 echo "Usage: amir video download <url> [options]" >&2
@@ -1201,12 +1227,17 @@ video_download() {
     URL="${URL//\\/}"
 
     # When --translate is set, source and target must differ
+    if $YT_TRANSLATE && [[ "$LANG_SRC" == "auto" ]]; then
+        # YT built-in subtitle selection needs an explicit track code.
+        LANG_SRC="en"
+    fi
+
     if $YT_TRANSLATE && [[ "$LANG" == "$LANG_SRC" ]]; then
         log_error "Source and target language are the same (${LANG})." >&2
         echo "" >&2
         echo "  Translate TO a language: --translate -t fa" >&2
         echo "  Specify src AND target:  --translate -t en fa" >&2
-        echo "  (default source: en, default target: fa)" >&2
+        echo "  (default source: auto, default target: fa; --translate fallback source: en)" >&2
         return 1
     fi
 
@@ -1229,8 +1260,8 @@ video_download() {
         echo "  --cookies <file>      Path to Netscape cookies.txt file" >&2
         echo "  --keep-thumb          Keep the downloaded thumbnail sidecar file" >&2
         echo "  --formats, -F         Show available resolutions and sizes before downloading" >&2
-        echo "  --resolution, -R <h>  Download max height (e.g. 240/360/480/720/1080); for auto-min use --extreme" >&2
-        echo "  --extreme             Auto-pick smallest available resolution for minimum file size" >&2
+        echo "  --resolution, -R <h> [q]  Download max height (e.g. 240/360/480/720/1080); optional quality after it" >&2
+        echo "  --extreme                 Fast defaults for subtitle pipeline: 360p + q30" >&2
         return 1
     fi
 
@@ -1243,53 +1274,26 @@ video_download() {
     local -a COOKIE_ARGS=()
     if [[ -n "$COOKIES_FILE" ]]; then
         COOKIE_ARGS=(--cookies "$COOKIES_FILE")
+    elif [[ -f "cookies.txt" ]]; then
+        # Auto-detect cookies.txt in CWD
+        COOKIE_ARGS=(--cookies "cookies.txt")
+    elif [[ -f "$HOME/su6i-yar/cookies.txt" ]]; then
+        # Explicit fallback for su6i-yar on server
+        COOKIE_ARGS=(--cookies "$HOME/su6i-yar/cookies.txt")
     elif [[ -n "$BROWSER" && "$BROWSER" != "none" ]]; then
         COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
     fi
 
-    # ── Extreme download: auto-pick smallest resolution ──────────────────
+    # ── Extreme download defaults ─────────────────────────────────────────
     if $EXTREME_DL; then
-        log_info "🔍 Extreme mode: finding smallest available resolution..." >&2
-        local _best_res
-        _best_res=$(yt-dlp \
-            "${COOKIE_ARGS[@]}" \
-            --extractor-args "generic:impersonate" \
-            --no-playlist \
-            -j \
-            "$URL" 2>/dev/null | \
-        python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-except Exception:
-    print('')
-    raise SystemExit(0)
-fmts = data.get('formats', [])
-dur  = data.get('duration') or 0
-best_h, best_sz = None, float('inf')
-seen = {}
-for f in fmts:
-    h  = f.get('height') or 0
-    vb = f.get('vbr') or f.get('tbr') or 0
-    vc = (f.get('vcodec') or '').split('.')[0]
-    fs = f.get('filesize') or f.get('filesize_approx') or 0
-    # Extreme mode floor: ignore ultra-low formats below 240p for readability.
-    if h < 240 or not vc or vc in ('none',''):
-        continue
-    est = fs if fs else (vb * 1000 * dur / 8) if vb and dur else float('inf')
-    cur = seen.get(h)
-    if cur is None or est < cur:
-        seen[h] = est
-if seen:
-    best_h = min(seen, key=lambda h: seen[h])
-    print(best_h)
-")
-        if [[ -n "$_best_res" && "$_best_res" =~ ^[0-9]+$ ]]; then
-            log_info "📐 Smallest resolution (min 240p): ${_best_res}p — downloading that" >&2
-            DL_RESOLUTION="$_best_res"
-        else
-            log_info "⚠️  Could not determine smallest format, using default ${DL_RESOLUTION}p" >&2
+        # New default profile for fast turnaround + acceptable subtitle readability.
+        if ! $DL_RESOLUTION_EXPLICIT; then
+            DL_RESOLUTION="360"
         fi
+        if ! $DL_QUALITY_EXPLICIT; then
+            DL_QUALITY="30"
+        fi
+        log_info "⚡ Extreme mode defaults: ${DL_RESOLUTION}p, q${DL_QUALITY}" >&2
     fi
 
     # ── List-formats mode ──────────────────────────────────────────────────
@@ -1399,6 +1403,7 @@ print('  💡 Tip: smaller kbps = smaller file. Run with --resolution <N> to dow
             --no-overwrites \
             --restrict-filenames \
             --windows-filenames \
+            --keep-video \
             --write-info-json \
             --write-thumbnail \
             --convert-thumbnails jpg \
@@ -1567,8 +1572,9 @@ print('  💡 Tip: smaller kbps = smaller file. Run with --resolution <N> to dow
 
             local AMIR_BIN
             AMIR_BIN="$(dirname "$LIB_DIR")/amir"
-            local -a SUB_FLAGS=("-s" "$LANG_SRC" "-t" "$LANG")
+            local -a SUB_FLAGS=("-s" "$LANG_SRC" "-t" "$LANG" "--max-lines" "1")
             [[ "$DL_RESOLUTION" =~ ^[0-9]+$ ]] && SUB_FLAGS+=("--resolution" "$DL_RESOLUTION")
+            [[ "$DL_QUALITY" =~ ^[0-9]+$ ]] && SUB_FLAGS+=("--quality" "$DL_QUALITY")
             $ONLY_SUBS && SUB_FLAGS+=("--no-render")
             ! $DO_RENDER && SUB_FLAGS+=("--no-render")
 
@@ -1625,7 +1631,7 @@ print('  💡 Tip: smaller kbps = smaller file. Run with --resolution <N> to dow
             if [[ -n "$THUMB_FILE" && -f "$THUMB_FILE" ]] && { $THUMB_TMP || ! $KEEP_THUMB_FILE; }; then
                 rm -f "$THUMB_FILE"
             fi
-            rm -f "$INFO_JSON_FILE"
+
             return 0
         fi
 
@@ -1636,7 +1642,7 @@ print('  💡 Tip: smaller kbps = smaller file. Run with --resolution <N> to dow
             fi
         fi
 
-        rm -f "$INFO_JSON_FILE"
+
         log_success "✅ Final file: $VIDEO_FILE" >&2
         echo "$VIDEO_FILE"
         return 0
@@ -1646,13 +1652,14 @@ print('  💡 Tip: smaller kbps = smaller file. Run with --resolution <N> to dow
     if $DO_SUBTITLE; then
         local AMIR_BIN
         AMIR_BIN="$(dirname "$LIB_DIR")/amir"
-        local -a SUB_FLAGS=("-s" "$LANG_SRC")
+        local -a SUB_FLAGS=("-s" "$LANG_SRC" "--max-lines" "1")
         if [[ ${#SUB_LANG_TOKENS[@]} -gt 0 ]]; then
             SUB_FLAGS+=("-t" "${SUB_LANG_TOKENS[@]}")
         else
             SUB_FLAGS+=("-t" "$LANG")
         fi
         [[ "$DL_RESOLUTION" =~ ^[0-9]+$ ]] && SUB_FLAGS+=("--resolution" "$DL_RESOLUTION")
+        [[ "$DL_QUALITY" =~ ^[0-9]+$ ]] && SUB_FLAGS+=("--quality" "$DL_QUALITY")
         # Never burn when --only-subs is set (no point burning a video we're about to delete)
         ($DO_RENDER && ! $ONLY_SUBS) || SUB_FLAGS+=("--no-render")
 
@@ -1708,7 +1715,7 @@ print('  💡 Tip: smaller kbps = smaller file. Run with --resolution <N> to dow
             if [[ -n "$THUMB_FILE" && -f "$THUMB_FILE" ]] && { $THUMB_TMP || ! $KEEP_THUMB_FILE; }; then
                 rm -f "$THUMB_FILE"
             fi
-            rm -f "$INFO_JSON_FILE"
+
             return 0
         fi
 
@@ -1726,7 +1733,7 @@ print('  💡 Tip: smaller kbps = smaller file. Run with --resolution <N> to dow
         fi
     fi
 
-    rm -f "$INFO_JSON_FILE"
+
     log_success "✅ Final file: $VIDEO_FILE" >&2
     echo "$VIDEO_FILE"
 }

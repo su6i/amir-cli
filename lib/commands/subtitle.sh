@@ -53,23 +53,35 @@ run_subtitle() {
         local -a _orig=("$@")
         local -a _dl_flags=()
         local -a _sub_flags=()
+        local _has_extreme=false
+        local _has_resolution=false
+        local _has_quality=false
         local _i=0
         while (( _i < ${#_orig[@]} )); do
             local _cur="${_orig[_i]}"
             if [[ "$_cur" == "$_url" ]]; then (( _i++ )); continue; fi
             case "$_cur" in
                 --resolution|-R)
+                    _has_resolution=true
                     _dl_flags+=("$_cur" "${_orig[_i+1]}"); (( _i += 2 ))
                     _sub_flags+=("--resolution" "${_orig[_i-1]}")
                     # Optional quality value immediately after height (must be 1-100)
                     if [[ -n "${_orig[_i]:-}" && "${_orig[_i]:-}" =~ ^[0-9]+$ && ${_orig[_i]} -le 100 ]]; then
                         _dl_flags+=("${_orig[_i]}")
                         _sub_flags+=("--quality" "${_orig[_i]}")
+                        _has_quality=true
                         (( _i++ ))
                     fi ;;
+                --quality)
+                    _has_quality=true
+                    _sub_flags+=("$_cur" "${_orig[_i+1]}")
+                    (( _i += 2 )) ;;
                 --browser|-b|--cookies)
                     _dl_flags+=("$_cur" "${_orig[_i+1]}"); (( _i += 2 )) ;;
+                --keep-thumb)
+                    _dl_flags+=("$_cur"); (( _i++ )) ;;
                 --extreme)
+                    _has_extreme=true
                     _dl_flags+=("$_cur"); (( _i++ )) ;;
                 -y|--yes)
                     _dl_flags+=("$_cur"); (( _i++ )) ;;
@@ -77,6 +89,12 @@ run_subtitle() {
                     _sub_flags+=("$_cur"); (( _i++ )) ;;
             esac
         done
+
+        # Keep subtitle render profile aligned with video_download extreme defaults.
+        if $_has_extreme; then
+            $_has_resolution || _sub_flags+=("--resolution" "360")
+            $_has_quality || _sub_flags+=("--quality" "30")
+        fi
 
         # Download only (no --subtitle: all subtitle processing happens below via _subtitle_run)
         # stdout = final file path; stderr (progress bars, info) goes straight to terminal
