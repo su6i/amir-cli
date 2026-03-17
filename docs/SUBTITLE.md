@@ -271,8 +271,8 @@ amir video download "https://youtube.com/watch?v=XYZ" --subtitle -t fa
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--source` | `-s` | code | `en` | Source language (audio language for Whisper) |
-| `--sub` | `-t` | codes | `fa` | Display languages (repeatable, first=top row, second=bottom) |
+| `--source` | `-s` | code | `auto` | Source language (audio language for Whisper). Auto-detect by default. |
+| `--sub` | `-t` | codes | `auto fa` | Display languages (repeatable, first=top row, second=bottom) |
 | `--render` | `-r` | bool | `true` | Burn subtitles into video |
 | `--no-render` | — | bool | — | Generate SRT/ASS files only, skip video rendering |
 | `--force` | `-f` | bool | — | Always re-transcribe (ignore cache) |
