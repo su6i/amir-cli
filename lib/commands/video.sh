@@ -1123,6 +1123,56 @@ embed_video_cover_art() {
     fi
 }
 
+ensure_mac_playable_video() {
+    local _video_file="$1"
+    [[ -f "$_video_file" ]] || return 1
+
+    local _vcodec _acodec
+    _vcodec=$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "$_video_file" 2>/dev/null | head -n1)
+    _acodec=$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "$_video_file" 2>/dev/null | head -n1)
+
+    [[ -z "$_vcodec" ]] && return 1
+
+    # QuickTime/macOS compatibility: vp9/av1 in mp4 is unreliable in many setups.
+    # Keep native file when already compatible, otherwise normalize to H.264/AAC.
+    local _video_ok=false
+    case "$_vcodec" in
+        h264|hevc|h265|mpeg4|prores) _video_ok=true ;;
+    esac
+
+    local _audio_ok=false
+    if [[ -z "$_acodec" ]]; then
+        _audio_ok=true  # no audio stream
+    else
+        case "$_acodec" in
+            aac|alac|mp3|ac3|eac3) _audio_ok=true ;;
+        esac
+    fi
+
+    if $_video_ok && $_audio_ok; then
+        return 0
+    fi
+
+    local _tmp_out="${_video_file%.*}.mac_compat_tmp.mp4"
+    log_info "🛠️  Normalizing for macOS playback (v=${_vcodec:-?}, a=${_acodec:-none})..." >&2
+
+    if ffmpeg -hide_banner -loglevel error -y \
+        -i "$_video_file" \
+        -map "0:v:0" -map "0:a?" \
+        -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p \
+        -c:a aac -b:a 160k \
+        -movflags +faststart \
+        "$_tmp_out"; then
+        mv -f "$_tmp_out" "$_video_file"
+        log_info "✅ macOS-compatible video generated: $(basename "$_video_file")" >&2
+        return 0
+    fi
+
+    rm -f "$_tmp_out"
+    log_info "⚠️  Could not normalize video for macOS playback." >&2
+    return 1
+}
+
 video_download() {
     local URL=""
     local LANG="fa"
@@ -1284,6 +1334,20 @@ video_download() {
         COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
     fi
 
+    # Cloudflare / anti-bot compatibility:
+    # Default to Chrome impersonation, but allow disabling/override via env.
+    # Examples:
+    #   AMIR_YTDLP_IMPERSONATE=none   -> disable
+    #   AMIR_YTDLP_IMPERSONATE=safari -> custom target
+    local -a IMPERSONATE_ARGS=()
+    local IMPERSONATE_TARGET="${AMIR_YTDLP_IMPERSONATE:-chrome}"
+    if [[ -n "$IMPERSONATE_TARGET" && "$IMPERSONATE_TARGET" != "none" ]]; then
+        IMPERSONATE_ARGS=(--impersonate "$IMPERSONATE_TARGET" --extractor-args "generic:impersonate=$IMPERSONATE_TARGET")
+    else
+        # Keep generic extractor behavior available even when explicit impersonation is disabled.
+        IMPERSONATE_ARGS=(--extractor-args "generic:impersonate")
+    fi
+
     # ── Extreme download defaults ─────────────────────────────────────────
     if $EXTREME_DL; then
         # New default profile for fast turnaround + acceptable subtitle readability.
@@ -1303,7 +1367,7 @@ video_download() {
         # Use yt-dlp -j to get JSON, then extract video+audio combos per height
         yt-dlp \
             "${COOKIE_ARGS[@]}" \
-            --extractor-args "generic:impersonate" \
+            "${IMPERSONATE_ARGS[@]}" \
             --no-playlist \
             -j \
             "$URL" 2>/dev/null | \
@@ -1348,7 +1412,7 @@ print('  💡 Tip: smaller kbps = smaller file. Run with --resolution <N> to dow
         log_info "   Auth via: ${COOKIES_FILE:-browser:$BROWSER}" >&2
         yt-dlp \
             "${COOKIE_ARGS[@]}" \
-            --extractor-args "generic:impersonate" \
+            "${IMPERSONATE_ARGS[@]}" \
             --remote-components "ejs:github" \
             --newline \
             -g \
@@ -1368,7 +1432,7 @@ print('  💡 Tip: smaller kbps = smaller file. Run with --resolution <N> to dow
     local _VID_TITLE
     _VID_TITLE=$(yt-dlp \
         "${COOKIE_ARGS[@]}" \
-        --extractor-args "generic:impersonate" \
+        "${IMPERSONATE_ARGS[@]}" \
         --no-playlist \
         --print "%(title)s" \
         --skip-download \
@@ -1396,7 +1460,7 @@ print('  💡 Tip: smaller kbps = smaller file. Run with --resolution <N> to dow
         # merge/rename on certain yt-dlp + fs combinations. Force safe filenames.
         yt-dlp \
             "${COOKIE_ARGS[@]}" \
-            --extractor-args "generic:impersonate" \
+            "${IMPERSONATE_ARGS[@]}" \
             --remote-components "ejs:github" \
             --newline \
             --continue \
@@ -1513,6 +1577,9 @@ print('  💡 Tip: smaller kbps = smaller file. Run with --resolution <N> to dow
         fi
     fi
 
+    # Normalize codec/container profile for QuickTime/macOS if needed.
+    ensure_mac_playable_video "$VIDEO_FILE"
+
     log_success "Saved → $(basename "$VIDEO_FILE")" >&2
 
     # ── YouTube built-in subtitles ──────────────────────────────────────────
@@ -1523,7 +1590,7 @@ print('  💡 Tip: smaller kbps = smaller file. Run with --resolution <N> to dow
         # --write-auto-subs : auto-generated, only downloaded when human subs absent for the lang
         yt-dlp \
             "${COOKIE_ARGS[@]}" \
-            --extractor-args "generic:impersonate" \
+            "${IMPERSONATE_ARGS[@]}" \
             --remote-components "ejs:github" \
             --quiet \
             --skip-download \

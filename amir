@@ -200,6 +200,29 @@ case "$COMMAND" in
         if [[ -f "$LIB_DIR/commands/audio.sh" ]]; then source "$LIB_DIR/commands/audio.sh"; run_audio "$@"; exit $?; fi
         ;;
 
+    split)
+        shift
+        local INPUT_FILE="$1"
+        local SPLIT_MB="$2"
+        if [[ -z "$INPUT_FILE" || ! -f "$INPUT_FILE" ]]; then
+            echo "❌ Error: File not found: $INPUT_FILE" >&2
+            echo "Usage: amir split <media_file> <mb>" >&2
+            exit 1
+        fi
+        if [[ -z "$SPLIT_MB" || ! "$SPLIT_MB" =~ ^[0-9]+$ || "$SPLIT_MB" -le 0 ]]; then
+            echo "❌ Error: Split size must be a positive integer in MB." >&2
+            echo "Usage: amir split <media_file> <mb>" >&2
+            exit 1
+        fi
+        if [[ -f "$LIB_DIR/media_lib.sh" ]]; then
+            source "$LIB_DIR/media_lib.sh"
+            split_media_approx_by_size "$INPUT_FILE" "$SPLIT_MB"
+            exit $?
+        fi
+        echo "❌ Error: Shared media library not found: $LIB_DIR/media_lib.sh" >&2
+        exit 1
+        ;;
+
     ffmpeg)
         shift
         FFMPEG_PATH=$(get_ffmpeg_path)

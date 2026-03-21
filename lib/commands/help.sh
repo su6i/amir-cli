@@ -9,6 +9,7 @@ run_help() {
     echo "  video cut / trim <file> [opts]  Cut or Trim segments (with -s, -e, -t)"
     echo "  video batch [res]            Batch process videos in folder"
     echo "  audio <subcmd> [args]        Audio tools (extract, concat, to-video)"
+    echo "  split <file> <mb>            Split audio/video into ~N MB chunks"
     echo "  img <file> [size]            Resize image"
     echo "  info <file>                  Show detailed file info"
     echo "  subtitle <file> [opts]       Generate subtitles (AI Rendering)"

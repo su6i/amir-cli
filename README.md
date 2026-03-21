@@ -129,9 +129,11 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir video <file/dir> [--gpu|--cpu]` | Advanced video processing (compress, cut, batch). Supports `extreme` (max compression profile), `--fps <N>` (e.g., 10fps), and `--split <MB>` (split encoded output to chunks). `--gpu` for hardware acceleration (default on Apple Silicon), `--cpu` for better compression ratio. |
 | `amir video cut <file> [opts]` | Cut video segments without re-encoding (instant) or with rendering. |
 | `amir video split <file> <mb>` | Split an existing video into approximate MB chunks (keyframe-bound, non re-encode). |
+| `amir split <file> <mb>` | Global splitter for both audio and video files (approximate MB chunks, no re-encode). |
 | `amir video tiktok <url> [opts]` | TikTok-optimized wrapper around `video download` with the same subtitle/translate pipeline flags. |
 | `amir video stats` | View AI learning statistics & compression history. |
-| `amir mp3 <file>` | Extract high-quality MP3 audio from a video file. |
+| `amir mp3 <file> [bitrate] [--split <MB>]` | Extract high-quality MP3 audio from a video file and optionally split the output into chunks. |
+| `amir audio youtube <url> [format] [bitrate] [--split <MB>]` | Download audio from YouTube (mp3/wav/ogg) and optionally split the final output into chunks. |
 | `amir img upscale <file> [scale] [model]` | AI-Upscale or quality enhancement (1x mode). |
 | `amir img lab <file> [-s scale] [-m model]` | Generate 60/420 enhancement variations for testing. |
 | `amir img stack <files> [opts]` | Combine images vertically (A4/B5 presets + deskew). |

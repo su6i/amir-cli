@@ -18,6 +18,7 @@ import json
 import logging
 import gc
 import hashlib
+import socket
 
 # Environment control for library verbosity
 # (Set to 0 if full debug needed, 1 hides progress bars)
@@ -421,6 +422,15 @@ class SubtitleProcessor:
         
         # Target words per subtitle line (adaptive: set by run_workflow based on video orientation)
         self.target_words_per_line = 7
+        # Global cross-process concurrency cap (opt-in via env).
+        # Use AMIR_SUBTITLE_MAX_CONCURRENT=1 to serialize heavy jobs and reduce RAM spikes.
+        try:
+            _cap_raw = os.environ.get('AMIR_SUBTITLE_MAX_CONCURRENT', '').strip()
+            self.max_concurrent_workflows = int(_cap_raw) if _cap_raw else 0
+            if self.max_concurrent_workflows < 0:
+                self.max_concurrent_workflows = 0
+        except Exception:
+            self.max_concurrent_workflows = 0
         self._model = None
         self.logger = logger or self._setup_logger()
         self._check_disk_space()
@@ -542,6 +552,79 @@ class SubtitleProcessor:
                 os.remove(lock_path)
         except Exception:
             # Best effort cleanup only.
+            pass
+
+    def _acquire_global_workflow_slot(self, source_path: str) -> Optional[str]:
+        """Acquire a global slot to throttle concurrent subtitle workflows.
+
+        Returns a slot file path, or None when throttling is disabled.
+        """
+        cap = int(getattr(self, 'max_concurrent_workflows', 0) or 0)
+        if cap <= 0:
+            return None
+
+        slot_dir = os.path.join(tempfile.gettempdir(), "amir_subtitle_global_slots")
+        os.makedirs(slot_dir, exist_ok=True)
+
+        payload = {
+            "pid": os.getpid(),
+            "created_at": int(time.time()),
+            "source": source_path,
+        }
+
+        wait_seconds = 0
+        while True:
+            stale_removed = False
+            for i in range(cap):
+                slot_path = os.path.join(slot_dir, f"slot_{i}.lock")
+                try:
+                    fd = os.open(slot_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                    with os.fdopen(fd, "w", encoding="utf-8") as f:
+                        json.dump(payload, f)
+                    if wait_seconds > 0:
+                        self.logger.info(f"🟢 Global slot acquired after waiting {wait_seconds}s (slot {i+1}/{cap}).")
+                    else:
+                        self.logger.info(f"🟢 Global slot acquired ({i+1}/{cap}).")
+                    return slot_path
+                except FileExistsError:
+                    try:
+                        with open(slot_path, "r", encoding="utf-8") as f:
+                            holder = json.load(f)
+                        holder_pid = int(holder.get("pid", 0))
+                        holder_ts = int(holder.get("created_at", 0))
+                        holder_alive = self._is_pid_alive(holder_pid)
+                        too_old = (time.time() - holder_ts) > 24 * 3600
+                        if (not holder_alive) or too_old:
+                            os.remove(slot_path)
+                            stale_removed = True
+                    except Exception:
+                        try:
+                            os.remove(slot_path)
+                            stale_removed = True
+                        except Exception:
+                            pass
+
+            if stale_removed:
+                continue
+
+            if wait_seconds == 0:
+                self.logger.warning(
+                    f"⏳ Concurrent subtitle limit reached (cap={cap}). "
+                    "Waiting for a free slot..."
+                )
+            time.sleep(5)
+            wait_seconds += 5
+
+    def _release_global_workflow_slot(self, slot_path: Optional[str]):
+        """Release global workflow slot held by this process."""
+        if not slot_path:
+            return
+        try:
+            with open(slot_path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            if int(payload.get("pid", -1)) == os.getpid() and os.path.exists(slot_path):
+                os.remove(slot_path)
+        except Exception:
             pass
 
     @staticmethod
@@ -771,6 +854,142 @@ class SubtitleProcessor:
                 continue
         
         return ""
+
+    # ==================== SHARED WHISPER SERVER ====================
+
+    def _whisper_server_enabled(self) -> bool:
+        """Whether shared whisper server mode is enabled.
+
+        Enabled by default to avoid loading the same Whisper model in each process.
+        Disable with: AMIR_WHISPER_SERVER=0
+        """
+        return os.environ.get("AMIR_WHISPER_SERVER", "1") not in ("0", "false", "False")
+
+    def _get_whisper_server_socket_path(self) -> str:
+        model_key = re.sub(r'[^a-zA-Z0-9_.-]+', '_', (self.model_size or 'turbo'))
+        return os.environ.get("AMIR_WHISPER_SERVER_SOCKET", f"/tmp/amir_whisper_{model_key}.sock")
+
+    def _is_whisper_server_ready(self, socket_path: str) -> bool:
+        if not os.path.exists(socket_path):
+            return False
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(0.5)
+                s.connect(socket_path)
+                return True
+        except Exception:
+            return False
+
+    def _ensure_whisper_server(self) -> Optional[str]:
+        """Ensure whisper server is reachable; auto-start if missing.
+
+        Returns socket path when ready, else None.
+        """
+        if not self._whisper_server_enabled():
+            return None
+
+        socket_path = self._get_whisper_server_socket_path()
+        if self._is_whisper_server_ready(socket_path):
+            return socket_path
+
+        # Remove stale socket if exists but not connectable.
+        try:
+            if os.path.exists(socket_path):
+                os.remove(socket_path)
+        except Exception:
+            pass
+
+        # Best-effort auto-start of server process.
+        try:
+            py_exe = sys.executable or "python3"
+            env = os.environ.copy()
+            py_root = str(Path(__file__).parent.parent)
+            env["PYTHONPATH"] = f"{py_root}:{env.get('PYTHONPATH', '')}" if env.get('PYTHONPATH') else py_root
+
+            cmd = [
+                py_exe,
+                "-m",
+                "subtitle.whisper_server",
+                "--socket",
+                socket_path,
+                "--model",
+                self.model_size,
+            ]
+
+            subprocess.Popen(
+                cmd,
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+
+            # Wait briefly for server startup.
+            for _ in range(80):
+                if self._is_whisper_server_ready(socket_path):
+                    self.logger.info(f"🧠 Shared Whisper server ready: {socket_path}")
+                    return socket_path
+                time.sleep(0.25)
+        except Exception as e:
+            self.logger.warning(f"⚠️ Whisper server auto-start failed: {e}")
+
+        self.logger.warning("⚠️ Shared Whisper server unavailable, falling back to per-process model load.")
+        return None
+
+    def _transcribe_via_server(
+        self,
+        media_path: str,
+        language: str = '',
+        use_vad: bool = True,
+        min_silence_duration_ms: int = 700,
+        speech_pad_ms: int = 400,
+    ) -> Tuple[List[WordObj], str]:
+        """Request transcription from shared whisper server.
+
+        Returns (words, detected_lang). Raises on transport/server errors.
+        """
+        socket_path = self._ensure_whisper_server()
+        if not socket_path:
+            raise RuntimeError("whisper server is not available")
+
+        req = {
+            "path": media_path,
+            "language": (language or '').strip().lower() or None,
+            "word_timestamps": True,
+            "vad_filter": bool(use_vad),
+            "vad_parameters": {
+                "min_silence_duration_ms": int(min_silence_duration_ms),
+                "speech_pad_ms": int(speech_pad_ms),
+            },
+            "initial_prompt": self.initial_prompt or "Clear punctuation and case sensitivity.",
+            "temperature": self.temperature,
+        }
+
+        payload = json.dumps(req, ensure_ascii=False).encode("utf-8")
+        chunks = []
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(600)
+            s.connect(socket_path)
+            s.sendall(payload)
+            s.shutdown(socket.SHUT_WR)
+            while True:
+                data = s.recv(65536)
+                if not data:
+                    break
+                chunks.append(data)
+
+        raw = b"".join(chunks).decode("utf-8", errors="replace").strip()
+        if not raw:
+            raise RuntimeError("empty response from whisper server")
+
+        resp = json.loads(raw)
+        if isinstance(resp, dict) and resp.get("error"):
+            raise RuntimeError(str(resp.get("error")))
+
+        word_dicts = resp.get("words", []) if isinstance(resp, dict) else []
+        detected_lang = str(resp.get("language", "") or "").strip().lower() if isinstance(resp, dict) else ''
+        words = [WordObj(float(w["start"]), float(w["end"]), str(w["word"])) for w in word_dicts]
+        return words, detected_lang
 
     # ==================== MODEL MANAGEMENT ====================
 
@@ -1023,11 +1242,14 @@ class SubtitleProcessor:
     ) -> str:
         """Main transcription gate"""
         _lang = (language or 'auto').strip().lower()
-        if HAS_MLX and HAS_PLATFORM and platform_module.system() == "Darwin" and platform_module.machine() == "arm64":
+        force_faster = os.environ.get("AMIR_FORCE_FASTER_WHISPER", "0") == "1"
+        if (not force_faster) and HAS_MLX and HAS_PLATFORM and platform_module.system() == "Darwin" and platform_module.machine() == "arm64":
             try:
                 return self.transcribe_video_mlx(video_path, _lang, correct, detect_speakers, dur_override=dur)
             except Exception as e:
                 self.logger.warning(f"⚠️ MLX transcription failed, falling back to Whisper: {e}")
+        elif force_faster:
+            self.logger.info("🧠 Low-RAM mode: forcing faster-whisper path (MLX disabled for this run).")
         return self.transcribe_video_whisper(video_path, _lang, correct, detect_speakers)
 
     def _run_faster_whisper_slice(self, video_path: str, max_duration: int = 60) -> Tuple[List[WordObj], str]:
@@ -1100,6 +1322,21 @@ class SubtitleProcessor:
         
         _lang = (language or 'auto').strip().lower()
         _lang_for_engine = None if _lang in ('auto', 'detect', '') else _lang
+
+        # Preferred path: shared whisper server (single model shared across processes).
+        try:
+            server_words, server_lang = self._transcribe_via_server(
+                video_path,
+                language=_lang_for_engine or '',
+                use_vad=self.use_vad,
+                min_silence_duration_ms=700,
+                speech_pad_ms=400,
+            )
+            if server_words:
+                self.logger.info(f"✅ Shared-server transcription complete: {len(server_words)} words")
+                return server_words, (server_lang or '')
+        except Exception as e:
+            self.logger.warning(f"⚠️ Shared whisper server failed, using local model: {e}")
 
         # Get total duration for progress reporting
         total_dur = 0.0
@@ -1223,6 +1460,31 @@ class SubtitleProcessor:
         _lang = (language or 'auto').strip().lower()
         _lang_for_engine = None if _lang in ('auto', 'detect', '') else _lang
         self.logger.info(f"Transcription process initiated (ISO: {(_lang_for_engine or 'AUTO').upper()})")
+
+        # Preferred path: shared server to avoid per-process model duplication.
+        try:
+            all_words, detected_lang = self._transcribe_via_server(
+                video_path,
+                language=_lang_for_engine or '',
+                use_vad=True,
+                min_silence_duration_ms=700,
+                speech_pad_ms=400,
+            )
+            if all_words:
+                out_lang = _lang if _lang_for_engine else (detected_lang if re.fullmatch(r"[a-z]{2,3}", detected_lang) else 'en')
+                if _lang_for_engine is None and out_lang:
+                    self.logger.info(f"🌐 Whisper detected source language: {out_lang}")
+
+                entries = self.resegment_to_sentences(all_words, None)
+                srt_path = os.path.splitext(video_path)[0] + f"_{out_lang}.srt"
+                with open(srt_path, 'w', encoding='utf-8-sig') as f:
+                    for i, entry in enumerate(entries, 1):
+                        f.write(f"{i}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
+
+                self.logger.info(f"Asset preservation complete: {Path(srt_path).name}")
+                return srt_path
+        except Exception as e:
+            self.logger.warning(f"⚠️ Shared whisper server unavailable, loading local model: {e}")
         
         model = self.model
         if not hasattr(model, "transcribe"):
@@ -1584,20 +1846,52 @@ if __name__ == "__main__":
         return clean
 
     def resegment_to_sentences(self, words: List, speaker_segments) -> List[Dict]:
-        """Smart sentence segmentation - semantic-first, abbreviation-aware."""
-        entries = []
-        current_words = []
-        current_len = 0
+        """Thin wrapper: delegates to segment_words_smart for backward compatibility."""
+        return self.segment_words_smart(words)
 
-        # Common English title/abbreviation prefixes whose trailing '.' must NOT trigger a break.
+    def merge_to_clauses(self, entries: List[Dict]) -> List[Dict]:
+        """Thin wrapper: merge_to_clauses is now a no-op.
+        segment_words_smart handles clause boundaries directly from word timestamps.
+        Kept for call-site compatibility only."""
+        self.logger.debug("merge_to_clauses: skipped (absorbed into segment_words_smart)")
+        return entries
+
+    def segment_words_smart(self, words: List) -> List[Dict]:
+        """Single-pass smart segmentation: Whisper words → subtitle entries.
+
+        Design principles
+        -----------------
+        1. ONE decision point per word — no separate merge/split passes that
+           undo each other's work.
+        2. Hard sentence boundaries (. ? ! …) always flush.
+        3. Clause-starter guard: never break immediately before a subordinating
+           conjunction / relative pronoun (who/which/that/because/…) unless the
+           hard char ceiling is already exceeded.
+        4. Soft breaks (comma/semicolon/colon) flush only when the current
+           segment is long enough AND the next clause is long enough to stand alone.
+        5. Time ceiling: flush if a segment spans > MAX_SEG_SEC seconds even
+           without punctuation (handles run-on speech).
+        6. Orphan prevention: segments with ≤ 2 words are merged into their
+           neighbour after the main pass.
+        """
+        if not words:
+            return []
+
+        # ── tunables ─────────────────────────────────────────────────────────
+        limit      = getattr(self.style_config, 'max_chars', 42)   # soft char target
+        hard_limit = limit + 12          # absolute ceiling before forced break
+        MIN_WORDS  = 4                   # minimum words before a soft break fires
+        MAX_SEG_SEC = 6.0                # time ceiling (no punctuation safety net)
+        MIN_NEXT_CLAUSE = 4              # lookahead: next clause must be this long (words)
+        # ─────────────────────────────────────────────────────────────────────
+
         _ABBREVS = frozenset({
             'dr', 'mr', 'mrs', 'ms', 'prof', 'sr', 'jr', 'st', 'vs',
             'etc', 'approx', 'dept', 'gov', 'lt', 'sgt', 'cpl', 'pvt',
             'co', 'corp', 'inc', 'ltd', 'gen', 'col', 'capt', 'maj',
         })
 
-        # Clause starters: never break RIGHT BEFORE these words
-        # (they introduce subordinate clauses that belong with the preceding text)
+        # Words that OPEN a subordinate clause — never break immediately before them
         _CLAUSE_STARTERS = frozenset({
             'who', 'whom', 'whose', 'which', 'that',
             'when', 'where', 'why', 'how',
@@ -1606,253 +1900,160 @@ if __name__ == "__main__":
             'what', 'whether',
         })
 
+        # Words that START an independent clause — good break points when buffer is full
+        _COORD_CONJUNCTIONS = frozenset({
+            'and', 'but', 'or', 'nor', 'so', 'yet', 'for',
+        })
+
         sentence_enders = ('?', '!', '...')
-        # Note: '.' handled specially below (abbreviation detection)
         soft_break_chars = (',', ';', ':')
-        limit = getattr(self.style_config, 'max_chars', 42)
-        _max_lines_cfg = max(1, int(getattr(self.style_config, 'max_lines', 1) or 1))
-        hard_limit = max(limit, limit * _max_lines_cfg)
 
-        i = 0
-        total = len(words)
-
-        def _is_real_sentence_end(word_text: str, next_word_text: str) -> bool:
-            """Return True only when '.' represents a genuine sentence boundary."""
-            if not word_text.endswith('.'):
-                return False
-            # Abbreviation: single or two-letter word (e.g., 'U.S.', 'N.Y.')
+        def _is_abbrev_dot(word_text: str, next_word: str) -> bool:
             stripped = word_text.rstrip('.')
-            if len(stripped) <= 2:
-                return False
-            # Known title / abbreviation
-            if stripped.lower() in _ABBREVS:
-                return False
-            # If the very next word starts with uppercase it's likely a new sentence,
-            # but if it starts with lowercase it's a continuation (e.g., "etc. cheaper")
-            if next_word_text and next_word_text[0].islower():
-                return False
-            return True
+            if len(stripped) <= 2: return True
+            if stripped.lower() in _ABBREVS: return True
+            if next_word and next_word[0].islower(): return True
+            return False
 
-        while i < total:
-            word_obj = words[i]
+        def _peek_next_clause_words(idx: int) -> int:
+            """Count words in the next clause (until next sentence-ender or soft-break)."""
+            count = 0
+            for k in range(idx + 1, min(idx + 20, len(words))):
+                w = words[k].word.strip()
+                if not w: continue
+                count += 1
+                if w.endswith(('?', '!', '...', '.', ',', ';', ':')):
+                    break
+            return count
+
+        # ── main pass ────────────────────────────────────────────────────────
+        entries: List[Dict] = []
+        buf: List = []          # WordObj items
+        buf_chars = 0
+
+        def _flush_buf():
+            nonlocal buf, buf_chars
+            if not buf:
+                return
+            text = ' '.join(w.word.strip() for w in buf)
+            text = re.sub(r'\s+', ' ', text).strip()
+            entries.append({
+                'start': self.format_time(buf[0].start),
+                'end':   self.format_time(buf[-1].end),
+                'text':  text,
+            })
+            buf = []
+            buf_chars = 0
+
+        total = len(words)
+        for i, word_obj in enumerate(words):
             text = word_obj.word.strip()
-
             if not text:
-                i += 1
                 continue
 
-            current_words.append(word_obj)
-            current_len += len(text) + 1
+            buf.append(word_obj)
+            buf_chars += len(text) + 1
 
-            should_break = False
             is_last = (i == total - 1)
 
-            # Peek at the next non-empty word for abbreviation detection
+            # peek at next non-empty word
             next_text = ''
-            if not is_last:
-                for j in range(i + 1, min(i + 3, total)):
-                    nt = words[j].word.strip()
-                    if nt:
-                        next_text = nt
-                        break
+            for j in range(i + 1, min(i + 4, total)):
+                nt = words[j].word.strip()
+                if nt:
+                    next_text = nt
+                    break
 
-            is_sentence_end = text.endswith(sentence_enders)
-            # Special-case '.' with abbreviation awareness
-            if text.endswith('.') and _is_real_sentence_end(text, next_text):
-                is_sentence_end = True
-            is_soft_break = text.endswith(soft_break_chars)
+            next_lower = next_text.lower()
+            next_is_clause_starter = next_lower in _CLAUSE_STARTERS
+            next_is_coord = next_lower in _COORD_CONJUNCTIONS
 
-            # Clause-starter guard: if the next word starts a subordinate clause,
-            # suppress any soft/comma break so the clause stays with its antecedent.
-            next_is_clause_starter = next_text.lower() in _CLAUSE_STARTERS if next_text else False
+            # ── decision tree (evaluated top to bottom, first match wins) ──
 
             if is_last:
-                should_break = True
+                _flush_buf()
+                continue
 
-            elif is_sentence_end:
-                # Priority 1: True sentence end → Always break
-                should_break = True
+            # 1. Hard sentence end → always break (even before clause starters)
+            is_sentence_end = text.endswith(sentence_enders)
+            if text.endswith('.') and not _is_abbrev_dot(text, next_text):
+                is_sentence_end = True
+            if is_sentence_end:
+                _flush_buf()
+                continue
 
-            elif current_len > hard_limit:
-                # Absolute ceiling: Must break now (even before clause starters)
-                should_break = True
-
-            elif is_soft_break and current_len > limit and not next_is_clause_starter:
-                # Comma exceeded limit → look ahead to decide
-                remaining_text = ""
-                j = i + 1
-                temp_len = 0
-                hits_sentence_end = False
-
-                while j < total and temp_len < 30:
-                    next_word = words[j].word.strip()
-                    temp_len += len(next_word) + 1
-                    remaining_text += next_word + " "
-                    if next_word.endswith(('?', '!', '...')) or (
-                        next_word.endswith('.') and _is_real_sentence_end(next_word, '')
-                    ):
-                        hits_sentence_end = True
+            # 2. Hard char ceiling exceeded:
+            #    Before flushing, check if a sentence-ender is within 4 words —
+            #    if so, defer the flush so we land on a clean boundary instead
+            #    of cutting mid-phrase.
+            if buf_chars > hard_limit:
+                found_end_nearby = False
+                for k in range(i + 1, min(i + 5, total)):
+                    w = words[k].word.strip()
+                    if not w:
+                        continue
+                    if w.endswith(('.', '?', '!', '...')):
+                        found_end_nearby = True
                         break
-                    if next_word.endswith(soft_break_chars):
+                    if w.endswith((',', ';', ':')):
                         break
-                    j += 1
+                # Allow up to 20 extra chars to reach a nearby sentence end
+                if found_end_nearby and buf_chars < hard_limit + 20:
+                    continue
+                _flush_buf()
+                continue
 
-                if hits_sentence_end and temp_len <= 25:
-                    should_break = False
-                else:
-                    should_break = True
+            # 3. Time ceiling — long silence / run-on speech
+            seg_dur = buf[-1].end - buf[0].start
+            if seg_dur >= MAX_SEG_SEC and not next_is_clause_starter:
+                _flush_buf()
+                continue
 
-            if should_break and current_words:
-                t = " ".join([w.word.strip() for w in current_words])
-                t = re.sub(r'\s+', ' ', t).strip()
+            # 4. Coordinating conjunction at start of next fragment:
+            #    good break if buffer is already substantial
+            buf_words = len(buf)
+            if next_is_coord and buf_words >= MIN_WORDS and buf_chars >= limit * 0.7:
+                _flush_buf()
+                continue
 
-                # Orphan prevention: tie last two words with NBSP
-                words_in_t = t.split()
-                if len(words_in_t) >= 3:
-                    t = " ".join(words_in_t[:-2]) + " " + words_in_t[-2] + "\u00A0" + words_in_t[-1]
+            # 5. Soft break (comma/semicolon/colon) after enough content,
+            #    AND the next clause is long enough to stand on its own,
+            #    AND the next word is NOT a clause starter.
+            if (text.endswith(soft_break_chars)
+                    and buf_words >= MIN_WORDS
+                    and buf_chars >= limit * 0.6
+                    and not next_is_clause_starter):
+                next_clause_len = _peek_next_clause_words(i)
+                if next_clause_len >= MIN_NEXT_CLAUSE:
+                    _flush_buf()
+                    continue
 
-                entries.append({
-                    'start': self.format_time(current_words[0].start),
-                    'end': self.format_time(current_words[-1].end),
-                    'text': t
-                })
+        # ── post-pass: orphan prevention ─────────────────────────────────────
+        # Merge segments with ≤ 2 words into the shorter neighbour
+        merged: List[Dict] = []
+        for entry in entries:
+            w_count = len(entry['text'].split())
+            if w_count <= 2 and merged:
+                # merge into previous
+                prev = merged[-1]
+                combined = prev['text'] + ' ' + entry['text']
+                # only merge if result fits within hard_limit chars
+                if len(combined) <= hard_limit + 10:
+                    prev['end']  = entry['end']
+                    prev['text'] = re.sub(r'\s+', ' ', combined).strip()
+                    continue
+            merged.append(entry)
 
-                current_words = []
-                current_len = 0
+        entries = merged
 
-            i += 1
-
-        # Hallucination Suppression (Pre-Sanitization)
+        # ── hallucination suppression + timing fix ───────────────────────────
         entries = self.suppress_hallucinations(entries)
-
-        # Sanitize entries (fix overlaps and short durations)
         entries = self.sanitize_entries(entries)
 
+        self.logger.info(
+            f"✂️  segment_words_smart: {total} words → {len(entries)} subtitle entries"
+        )
         return entries
-
-    def merge_to_clauses(self, entries: List[Dict]) -> List[Dict]:
-        """
-        Merge consecutive SRT fragments primarily based on TIME (configurable via config).
-        Raw fragments inherently represent semantic pauses. We accumulate them until 
-        reaching a target duration (e.g., 5.0 seconds) so that subtitles stay on screen 
-        long enough to be comfortably read, and don't stretch into massive lines.
-        """
-        if not entries:
-            return []
-            
-        # Load configurable target duration and break characters
-        try:
-            from media_config import MediaConfig
-            config = MediaConfig()
-            target_duration_sec = float(config.get('video.subtitle.merge_sec', 5.0))
-            min_words = int(config.get('video.subtitle.min_words', 5))
-            max_words = int(config.get('video.subtitle.max_words', 15))
-            break_chars_list = config.get('video.subtitle.break_chars', ['.', '?', '!', '...', '。', '？', '！', ',', ';', ':', '،', '؛'])
-            all_break_chars = tuple(break_chars_list)
-            split_words_list = config.get('video.subtitle.split_words', ['and', 'but', 'because', 'so', 'if', 'when', 'what', 'why', 'where', 'how', 'who'])
-            split_words = tuple(w.lower() for w in split_words_list)
-        except Exception:
-            target_duration_sec = 5.0
-            min_words = 5
-            max_words = 15
-            all_break_chars = ('.', '?', '!', '...', '。', '？', '！', ',', ';', ':', '،', '؛')
-            split_words = ('and', 'but', 'because', 'so', 'if', 'when', 'what', 'why', 'where', 'how', 'who')
-        
-        def _ts_to_sec(ts: str) -> float:
-            """Parse SRT timestamp '00:04:09,430' → seconds."""
-            ts = ts.replace(',', '.')
-            parts = ts.split(':')
-            return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
-        
-        merged = []
-        buffer_texts = []
-        buffer_start = None
-        buffer_start_sec = 0.0
-        buffer_end = None
-        buffer_end_sec = 0.0
-        
-        def _flush():
-            nonlocal buffer_texts, buffer_start, buffer_start_sec, buffer_end, buffer_end_sec
-            if buffer_texts:
-                merged_text = ' '.join(buffer_texts)
-                merged_text = re.sub(r'\s+', ' ', merged_text).strip()
-                merged.append({
-                    'start': buffer_start,
-                    'end': buffer_end,
-                    'text': merged_text,
-                })
-            buffer_texts = []
-            buffer_start = None
-            
-        for entry in entries:
-            text = entry['text'].strip()
-            if not text:
-                continue
-                
-            text_lower = text.lower()
-            incoming_word_count = len(text.split())
-            
-            # --- 1. Pre-addition check (Semantic Chunking based on Conjunctions & Limits) ---
-            if buffer_texts:
-                current_word_count = sum(len(t.split()) for t in buffer_texts)
-                
-                # Check if any of our split words exist as whole words in the string
-                # We use regex word boundaries to prevent matching 'or' inside 'world'
-                is_conjunction = False
-                for w in split_words:
-                    if re.search(r'\b' + re.escape(w) + r'\b', text_lower):
-                        is_conjunction = True
-                        break
-                
-                should_flush_early = False
-                
-                # Rule 1: Break before conjunctions if we already have a decent clause
-                if is_conjunction and current_word_count >= min_words:
-                    should_flush_early = True
-                
-                # Rule 2: Break BEFORE adding this chunk if it would exceed our hard max
-                elif (current_word_count + incoming_word_count) > max_words:
-                    should_flush_early = True
-                    
-                if should_flush_early:
-                    _flush()
-            
-            # Now add current fragment to the buffer
-            if buffer_start is None:
-                buffer_start = entry['start']
-                buffer_start_sec = _ts_to_sec(entry['start'])
-            
-            buffer_texts.append(text)
-            buffer_end = entry['end']
-            buffer_end_sec = _ts_to_sec(entry['end'])
-            
-            buf_duration = buffer_end_sec - buffer_start_sec
-            current_word_count = sum(len(t.split()) for t in buffer_texts)
-            ends_with_break = text.endswith(all_break_chars)
-            
-            # --- 2. Post-addition check (Time & Punctuation) ---
-            should_flush = False
-            
-            # Rule A: User logic -> Above `min_words` AND `break_chars` exists
-            if ends_with_break and current_word_count >= min_words:
-                should_flush = True
-                
-            # Rule B: Time logic -> Above `merge_sec` AND `break_chars` exists    
-            elif ends_with_break and buf_duration >= target_duration_sec:
-                should_flush = True
-                
-            # Rule C: Time ceiling to prevent infinite lines if no punctuation exists
-            elif buf_duration >= 8.0:
-                should_flush = True
-                
-            if should_flush:
-                _flush()
-        
-        # Flush remaining buffer
-        _flush()
-        
-        self.logger.info(f"📐 Clause merge (Target: {target_duration_sec}s): {len(entries)} fragments → {len(merged)} clauses")
-        return merged
 
     def sanitize_entries(self, entries: List[Dict]) -> List[Dict]:
         """Fix overlaps, enforce minimum duration, and semantically split long lines"""
@@ -3744,6 +3945,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         result = {}
         temp_vid = None
         workflow_lock_path = None
+        global_slot_path = None
         
         # ORIGINAL BASE: This is where ALL output files (SRT, ASS, Video) MUST go.
         # It should be based on the user's input file, not any temp/safe copies.
@@ -3933,6 +4135,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 )
         
         try:
+            # Optional global throttling across all videos to avoid RAM spikes.
+            global_slot_path = self._acquire_global_workflow_slot(video_path)
+
             # Prevent accidental concurrent processing of the same source
             # across multiple terminals.
             workflow_lock_path = self._acquire_workflow_lock(lock_key, video_path)
@@ -4663,6 +4868,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         
         finally:
             self._release_workflow_lock(workflow_lock_path)
+            self._release_global_workflow_slot(global_slot_path)
             if temp_vid and os.path.exists(temp_vid):
                 try:
                     os.remove(temp_vid)
@@ -5762,28 +5968,90 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     ) -> List[str]:
         """Re-segment translated paragraphs back onto original timecodes.
 
-        Uses TIME-proportional word distribution: each subtitle slot gets a share
-        of the translated words proportional to its duration in the source audio.
-        Enforces a minimum of MIN_WORDS_PER_SLOT words and targets
-        self.target_words_per_line words per line, with punctuation-snap
-        to prefer breaking at clause boundaries.
+        Strategy (punctuation-first, time-proportional fallback):
+        1. Split the translated paragraph at sentence-ending punctuation first.
+           Each resulting sentence is one subtitle slot (or fewer if slots run out).
+        2. If the translation has fewer sentences than slots, distribute words
+           across remaining slots using time-proportional splitting.
+        3. If a slot's text still exceeds max_chars, trim to word boundary.
 
-        Args:
-            entries: Original source subtitle entries
-            paragraph_groups: Groups of entry indices (from _group_entries_into_paragraphs)
-            translated_paragraphs: One translated string per paragraph group
-
-        Returns:
-            List of translated texts, one per entry (same length as `entries`)
+        This produces semantically complete subtitle lines instead of
+        time-sliced fragments that cut mid-phrase.
         """
-        MIN_WORDS_PER_SLOT = 4
-
         def _ts_to_sec(ts: str) -> float:
             ts = ts.replace(',', '.')
             h, m, s = ts.split(':')
             return int(h) * 3600 + int(m) * 60 + float(s)
 
+        # Sentence-ending punctuation — comma/،/؛ excluded (clause separators, not sentence ends)
+        _SENT_END = re.compile(r'(?<=[.!?؟…])\s+')
+        # Bad enders: words we never want at the END of a subtitle line
+        _BAD_ENDERS = frozenset({
+            'و', 'در', 'به', 'که', 'از', 'با', 'برای', 'تا', 'چون', 'اگر',
+            'یا', 'پس', 'اما', 'ولی', 'هم', 'نیز', 'را', 'این', 'آن',
+            'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with',
+            'by', 'of', 'that', 'the', 'a', 'an',
+        })
+
         result = [''] * len(entries)
+        slot_max_chars = self.style_config.max_chars
+
+        def _trim_to_fit(text: str) -> str:
+            """Trim text to slot_max_chars at a word boundary."""
+            if self._vis_len(text) <= slot_max_chars:
+                return text
+            words_tmp = text.split()
+            fitted, budget = [], 0
+            for w in words_tmp:
+                needed = self._vis_len(w) + (1 if fitted else 0)
+                if budget + needed > slot_max_chars:
+                    break
+                budget += needed
+                fitted.append(w)
+            return ' '.join(fitted) if fitted else text[:slot_max_chars]
+
+        def _split_at_punct(text: str) -> List[str]:
+            """Split translated paragraph into sentences at punctuation boundaries."""
+            # Split on whitespace that follows sentence-ending punct
+            parts = _SENT_END.split(text.strip())
+            # Also split on Persian comma '،' when followed by enough context
+            result_parts = []
+            for part in parts:
+                part = part.strip()
+                if part:
+                    result_parts.append(part)
+            return result_parts if result_parts else [text.strip()]
+
+        def _distribute_words(words: List[str], slots: List[int], times: List[float]) -> List[str]:
+            """Time-proportional word distribution (fallback when sentences < slots)."""
+            out = [''] * len(slots)
+            total_time = sum(times)
+            remaining = list(words)
+            remaining_time = total_time
+
+            for i, (idx, t) in enumerate(zip(slots, times)):
+                if i == len(slots) - 1:
+                    out[i] = _trim_to_fit(' '.join(remaining).strip())
+                    break
+                if not remaining:
+                    out[i] = ''
+                    continue
+                slots_left = len(slots) - i
+                proportional = max(1, round(len(remaining) * t / max(remaining_time, 0.1)))
+                max_take = max(1, len(remaining) - (slots_left - 1))
+                target_n = max(1, min(proportional, max_take))
+
+                # Snap back off bad enders
+                taken_words = remaining[:target_n]
+                while len(taken_words) > 1 and taken_words[-1].lower().rstrip('.,!?؟،') in _BAD_ENDERS:
+                    target_n -= 1
+                    taken_words = remaining[:target_n]
+
+                out[i] = _trim_to_fit(' '.join(taken_words).strip())
+                remaining = remaining[target_n:]
+                remaining_time = max(remaining_time - t, 0.1)
+
+            return out
 
         for group_indices, translated_text in zip(paragraph_groups, translated_paragraphs):
             if not translated_text or not translated_text.strip():
@@ -5791,100 +6059,108 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     result[idx] = entries[idx].get('text', '')
                 continue
 
-            # The char budget for a single display line.
-            slot_max_chars = self.style_config.max_chars
+            n_slots = len(group_indices)
 
-            # Single-entry group: no word-splitting needed, but still enforce
-            # the char cap so long translations don't wrap or overflow.
-            if len(group_indices) == 1:
-                text = translated_text.strip()
-                if self._vis_len(text) > slot_max_chars:
-                    # Trim at word boundary — excess translation is discarded;
-                    # better to lose a few words than render multi-line text.
-                    words_tmp = text.split()
-                    fitted = []
-                    budget = 0
-                    for w in words_tmp:
-                        needed = self._vis_len(w) + (1 if fitted else 0)
-                        if budget + needed > slot_max_chars:
-                            break
-                        budget += needed
-                        fitted.append(w)
-                    text = ' '.join(fitted) if fitted else text[:slot_max_chars]
-                result[group_indices[0]] = text
+            # Single-slot group: trivial
+            if n_slots == 1:
+                result[group_indices[0]] = _trim_to_fit(translated_text.strip())
                 continue
 
-            # Multi-entry group: time-proportional word distribution
-            n_slots = len(group_indices)
-            words = translated_text.strip().split()
-            total_words = len(words)
+            # ── Step 1: Split at sentence boundaries ─────────────────────────
+            sentences = _split_at_punct(translated_text)
 
-            # Adaptive minimum: aim for 4 words per slot but scale down if
-            # the translation is too short to satisfy every slot at that minimum.
-            avg_words = total_words / n_slots
-            MIN_WORDS_PER_SLOT = max(1, min(4, int(avg_words)))
+            # ── Step 2: Assign sentences to slots ────────────────────────────
+            if len(sentences) >= n_slots:
+                # More (or equal) sentences than slots: merge excess into last slot
+                for i, idx in enumerate(group_indices):
+                    if i < n_slots - 1:
+                        result[idx] = _trim_to_fit(sentences[i])
+                    else:
+                        # Last slot gets all remaining sentences
+                        result[idx] = _trim_to_fit(' '.join(sentences[i:]))
+            else:
+                # Fewer sentences than slots.
+                # Strategy: assign sentences greedily, one per slot.
+                # The last sentence gets distributed across ALL remaining slots
+                # using time-proportional word splitting.
+                # If there is only ONE sentence for multiple slots, it is
+                # distributed entirely — never repeated or truncated into silence.
+                slot_cursor = 0
 
-            # Compute time duration for each source slot
-            source_times = []
-            for idx in group_indices:
-                s = _ts_to_sec(entries[idx]['start'])
-                e = _ts_to_sec(entries[idx]['end'])
-                source_times.append(max(e - s, 0.1))
-            total_time = sum(source_times)
-
-            remaining_words = list(words)
-            remaining_time = total_time
-
-            for i, idx in enumerate(group_indices):
-                if i == n_slots - 1:
-                    # Last slot: take all remaining words, but still respect max_chars
-                    last_text = ' '.join(remaining_words).strip()
-                    if self._vis_len(last_text) > slot_max_chars:
-                        trimmed = list(remaining_words)
-                        while trimmed and self._vis_len(' '.join(trimmed)) > slot_max_chars:
-                            trimmed.pop()
-                        last_text = ' '.join(trimmed).strip()
-                    result[idx] = last_text or entries[idx].get('text', '')
-                    break
-
-                slots_left = n_slots - i
-                remaining_count = len(remaining_words)
-
-                if remaining_count == 0:
-                    # Ran out of translated words — fallback to source text for this slot
-                    result[idx] = entries[idx].get('text', '')
-                    remaining_time = max(remaining_time - source_times[i], 0.1)
-                    continue
-
-                t = source_times[i]
-                # Time-proportional share for this slot
-                proportional = max(1, round(remaining_count * t / remaining_time))
-                # Must leave at least 1 word for every remaining slot (no starvation)
-                max_take = max(1, remaining_count - (slots_left - 1))
-                # Prefer MIN_WORDS_PER_SLOT but never starve later slots
-                min_take = min(MIN_WORDS_PER_SLOT, max_take)
-                target_n = max(min_take, min(proportional, max_take))
-
-                # Hard cap: never take more words than fit in slot_max_chars chars.
-                # Strip Unicode format chars (ZWNJ etc.) for accurate visual count.
-                char_budget = 0
-                words_that_fit = 0
-                for w in remaining_words[:max_take]:
-                    needed = self._vis_len(w) + (1 if words_that_fit > 0 else 0)
-                    if char_budget + needed > slot_max_chars:
+                for sentence_idx, sentence in enumerate(sentences):
+                    if slot_cursor >= n_slots:
                         break
-                    char_budget += needed
-                    words_that_fit += 1
-                words_that_fit = max(1, words_that_fit)  # always take at least 1
-                target_n  = min(target_n,  words_that_fit)
-                max_take   = min(max_take,  words_that_fit)
-                min_take   = min(min_take,  target_n)
 
-                taken, remaining_words = self._take_n_words_with_punct_snap(
-                    remaining_words, target_n, min_take, max_n=max_take
-                )
-                remaining_time = max(remaining_time - t, 0.1)
-                result[idx] = ' '.join(taken).strip() or entries[idx].get('text', '')
+                    sentences_left = len(sentences) - sentence_idx
+                    slots_left     = n_slots - slot_cursor
+
+                    if sentences_left == 1 and slots_left > 1:
+                        # Last (or only) sentence covers multiple slots.
+                        # If the sentence fits comfortably in one line, put it on the
+                        # LAST slot (most natural reading position) and leave earlier
+                        # slots empty — better than cutting a phrase mid-word.
+                        # If it is too long to fit on one line, distribute words.
+                        sentence_vis = _trim_to_fit(sentence)
+                        if sentence_vis == sentence.strip():
+                            # Fits on one line → assign only to last slot
+                            for idx in group_indices[slot_cursor:-1]:
+                                result[idx] = ''
+                            result[group_indices[-1]] = sentence_vis
+                        else:
+                            # Too long to fit on one line → split at clause/punct boundaries.
+                            # We try to produce exactly len(remaining_slots) chunks,
+                            # each ≤ slot_max_chars, breaking at punctuation or bad-ender words.
+                            remaining_slots = group_indices[slot_cursor:]
+                            n_remaining = len(remaining_slots)
+                            words_fa = sentence.split()
+                            chunks = []
+                            target_per_chunk = max(1, len(words_fa) // n_remaining)
+
+                            buf_w = []
+                            buf_c = 0
+                            for wi, w in enumerate(words_fa):
+                                buf_w.append(w)
+                                buf_c += len(w) + (1 if len(buf_w) > 1 else 0)
+                                is_last_word = (wi == len(words_fa) - 1)
+                                chunks_needed = n_remaining - len(chunks)
+                                words_left = len(words_fa) - wi - 1
+
+                                should_chunk = False
+                                if is_last_word:
+                                    should_chunk = True
+                                elif len(chunks) < n_remaining - 1:
+                                    # Break at punctuation when near target size
+                                    ends_punct = w.rstrip()[-1] in ('.!','?','،','؛',',') if w.rstrip() else False
+                                    if buf_c >= slot_max_chars * 0.7 and ends_punct:
+                                        should_chunk = True
+                                    elif buf_c >= slot_max_chars:
+                                        # Snap back off bad enders
+                                        while len(buf_w) > 1 and buf_w[-1].lower().rstrip('.,!?؟،') in _BAD_ENDERS:
+                                            words_fa.insert(wi + 1 - (len(buf_w) - len(buf_w)), buf_w.pop())
+                                        should_chunk = True
+                                    elif len(buf_w) >= target_per_chunk and words_left >= chunks_needed - 1:
+                                        should_chunk = True
+
+                                if should_chunk and buf_w:
+                                    chunks.append(_trim_to_fit(' '.join(buf_w).strip()))
+                                    buf_w = []; buf_c = 0
+
+                            # Pad or trim chunks to match slot count
+                            while len(chunks) < n_remaining:
+                                chunks.append(chunks[-1] if chunks else '')
+                            chunks = chunks[:n_remaining]
+
+                            for k, idx in enumerate(remaining_slots):
+                                result[idx] = chunks[k]
+                        slot_cursor = n_slots
+                    else:
+                        # Assign this sentence to current slot and move on
+                        result[group_indices[slot_cursor]] = _trim_to_fit(sentence)
+                        slot_cursor += 1
+
+                # Safety net: fill any leftover slots with last assigned text
+                for k in range(slot_cursor, n_slots):
+                    result[group_indices[k]] = result[group_indices[max(0, slot_cursor - 1)]]
 
         return result
 
