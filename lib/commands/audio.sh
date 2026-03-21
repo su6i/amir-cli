@@ -44,11 +44,11 @@ run_audio() {
             echo "       amir audio <directory>  (Smart folder-to-video flow)"
             echo ""
             echo "Subcommands:"
-            echo "  extract <video_file> [bitrate]  Extract MP3 from video"
+            echo "  extract <video_file> [bitrate] [--split mb]  Extract MP3 from video"
             echo "  split <audio_file> <mb>         Split audio into ~N MB chunks"
             echo "  concat [files...] -o output     Join multiple audio files"
             echo "  to-video <audio> -i <image>     Create video from audio and image"
-            echo "  youtube <url> [format] [bitrate] Download audio from YouTube"
+            echo "  youtube <url> [format] [bitrate] [--split mb]  Download audio from YouTube"
             echo "    Formats: mp3 (default), wav, ogg"
             return 1
             ;;
@@ -75,6 +75,7 @@ audio_split() {
 
 audio_extract() {
     local INPUT="$1"
+    shift
     if [[ -z "$INPUT" || ! -f "$INPUT" ]]; then
         log_error "File not found: $INPUT" >&2
         return 1
@@ -83,7 +84,34 @@ audio_extract() {
     # Source Config
     if [[ -f "$LIB_DIR/config.sh" ]]; then source "$LIB_DIR/config.sh"; else get_config() { echo "$3"; }; fi
     local default_kbps=$(get_config "mp3" "bitrate" "320")
-    local kbps=${2:-$default_kbps}
+    local kbps="$default_kbps"
+    local split_mb="0"
+
+    # Backward compatible positional bitrate: amir audio extract file.mp4 192
+    if [[ -n "${1:-}" && "${1:-}" =~ ^[0-9]+$ ]]; then
+        kbps="$1"
+        shift
+    fi
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --split)
+                split_mb="$2"
+                shift 2
+                ;;
+            *)
+                log_error "Unknown option for extract: $1" >&2
+                echo "Usage: amir audio extract <video_file> [bitrate] [--split <mb>]" >&2
+                return 1
+                ;;
+        esac
+    done
+
+    if [[ "$split_mb" != "0" && ( ! "$split_mb" =~ ^[0-9]+$ || "$split_mb" -le 0 ) ]]; then
+        log_error "Split size must be a positive integer in MB." >&2
+        echo "Usage: amir audio extract <video_file> [bitrate] [--split <mb>]" >&2
+        return 1
+    fi
     
     local OUTPUT="${INPUT%.*}.mp3"
     
@@ -97,6 +125,10 @@ audio_extract() {
     if [[ $? -eq 0 ]]; then
         log_success "Created: $OUTPUT" >&2
         echo "$OUTPUT"
+        if [[ "$split_mb" =~ ^[0-9]+$ && "$split_mb" -gt 0 ]]; then
+            echo ""
+            split_media_approx_by_size "$OUTPUT" "$split_mb"
+        fi
     else
         log_error "Extraction failed." >&2
         return 1
@@ -229,13 +261,45 @@ audio_to_video() {
 
 audio_youtube() {
     local URL="$1"
-    local OUT_FORMAT="${2:-mp3}"
-    local TARGET_BITRATE="${3:-128}"
+    shift
+    local OUT_FORMAT="mp3"
+    local TARGET_BITRATE="128"
+    local split_mb="0"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            mp3|wav|ogg)
+                OUT_FORMAT="$1"
+                shift
+                ;;
+            --split)
+                split_mb="$2"
+                shift 2
+                ;;
+            *)
+                if [[ "$1" =~ ^[0-9]+$ ]]; then
+                    TARGET_BITRATE="$1"
+                    shift
+                else
+                    log_error "Unknown option for youtube: $1" >&2
+                    echo "Usage: amir audio youtube <url> [format] [bitrate] [--split <mb>]" >&2
+                    echo "Formats: mp3 (default), wav, ogg" >&2
+                    return 1
+                fi
+                ;;
+        esac
+    done
 
     if [[ -z "$URL" ]]; then
         log_error "YouTube URL is required." >&2
-        echo "Usage: amir audio youtube <url> [format] [bitrate]" >&2
+        echo "Usage: amir audio youtube <url> [format] [bitrate] [--split <mb>]" >&2
         echo "Formats: mp3 (default), wav, ogg" >&2
+        return 1
+    fi
+
+    if [[ "$split_mb" != "0" && ( ! "$split_mb" =~ ^[0-9]+$ || "$split_mb" -le 0 ) ]]; then
+        log_error "Split size must be a positive integer in MB." >&2
+        echo "Usage: amir audio youtube <url> [format] [bitrate] [--split <mb>]" >&2
         return 1
     fi
 
@@ -368,6 +432,10 @@ PYEOF
     if [[ $EXIT_CODE -eq 0 ]]; then
         log_success "✅ Done: $OUTPUT_FILE" >&2
         echo "$OUTPUT_FILE"
+        if [[ "$split_mb" =~ ^[0-9]+$ && "$split_mb" -gt 0 ]]; then
+            echo ""
+            split_media_approx_by_size "$OUTPUT_FILE" "$split_mb"
+        fi
     else
         log_error "ffmpeg conversion failed." >&2
         return 1

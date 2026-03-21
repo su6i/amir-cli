@@ -21,7 +21,54 @@ _subtitle_run() {
         echo "❌ Error: python3 not found." >&2
         return 1
     fi
-    PYTHONPATH="$LIB_DIR/python:$PYTHONPATH" "$_PYTHON" -m subtitle "$@"
+
+    # macOS allocator noise suppression (harmless warning spam):
+    # "MallocStackLogging: can't turn off malloc stack logging..."
+    # Unset these variables for this subprocess only.
+    #
+    # Adaptive RAM profile (no queueing/serialization):
+    # If another subtitle process is already running, force a lighter runtime
+    # profile for THIS process only to reduce peak memory under parallel load.
+    # Users can disable this behavior with: AMIR_SUBTITLE_ADAPTIVE_RAM=0
+    local _ADAPTIVE_RAM="${AMIR_SUBTITLE_ADAPTIVE_RAM:-1}"
+    local _LOW_RAM_MODE=0
+    if [[ "$_ADAPTIVE_RAM" != "0" ]]; then
+        local _active_subtitle_jobs
+        _active_subtitle_jobs=$(pgrep -f "[p]ython(3(\\.[0-9]+)?)? .* -m subtitle" 2>/dev/null | wc -l | tr -d ' ')
+        if [[ -n "$_active_subtitle_jobs" && "$_active_subtitle_jobs" =~ ^[0-9]+$ && "$_active_subtitle_jobs" -ge 1 ]]; then
+            _LOW_RAM_MODE=1
+            echo "ℹ️  Parallel subtitle run detected ($_active_subtitle_jobs active). Using low-RAM profile for this job." >&2
+        fi
+    fi
+
+    local -a _ENV_ARGS=(
+        -u MallocStackLogging
+        -u MallocStackLoggingNoCompact
+        -u MallocScribble
+        -u MallocGuardEdges
+        "PYTHONPATH=$LIB_DIR/python:$PYTHONPATH"
+    )
+
+    # IMPORTANT: Do NOT force AMIR_SUBTITLE_MAX_CONCURRENT by default.
+    # If user sets it explicitly, pass through. Otherwise leave unlimited.
+    if [[ -n "${AMIR_SUBTITLE_MAX_CONCURRENT:-}" ]]; then
+        _ENV_ARGS+=("AMIR_SUBTITLE_MAX_CONCURRENT=${AMIR_SUBTITLE_MAX_CONCURRENT}")
+    fi
+
+    if [[ "$_LOW_RAM_MODE" -eq 1 ]]; then
+        _ENV_ARGS+=(
+            "AMIR_FORCE_FASTER_WHISPER=1"
+            "OMP_NUM_THREADS=1"
+            "OPENBLAS_NUM_THREADS=1"
+            "MKL_NUM_THREADS=1"
+            "NUMEXPR_NUM_THREADS=1"
+            "VECLIB_MAXIMUM_THREADS=1"
+        )
+    fi
+
+    env \
+        "${_ENV_ARGS[@]}" \
+        "$_PYTHON" -m subtitle "$@"
 }
 
 run_subtitle() {
