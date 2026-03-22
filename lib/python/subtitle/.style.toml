@@ -1,0 +1,31 @@
+"""Code style and linting configuration for subtitle module
+
+Black formatter config (soft constraints)
+- Line length: 100 (hard-wrapped at 120)
+- String quotes: single quotes preferred
+- Target Python: 3.8+
+"""
+
+[tool.black]
+line-length = 100
+target-version = ['py38', 'py39', 'py310', 'py311']
+skip-string-normalization = true  # Preserve single quotes
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["subtitle"]
+known_third_party = ["faster_whisper", "google", "litellm", "openai"]
+skip_gitignore = true
+lines_after_imports = 2
+
+[tool.pylint]
+max-line-length = 120
+disable = [
+    "C0103",  # Invalid name (for single-letter variables)
+    "C0111",  # Missing docstring
+    "R0914",  # Too many local variables
+    "R0913",  # Too many arguments
+    "R0912",  # Too many branches
+    "W0212",  # Protected access (_private methods)
+]
