@@ -81,7 +81,7 @@ from subtitle.transcription import (
     is_whisper_server_ready,
     whisper_server_enabled,
 )
-from subtitle.translation import parse_translated_batch_output
+from subtitle.translation import parse_translated_batch_output, resegment_translation
 from subtitle.segmentation import (
     group_entries_into_paragraphs,
     take_n_words_with_punct_snap,
@@ -4914,203 +4914,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         paragraph_groups: List[List[int]],
         translated_paragraphs: List[str]
     ) -> List[str]:
-        """Re-segment translated paragraphs back onto original timecodes.
-
-        Strategy (punctuation-first, time-proportional fallback):
-        1. Split the translated paragraph at sentence-ending punctuation first.
-           Each resulting sentence is one subtitle slot (or fewer if slots run out).
-        2. If the translation has fewer sentences than slots, distribute words
-           across remaining slots using time-proportional splitting.
-        3. If a slot's text still exceeds max_chars, trim to word boundary.
-
-        This produces semantically complete subtitle lines instead of
-        time-sliced fragments that cut mid-phrase.
-        """
-        def _ts_to_sec(ts: str) -> float:
-            ts = ts.replace(',', '.')
-            h, m, s = ts.split(':')
-            return int(h) * 3600 + int(m) * 60 + float(s)
-
-        # Sentence-ending punctuation — comma/،/؛ excluded (clause separators, not sentence ends)
-        _SENT_END = re.compile(r'(?<=[.!?؟…])\s+')
-        # Bad enders: words we never want at the END of a subtitle line
-        _BAD_ENDERS = frozenset({
-            'و', 'در', 'به', 'که', 'از', 'با', 'برای', 'تا', 'چون', 'اگر',
-            'یا', 'پس', 'اما', 'ولی', 'هم', 'نیز', 'را', 'این', 'آن',
-            'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with',
-            'by', 'of', 'that', 'the', 'a', 'an',
-        })
-
-        result = [''] * len(entries)
-        slot_max_chars = self.style_config.max_chars
-
-        def _trim_to_fit(text: str) -> str:
-            """Trim text to slot_max_chars at a word boundary."""
-            if self._vis_len(text) <= slot_max_chars:
-                return text
-            words_tmp = text.split()
-            fitted, budget = [], 0
-            for w in words_tmp:
-                needed = self._vis_len(w) + (1 if fitted else 0)
-                if budget + needed > slot_max_chars:
-                    break
-                budget += needed
-                fitted.append(w)
-            return ' '.join(fitted) if fitted else text[:slot_max_chars]
-
-        def _split_at_punct(text: str) -> List[str]:
-            """Split translated paragraph into sentences at punctuation boundaries."""
-            # Split on whitespace that follows sentence-ending punct
-            parts = _SENT_END.split(text.strip())
-            # Also split on Persian comma '،' when followed by enough context
-            result_parts = []
-            for part in parts:
-                part = part.strip()
-                if part:
-                    result_parts.append(part)
-            return result_parts if result_parts else [text.strip()]
-
-        def _distribute_words(words: List[str], slots: List[int], times: List[float]) -> List[str]:
-            """Time-proportional word distribution (fallback when sentences < slots)."""
-            out = [''] * len(slots)
-            total_time = sum(times)
-            remaining = list(words)
-            remaining_time = total_time
-
-            for i, (idx, t) in enumerate(zip(slots, times)):
-                if i == len(slots) - 1:
-                    out[i] = _trim_to_fit(' '.join(remaining).strip())
-                    break
-                if not remaining:
-                    out[i] = ''
-                    continue
-                slots_left = len(slots) - i
-                proportional = max(1, round(len(remaining) * t / max(remaining_time, 0.1)))
-                max_take = max(1, len(remaining) - (slots_left - 1))
-                target_n = max(1, min(proportional, max_take))
-
-                # Snap back off bad enders
-                taken_words = remaining[:target_n]
-                while len(taken_words) > 1 and taken_words[-1].lower().rstrip('.,!?؟،') in _BAD_ENDERS:
-                    target_n -= 1
-                    taken_words = remaining[:target_n]
-
-                out[i] = _trim_to_fit(' '.join(taken_words).strip())
-                remaining = remaining[target_n:]
-                remaining_time = max(remaining_time - t, 0.1)
-
-            return out
-
-        for group_indices, translated_text in zip(paragraph_groups, translated_paragraphs):
-            if not translated_text or not translated_text.strip():
-                for idx in group_indices:
-                    result[idx] = entries[idx].get('text', '')
-                continue
-
-            n_slots = len(group_indices)
-
-            # Single-slot group: trivial
-            if n_slots == 1:
-                result[group_indices[0]] = _trim_to_fit(translated_text.strip())
-                continue
-
-            # ── Step 1: Split at sentence boundaries ─────────────────────────
-            sentences = _split_at_punct(translated_text)
-
-            # ── Step 2: Assign sentences to slots ────────────────────────────
-            if len(sentences) >= n_slots:
-                # More (or equal) sentences than slots: merge excess into last slot
-                for i, idx in enumerate(group_indices):
-                    if i < n_slots - 1:
-                        result[idx] = _trim_to_fit(sentences[i])
-                    else:
-                        # Last slot gets all remaining sentences
-                        result[idx] = _trim_to_fit(' '.join(sentences[i:]))
-            else:
-                # Fewer sentences than slots.
-                # Strategy: assign sentences greedily, one per slot.
-                # The last sentence gets distributed across ALL remaining slots
-                # using time-proportional word splitting.
-                # If there is only ONE sentence for multiple slots, it is
-                # distributed entirely — never repeated or truncated into silence.
-                slot_cursor = 0
-
-                for sentence_idx, sentence in enumerate(sentences):
-                    if slot_cursor >= n_slots:
-                        break
-
-                    sentences_left = len(sentences) - sentence_idx
-                    slots_left     = n_slots - slot_cursor
-
-                    if sentences_left == 1 and slots_left > 1:
-                        # Last (or only) sentence covers multiple slots.
-                        # If the sentence fits comfortably in one line, put it on the
-                        # LAST slot (most natural reading position) and leave earlier
-                        # slots empty — better than cutting a phrase mid-word.
-                        # If it is too long to fit on one line, distribute words.
-                        sentence_vis = _trim_to_fit(sentence)
-                        if sentence_vis == sentence.strip():
-                            # Fits on one line → assign only to last slot
-                            for idx in group_indices[slot_cursor:-1]:
-                                result[idx] = ''
-                            result[group_indices[-1]] = sentence_vis
-                        else:
-                            # Too long to fit on one line → split at clause/punct boundaries.
-                            # We try to produce exactly len(remaining_slots) chunks,
-                            # each ≤ slot_max_chars, breaking at punctuation or bad-ender words.
-                            remaining_slots = group_indices[slot_cursor:]
-                            n_remaining = len(remaining_slots)
-                            words_fa = sentence.split()
-                            chunks = []
-                            target_per_chunk = max(1, len(words_fa) // n_remaining)
-
-                            buf_w = []
-                            buf_c = 0
-                            for wi, w in enumerate(words_fa):
-                                buf_w.append(w)
-                                buf_c += len(w) + (1 if len(buf_w) > 1 else 0)
-                                is_last_word = (wi == len(words_fa) - 1)
-                                chunks_needed = n_remaining - len(chunks)
-                                words_left = len(words_fa) - wi - 1
-
-                                should_chunk = False
-                                if is_last_word:
-                                    should_chunk = True
-                                elif len(chunks) < n_remaining - 1:
-                                    # Break at punctuation when near target size
-                                    ends_punct = w.rstrip()[-1] in ('.!','?','،','؛',',') if w.rstrip() else False
-                                    if buf_c >= slot_max_chars * 0.7 and ends_punct:
-                                        should_chunk = True
-                                    elif buf_c >= slot_max_chars:
-                                        # Snap back off bad enders
-                                        while len(buf_w) > 1 and buf_w[-1].lower().rstrip('.,!?؟،') in _BAD_ENDERS:
-                                            words_fa.insert(wi + 1 - (len(buf_w) - len(buf_w)), buf_w.pop())
-                                        should_chunk = True
-                                    elif len(buf_w) >= target_per_chunk and words_left >= chunks_needed - 1:
-                                        should_chunk = True
-
-                                if should_chunk and buf_w:
-                                    chunks.append(_trim_to_fit(' '.join(buf_w).strip()))
-                                    buf_w = []; buf_c = 0
-
-                            # Pad or trim chunks to match slot count
-                            while len(chunks) < n_remaining:
-                                chunks.append(chunks[-1] if chunks else '')
-                            chunks = chunks[:n_remaining]
-
-                            for k, idx in enumerate(remaining_slots):
-                                result[idx] = chunks[k]
-                        slot_cursor = n_slots
-                    else:
-                        # Assign this sentence to current slot and move on
-                        result[group_indices[slot_cursor]] = _trim_to_fit(sentence)
-                        slot_cursor += 1
-
-                # Safety net: fill any leftover slots with last assigned text
-                for k in range(slot_cursor, n_slots):
-                    result[group_indices[k]] = result[group_indices[max(0, slot_cursor - 1)]]
-
-        return result
+        return resegment_translation(
+            entries=entries,
+            paragraph_groups=paragraph_groups,
+            translated_paragraphs=translated_paragraphs,
+            slot_max_chars=self.style_config.max_chars,
+            vis_len=self._vis_len,
+        )
 
     def translate_with_batch_fallback_chain(
         self,
