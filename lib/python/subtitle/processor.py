@@ -76,9 +76,15 @@ from subtitle.io import (
     validate_srt_file,
 )
 from subtitle.transcription import (
+    build_mlx_worker_script,
+    cleanup_paths,
     ensure_whisper_server,
+    flush_partial_entries,
     get_whisper_server_socket_path,
     is_whisper_server_ready,
+    parse_verbose_segment_line,
+    parse_whisper_progress_time,
+    resolve_mlx_repo_path,
     whisper_server_enabled,
 )
 from subtitle.translation import (
@@ -1018,71 +1024,13 @@ class SubtitleProcessor:
                 result_json_path = f.name
             
             # 2. Create the worker script
-            # Determine the correct MLX repo path
-            model_name = self.model_size
-            if "/" in model_name:
-                repo_path = model_name
-            elif model_name == "turbo":
-                repo_path = "mlx-community/whisper-turbo"
-            elif model_name.startswith("large-v3"):
-                repo_path = "mlx-community/whisper-large-v3-mlx"
-            else:
-                repo_path = f"mlx-community/whisper-{model_name}-mlx"
-
-            worker_script = f"""
-import os
-import sys
-import json
-
-def run():
-    try:
-        # Import heavy libraries ONLY inside the isolated worker
-        import mlx_whisper
-        import mlx.core as mx
-        
-        # Limit Metal cache to 512MB
-        try:
-            mx.set_cache_limit(1024 * 1024 * 512)
-        except:
-            pass
-        
-        # Suppress Hallucinations (Repetition Penalty)
-        kwargs = {{
-            "path_or_hf_repo": "{repo_path}",
-            "word_timestamps": True,
-            "verbose": True,
-            "condition_on_previous_text": False,
-            "no_speech_threshold": 0.6,
-            "logprob_threshold": -1.0,
-            "compression_ratio_threshold": 2.4,
-            "temperature": (0.0, 0.2, 0.4, 0.6, 0.8),
-        }}
-        if "{_lang_for_worker}":
-            kwargs["language"] = "{_lang_for_worker}"
-        result = mlx_whisper.transcribe("{video_path}", **kwargs)
-        
-        simplified = []
-        for segment in result.get('segments', []):
-            if 'words' in segment:
-                for w in segment['words']:
-                    simplified.append({{'start': w['start'], 'end': w['end'], 'word': w['word']}})
-        
-        payload = {{"language": result.get("language", ""), "words": simplified}}
-        with open("{result_json_path}", "w", encoding="utf-8") as f:
-            json.dump(payload, f)
-            
-        # NUCLEAR EXIT: Force OS to reclaim all memory immediately
-        try: mx.clear_cache()
-        except: pass
-        os._exit(0) 
-        
-    except Exception as e:
-        print(f"WORKER_ERROR: {{e}}")
-        os._exit(1)
-
-if __name__ == "__main__":
-    run()
-"""
+            repo_path = resolve_mlx_repo_path(self.model_size)
+            worker_script = build_mlx_worker_script(
+                repo_path=repo_path,
+                language=_lang_for_worker,
+                video_path=video_path,
+                result_json_path=result_json_path,
+            )
             with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as f:
                 worker_path = f.name
                 f.write(worker_script.encode('utf-8'))
@@ -1112,53 +1060,10 @@ if __name__ == "__main__":
                 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
                 
                 pbar = tqdm(total=100, unit="%", desc=f"  Transcribing ({(_lang_for_worker or 'AUTO').upper()})")
-                
-                # Helper to parse [HH:MM:SS.mmm --> HH:MM:SS.mmm] or [MM:SS.mmm --> MM:SS.mmm]
-                def parse_time(line):
-                    # More robust pattern to match Whisper's timestamp formats
-                    match = re.search(r'-->\s+\[?(\d+:)?(\d+):(\d+)[\.,](\d+)\]?', line)
-                    if match:
-                        groups = match.groups()
-                        h = int(groups[0].strip(':')) if groups[0] else 0
-                        m = int(groups[1])
-                        s = int(groups[2])
-                        ms = int(groups[3])
-                        # Handle different lengths of milliseconds/centiseconds
-                        ms_val = ms / (10 ** len(groups[3]))
-                        return h * 3600 + m * 60 + s + ms_val
-                    return None
 
                 # --- Incremental checkpoint setup ---
                 partial_srt_path = os.path.splitext(video_path)[0] + f"_{_lang_for_worker or 'auto'}.partial.srt"
                 partial_entries = []
-
-                def _srt_tc(sec: float) -> str:
-                    h = int(sec // 3600); m = int((sec % 3600) // 60); s_i = int(sec % 60)
-                    return f"{h:02d}:{m:02d}:{s_i:02d},{int(round((sec - int(sec)) * 1000)):03d}"
-
-                def _parse_seg_line(raw: str):
-                    """Extract (start_s, end_s, text) from whisper verbose '[start --> end]  text' line."""
-                    mg = re.match(
-                        r'\[(?:(\d+):)?(\d+):(\d+[\.,]\d+)\s+-->\s+(?:(\d+):)?(\d+):(\d+[\.,]\d+)\]\s*(.*)',
-                        raw.strip()
-                    )
-                    if not mg:
-                        return None
-                    def _ts(hg, mg2, sg):
-                        return (int(hg) if hg else 0) * 3600 + int(mg2) * 60 + float(sg.replace(',', '.'))
-                    return _ts(mg.group(1), mg.group(2), mg.group(3)), _ts(mg.group(4), mg.group(5), mg.group(6)), mg.group(7)
-
-                def _flush_partial():
-                    if not partial_entries:
-                        return
-                    lines = []
-                    for idx, (s, e, t) in enumerate(partial_entries, 1):
-                        lines.extend([str(idx), f"{_srt_tc(s)} --> {_srt_tc(e)}", t.strip(), ""])
-                    try:
-                        with open(partial_srt_path, 'w', encoding='utf-8') as pf:
-                            pf.write("\n".join(lines))
-                    except Exception:
-                        pass
 
                 _last_emitted_pct = [4]  # Start below 5 so first emission fires at 5%
                 stdout_tail = []
@@ -1176,13 +1081,16 @@ if __name__ == "__main__":
                             self.logger.error(f"  {line.strip()}")
 
                         # Incremental checkpoint: save every 20 parsed segments
-                        seg = _parse_seg_line(line)
+                        seg = parse_verbose_segment_line(line)
                         if seg:
                             partial_entries.append(seg)
                             if len(partial_entries) % 20 == 0:
-                                _flush_partial()
+                                try:
+                                    flush_partial_entries(partial_entries, partial_srt_path)
+                                except Exception:
+                                    pass
                             
-                        curr_time = parse_time(line)
+                        curr_time = parse_whisper_progress_time(line)
                         if curr_time and dur > 0:
                             pct = min(100, (curr_time / dur) * 100)
                             pbar.n = int(pct)
@@ -1197,7 +1105,10 @@ if __name__ == "__main__":
                 pbar.n = 100
                 pbar.refresh()
                 pbar.close()
-                _flush_partial()  # Final checkpoint flush before reading result JSON
+                try:
+                    flush_partial_entries(partial_entries, partial_srt_path)
+                except Exception:
+                    pass
                 
                 if proc.returncode != 0:
                     stderr = proc.stderr.read()
@@ -1225,10 +1136,7 @@ if __name__ == "__main__":
                 
             finally:
                 # Cleanup worker files
-                for p in [worker_path, result_json_path]:
-                    if os.path.exists(p):
-                        try: os.remove(p)
-                        except: pass
+                cleanup_paths([worker_path, result_json_path])
                 # Remove incremental checkpoint now that the final SRT is written
                 try:
                     if os.path.exists(partial_srt_path):
