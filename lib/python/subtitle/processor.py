@@ -67,6 +67,12 @@ from subtitle.io import (
     parse_to_sec,
     sanitize_stem_for_fs,
 )
+from subtitle.transcription import (
+    ensure_whisper_server,
+    get_whisper_server_socket_path,
+    is_whisper_server_ready,
+    whisper_server_enabled,
+)
 from subtitle.models import (
     ProcessingCheckpoint,
     ProcessingStage,
@@ -397,83 +403,16 @@ class SubtitleProcessor:
     # ==================== SHARED WHISPER SERVER ====================
 
     def _whisper_server_enabled(self) -> bool:
-        """Whether shared whisper server mode is enabled.
-
-        Enabled by default to avoid loading the same Whisper model in each process.
-        Disable with: AMIR_WHISPER_SERVER=0
-        """
-        return os.environ.get("AMIR_WHISPER_SERVER", "1") not in ("0", "false", "False")
+        return whisper_server_enabled()
 
     def _get_whisper_server_socket_path(self) -> str:
-        model_key = re.sub(r'[^a-zA-Z0-9_.-]+', '_', (self.model_size or 'turbo'))
-        return os.environ.get("AMIR_WHISPER_SERVER_SOCKET", f"/tmp/amir_whisper_{model_key}.sock")
+        return get_whisper_server_socket_path(self.model_size)
 
     def _is_whisper_server_ready(self, socket_path: str) -> bool:
-        if not os.path.exists(socket_path):
-            return False
-        try:
-            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-                s.settimeout(0.5)
-                s.connect(socket_path)
-                return True
-        except Exception:
-            return False
+        return is_whisper_server_ready(socket_path)
 
     def _ensure_whisper_server(self) -> Optional[str]:
-        """Ensure whisper server is reachable; auto-start if missing.
-
-        Returns socket path when ready, else None.
-        """
-        if not self._whisper_server_enabled():
-            return None
-
-        socket_path = self._get_whisper_server_socket_path()
-        if self._is_whisper_server_ready(socket_path):
-            return socket_path
-
-        # Remove stale socket if exists but not connectable.
-        try:
-            if os.path.exists(socket_path):
-                os.remove(socket_path)
-        except Exception:
-            pass
-
-        # Best-effort auto-start of server process.
-        try:
-            py_exe = sys.executable or "python3"
-            env = os.environ.copy()
-            py_root = str(Path(__file__).parent.parent)
-            env["PYTHONPATH"] = f"{py_root}:{env.get('PYTHONPATH', '')}" if env.get('PYTHONPATH') else py_root
-
-            cmd = [
-                py_exe,
-                "-m",
-                "subtitle.whisper_server",
-                "--socket",
-                socket_path,
-                "--model",
-                self.model_size,
-            ]
-
-            subprocess.Popen(
-                cmd,
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-
-            # Wait briefly for server startup.
-            for _ in range(80):
-                if self._is_whisper_server_ready(socket_path):
-                    self.logger.info(f"🧠 Shared Whisper server ready: {socket_path}")
-                    return socket_path
-                time.sleep(0.25)
-        except Exception as e:
-            self.logger.warning(f"⚠️ Whisper server auto-start failed: {e}")
-
-        self.logger.warning("⚠️ Shared Whisper server unavailable, falling back to per-process model load.")
-        return None
+        return ensure_whisper_server(self.model_size, logger=self.logger)
 
     def _transcribe_via_server(
         self,
