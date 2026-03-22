@@ -134,3 +134,44 @@ def take_n_words_with_punct_snap(
 def vis_len(s: str) -> int:
     """Visual character length excluding zero-width Unicode format chars."""
     return sum(1 for c in s if unicodedata.category(c) != "Cf")
+
+
+def is_abbrev_dot(word_text: str, next_word: str, abbreviations: set) -> bool:
+    """Detect whether a trailing dot likely belongs to an abbreviation."""
+    stripped = word_text.rstrip(".")
+    if len(stripped) <= 2:
+        return True
+    if stripped.lower() in abbreviations:
+        return True
+    if next_word and next_word[0].islower():
+        return True
+    return False
+
+
+def peek_next_clause_words(words: List, idx: int, max_lookahead: int = 20) -> int:
+    """Count words in next clause until punctuation boundary."""
+    count = 0
+    for k in range(idx + 1, min(idx + max_lookahead, len(words))):
+        w = words[k].word.strip()
+        if not w:
+            continue
+        count += 1
+        if w.endswith(("?", "!", "...", ".", ",", ";", ":")):
+            break
+    return count
+
+
+def merge_orphan_segments(entries: List[Dict], hard_limit: int) -> List[Dict]:
+    """Merge tiny tail segments into previous when safe for readability."""
+    merged: List[Dict] = []
+    for entry in entries:
+        word_count = len(entry["text"].split())
+        if word_count <= 2 and merged:
+            prev = merged[-1]
+            combined = prev["text"] + " " + entry["text"]
+            if len(combined) <= hard_limit + 10:
+                prev["end"] = entry["end"]
+                prev["text"] = " ".join(combined.split())
+                continue
+        merged.append(entry)
+    return merged
