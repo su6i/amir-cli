@@ -98,6 +98,7 @@ from subtitle.social import (
     sanitize_post,
     telegram_sections_complete,
 )
+from subtitle.workflow import run_rendering_stage
 from subtitle.segmentation import (
     group_entries_into_paragraphs,
     take_n_words_with_punct_snap,
@@ -3560,219 +3561,29 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             
             # 3. RENDERING (skip when input is SRT-only — no video source available)
             if render and not _is_srt_input:
-                self.logger.info("Rendering sequence initiated.")
-                _emit_progress(80, "🎬 Rendering ASS subtitles...")
-                
-                # Render order = sub_langs order (first = top, second = bottom).
-                # target_langs[0] is always the first -sub lang; source is also in result.
-                primary = target_langs[0]
-                secondary = target_langs[1] if len(target_langs) >= 2 else None
-                # If primary == source, it's the transcription SRT (already in result).
-                # If primary != source, it was translated and is also in result.
-                # If secondary == source, it's the transcription SRT too.
-                if secondary == source_lang and secondary not in result:
-                    result[secondary] = src_srt
-                
-                # ASS Path -> Original Base
-                ass_path = f"{original_base}_{primary}"
-                if secondary:
-                    ass_path += f"_{secondary}"
-                ass_path += ".ass"
-                
-                self.create_ass_with_font(
-                    result[primary],
-                    ass_path,
-                    primary,
-                    result.get(secondary) if secondary else None,
-                    time_offset=_limit_start,
+                _render_ok = run_rendering_stage(
+                    self,
+                    result=result,
+                    source_lang=source_lang,
+                    target_langs=target_langs,
+                    src_srt=src_srt,
+                    original_base=original_base,
+                    current_video_input=current_video_input,
+                    force=force,
+                    limit_start=_limit_start,
                     video_width=_vw or 0,
                     video_height=_vh or 0,
+                    render_resolution=render_resolution,
+                    render_quality=render_quality,
+                    render_fps=render_fps,
+                    render_split_mb=render_split_mb,
+                    pad_bottom=pad_bottom,
+                    emit_progress=_emit_progress,
+                    detect_best_hw_encoder_fn=detect_best_hw_encoder,
+                    get_default_quality_fn=get_default_quality,
                 )
-                result['ass_file'] = ass_path
-                
-                # Output Video -> Original Base (+render resolution for clarity)
-                _render_h = 0
-                _render_q = 0
-                try:
-                    if render_resolution and int(render_resolution) > 0:
-                        _render_h = int(render_resolution)
-                    else:
-                        _dw, _dh = self._detect_video_dimensions(current_video_input)
-                        _render_h = int(_dh) if _dh else 0
-                except Exception:
-                    _render_h = 0
-
-                try:
-                    if render_quality and int(render_quality) > 0:
-                        _render_q = int(render_quality)
-                    else:
-                        _render_q = int(get_default_quality())
-                except Exception:
-                    _render_q = 65
-
-                output_video = (
-                    f"{original_base}_{_render_h}p_q{_render_q}_subbed.mp4"
-                    if _render_h > 0
-                    else f"{original_base}_q{_render_q}_subbed.mp4"
-                )
-                if os.path.exists(output_video) and not force:
-                    self.logger.info(f"✅ Reusing existing rendered video: {Path(output_video).name}")
-                    result['rendered_video'] = output_video
-                else:
-                    # Nuclear Rendering Option (Sandbox)
-                    with tempfile.TemporaryDirectory() as temp_dir:
-                        safe_video_name = "safe_input.mp4"
-                        safe_ass_name = "safe_subs.ass"
-                        safe_output_name = "safe_output.mp4"
-                        
-                        safe_video_path = os.path.join(temp_dir, safe_video_name)
-                        safe_ass_path = os.path.join(temp_dir, safe_ass_name)
-                        safe_output_path = os.path.join(temp_dir, safe_output_name)
-                        
-                        # 1. Symlink Input Video (Use current_video_input which is the actual file tailored for length)
-                        try:
-                            os.symlink(os.path.abspath(current_video_input), safe_video_path)
-                        except OSError:
-                            shutil.copy(current_video_input, safe_video_path)
-                            
-                        # 2. Copy ASS to Sandbox
-                        shutil.copy(ass_path, safe_ass_path)
-                        
-                        # 3. FFmpeg Command with Quality-Priority (Git History Restore)
-                        # We prioritize constant quality (CRF/Q:V) to maintain file size parity.
-                        hw_info = detect_best_hw_encoder()
-                        encoder = hw_info['encoder']
-                        codec = hw_info['codec']
-                        platform = hw_info['platform']
-                        # Unified Rendering: Delegate to 'amir video cut'
-                        # This ensures we use the centralized logic in video.sh (Bitrate Cap, Encoder Selection, etc.)
-                        self.logger.info("🚀 Delegating rendering to 'amir video' engine...")
-                        _emit_progress(88, "🎞️ Rendering final video...")
-                        
-                        # Resolve Font Directory (Mac & Linux support)
-                        fonts_dir = None
-                        font_paths = [
-                            os.path.expanduser("~/Library/Fonts"), # Mac User
-                            "/Library/Fonts",                      # Mac System
-                            os.path.expanduser("~/.local/share/fonts"), # Linux User
-                            "/usr/share/fonts/truetype",           # Linux System
-                            "/usr/share/fonts"                     # Linux System Fallback
-                        ]
-                        
-                        for p in font_paths:
-                            if os.path.exists(p):
-                                # Case-insensitive search for Vazirmatn (primary font in ASS styles)
-                                found_font = None
-                                try:
-                                    for f in os.listdir(p):
-                                        fl = f.lower()
-                                        if "vazirmatn" in fl and (fl.endswith(".ttf") or fl.endswith(".otf")):
-                                            found_font = os.path.join(p, f)
-                                            break
-                                except OSError:
-                                    continue
-                                    
-                                if found_font:
-                                    self.logger.info(f"Found font: {found_font}")
-                                    # Standard Approach: Point to the directory containing the font
-                                    fonts_dir = p
-                                    break
-
-                        # Try to find a sidecar thumbnail to inject as startup cover frame.
-                        # This helps clients like Telegram that often preview from first frames.
-                        cover_frame_path = None
-                        _cover_candidates = [
-                            f"{current_video_input}.jpg",
-                            f"{current_video_input}.jpeg",
-                            f"{current_video_input}.png",
-                            f"{Path(current_video_input).with_suffix('').as_posix()}.jpg",
-                            f"{Path(current_video_input).with_suffix('').as_posix()}.jpeg",
-                            f"{Path(current_video_input).with_suffix('').as_posix()}.png",
-                            f"{original_base}.jpg",
-                            f"{original_base}.jpeg",
-                            f"{original_base}.png",
-                        ]
-                        for _cand in _cover_candidates:
-                            if _cand and os.path.exists(_cand):
-                                cover_frame_path = os.path.abspath(_cand)
-                                break
-
-                        render_cmd = [
-                            "amir", "video", "cut",
-                            safe_video_path,
-                            "--subtitles", safe_ass_path,
-                            "--output", safe_output_path,
-                            "--display-input", os.path.basename(current_video_input),
-                            "--display-output", os.path.basename(output_video),
-                            "--render"
-                        ]
-
-                        # Propagate user render intent all the way to final encoder stage.
-                        if render_resolution and int(render_resolution) > 0:
-                            render_cmd.extend(["--resolution", str(int(render_resolution))])
-                        # Always pass concrete quality so final filename and encoder settings stay aligned.
-                        render_cmd.extend(["--quality", str(_render_q)])
-                        if render_fps and int(render_fps) > 0:
-                            render_cmd.extend(["--fps", str(int(render_fps))])
-                        if render_split_mb and int(render_split_mb) > 0:
-                            render_cmd.extend(["--split", str(int(render_split_mb))])
-                        if pad_bottom and int(pad_bottom) > 0:
-                            render_cmd.extend(["--pad-bottom", str(int(pad_bottom))])
-                        
-                        if fonts_dir:
-                            render_cmd.extend(["--fonts-dir", fonts_dir])
-                        if cover_frame_path:
-                            render_cmd.extend(["--cover-frame", cover_frame_path])
-                            self.logger.info(f"🖼️ Using cover frame for startup preview: {Path(cover_frame_path).name}")
-
-                        # Prepare environment with FFMPEG_EXEC override
-                        # static_ffmpeg puts binaries in PATH, so shutil.which should find it
-                        # This bypasses 'amir' script's PATH override (which prefers Homebrew)
-                        current_env = os.environ.copy()
-                        ffmpeg_bin = shutil.which("ffmpeg")
-                        if ffmpeg_bin:
-                            current_env["FFMPEG_EXEC"] = ffmpeg_bin
-                            self.logger.info(f"🔧 Forcing FFmpeg binary: {ffmpeg_bin}")
-
-                        # Get video duration for progress percentage
-                        render_total_duration = 0.0
-                        try:
-                            dur_result = subprocess.run(
-                                ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
-                                 '-of', 'default=noprint_wrappers=1:nokey=1', safe_video_path],
-                                capture_output=True, text=True, timeout=10
-                            )
-                            render_total_duration = float(dur_result.stdout.strip())
-                        except Exception:
-                            pass
-
-                        # Execute natively — 'amir video cut' provides its own ASCII progress bar
-                        try:
-                            process = subprocess.run(
-                                render_cmd,
-                                env=current_env,
-                                check=False
-                            )
-                        except KeyboardInterrupt:
-                            self.logger.warning("Rendering interrupted by user.")
-                            return None
-                        
-                        print() # Final newline after completion
-                        
-                        if process.returncode != 0:
-                            self.logger.error("❌ Rendering failed in 'amir video' engine.")
-                            return None
-                            
-                        self.logger.info("✅ Rendering completed successfully via centralized engine.")
-                        _emit_progress(98, "✅ Video rendering complete!")
-                        
-                        # 4. Move Result to Final Destination
-                        if os.path.exists(output_video):
-                            os.remove(output_video)
-                        
-                        shutil.move(safe_output_path, output_video)
-                        result['rendered_video'] = output_video
-                        self.logger.info(f"Rendering process finalized: {Path(output_video).name}")
+                if not _render_ok:
+                    return None
 
             # Social post generation (auto-triggered when platforms list is given)
             if platforms:
