@@ -91,6 +91,7 @@ from subtitle.social import (
     call_llm_for_post,
     compose_post_file_header,
     format_publish_date,
+    generate_posts as run_generate_posts,
     sanitize_post,
     telegram_sections_complete,
 )
@@ -4394,170 +4395,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         Returns:
             Dict mapping ``'{lang}_{platform}'`` → saved ``.txt`` path.
         """
-        if platforms is None:
-            platforms = ['telegram']
-
-        # Languages for which a post will be written (default: FA only)
-        _wanted_langs: List[str] = post_langs if post_langs else ['fa']
-
-        # Title: clean up stem for human readability
-        stem = Path(original_base).name
-        stem = re.sub(r'_(subbed|[a-z]{2,3})$', '', stem, flags=re.IGNORECASE)
-        stem = re.sub(r'_\d{2}\.\d{2}\.\d{4}$', '', stem)   # strip date suffix
-        title = re.sub(r'[_\-]+', ' ', stem).strip()
-
-        _bidi = '\u200f\u200e\u200d\u202b\u202a\u202c\u202e\u202d\u2067\u2066\u2069'
-
-        # Collect SRT languages present in result, restricted to _wanted_langs
-        srt_langs = [
-            lang for lang, path in result.items()
-            if isinstance(path, str) and path.endswith('.srt') and os.path.exists(path)
-            and lang in _wanted_langs
-        ]
-
-        # post-only / empty result: discover existing SRTs on disk for _wanted_langs
-        if not srt_langs:
-            for _l in _wanted_langs:
-                _c = f"{original_base}_{_l}.srt"
-                if os.path.exists(_c) and _l not in srt_langs:
-                    srt_langs.append(_l)
-
-        if not srt_langs:
-            self.logger.warning("⚠️ No SRT files found — skipping post generation.")
-            return {}
-
-        saved: Dict[str, str] = {}
-
-        for srt_lang in srt_langs:
-            try:
-                srt_path = result.get(srt_lang) or f"{original_base}_{srt_lang}.srt"
-                if not os.path.exists(srt_path):
-                    continue
-
-                # Extract clean subtitle text + compute duration
-                entries = self.parse_srt(srt_path)
-                video_metadata = self._discover_video_metadata(original_base, srt_path)
-                
-                # Prioritize probed duration from video file over SRT content length
-                meta_dur = video_metadata.get('duration_sec', 0.0)
-                if meta_dur > 0:
-                    duration = self._format_total_seconds(meta_dur, lang=srt_lang)
-                else:
-                    duration = self._srt_duration_str(entries, lang=srt_lang)
-
-                lines = []
-                for e in entries:
-                    t = e['text']
-                    for c in _bidi:
-                        t = t.replace(c, '')
-                    lines.append(t.strip())
-                full_text = '\n'.join(lines[:80]) + ('\n...' if len(lines) > 80 else '')
-                # Remove surrogate characters that break UTF-8 encoding when sent to APIs
-                full_text = full_text.encode('utf-8', errors='replace').decode('utf-8')
-                title_clean = title.encode('utf-8', errors='replace').decode('utf-8')
-
-                srt_lang_name = get_language_config(srt_lang).name
-
-                for platform in platforms:
-                    try:
-                        system, user = self._get_post_prompt(platform, title_clean, srt_lang_name, full_text,
-                                                             prompt_file=prompt_file, srt_lang=srt_lang,
-                                                             duration=duration, all_srt_langs=srt_langs,
-                                                             source_lang=source_lang)
-                    except ValueError as ve:
-                        self.logger.warning(str(ve))
-                        continue
-                    except Exception as _pe:
-                        self.logger.warning(f"⚠️ Prompt build failed for {platform}/{srt_lang}: {_pe}")
-                        continue
-
-                    try:
-                        post_text = self._call_llm_for_post(system, user)
-                    except Exception as _le:
-                        self.logger.warning(f"⚠️ LLM call failed for {platform}/{srt_lang}: {_le}")
-                        continue
-
-                    if not post_text:
-                        self.logger.warning(f"⚠️ Empty response for {platform}/{srt_lang} — skipping")
-                        continue
-
-                    try:
-                        post_text = self._sanitize_post(post_text, platform)
-
-                        # Validate completeness; retry once if sections are missing
-                        if platform == 'telegram':
-                            _ok, _missing = self._telegram_sections_complete(post_text)
-                            if not _ok:
-                                self.logger.warning(
-                                    f"⚠️ Post incomplete (missing: {', '.join(_missing)}) — retrying…"
-                                )
-                                # Trailing-only truncation: if every missing section comes after
-                                # what's already written, just ask the model to continue (append).
-                                # Full rewrite would hit the same token limit again.
-                                _tail_markers = {'\u2728', '\U0001f4cc', '\u23f1', 'hashtags (#)'}
-                                _is_tail_only = all(
-                                    any(m in label for m in _tail_markers)
-                                    for label in _missing
-                                )
-                                if _is_tail_only:
-                                    _retry_user = (
-                                        f"The post below was truncated — it is missing its final sections.\n"
-                                        f"Continue it from where it stopped; output ONLY the continuation "
-                                        f"(do not repeat what is already written).\n\n"
-                                        f"Missing sections to add in order:\n"
-                                        + ('\n'.join(f'  • {lbl}' for lbl in _missing)) +
-                                        f"\n\nThe full required tail is:\n"
-                                        f"✨ [one sentence — main subject of this video]\n\n"
-                                        f"📌 [one sentence — for which audience this is relevant]\n\n"
-                                        f"⏱️ Duration: {duration}\n\n"
-                                        f"#[tag1] #[tag2] #[tag3] #[tag4] #[tag5]\n\n"
-                                        f"TRUNCATED POST:\n{post_text}"
-                                    )
-                                else:
-                                    _retry_user = (
-                                        f"The post you wrote is INCOMPLETE. Missing: {', '.join(_missing)}\n\n"
-                                        f"Rewrite the COMPLETE post from scratch following the original instructions.\n\n"
-                                        f"ORIGINAL REQUEST:\n{user}"
-                                    )
-                                try:
-                                    _retry = self._call_llm_for_post(system, _retry_user)
-                                    if _retry:
-                                        _retry_sanitized = self._sanitize_post(_retry, platform)
-                                        if _is_tail_only:
-                                            # Merge: original truncated body + appended tail
-                                            _merged = post_text.rstrip() + '\n\n' + _retry_sanitized.strip()
-                                            _ok2, _still = self._telegram_sections_complete(_merged)
-                                            if _ok2 or len(_still) < len(_missing):
-                                                post_text = _merged
-                                        else:
-                                            _ok2, _still = self._telegram_sections_complete(_retry_sanitized)
-                                            if _ok2 or len(_still) < len(_missing):
-                                                post_text = _retry_sanitized
-                                        if not self._telegram_sections_complete(post_text)[0]:
-                                            _, _still = self._telegram_sections_complete(post_text)
-                                            self.logger.warning(
-                                                f"⚠️ Retry still incomplete (missing: {', '.join(_still)})"
-                                            )
-                                except Exception as _re:
-                                    self.logger.warning(f"⚠️ Retry failed: {_re}")
-
-                        post_path = f"{original_base}_{srt_lang}_{platform}.txt"
-                        post_header = self._compose_post_file_header(platform, video_metadata, title_clean)
-                        with open(post_path, 'w', encoding='utf-8') as f:
-                            f.write(post_header + post_text)
-                        saved[f"{srt_lang}_{platform}"] = post_path
-                        label = f"پست {platform} ({srt_lang.upper()})"
-                        self.logger.info(f"📝 {label} saved: {Path(post_path).name}")
-                        _preview_text = post_header + post_text if post_header else post_text
-                        print(f"\n{'━'*60}\n📝  {label}:\n{'━'*60}\n{_preview_text}\n{'━'*60}\n")
-                    except Exception as _we:
-                        self.logger.warning(f"⚠️ Could not save post for {platform}/{srt_lang}: {_we}")
-
-            except Exception as _lang_e:
-                self.logger.warning(f"⚠️ Skipping lang={srt_lang} due to unexpected error: {_lang_e}")
-                continue
-
-        return saved
+        return run_generate_posts(
+            self,
+            original_base=original_base,
+            source_lang=source_lang,
+            result=result,
+            platforms=platforms,
+            prompt_file=prompt_file,
+            post_langs=post_langs,
+        )
 
     def generate_telegram_post(self, original_base, source_lang, result):
         """Deprecated — use generate_posts() directly. Kept for backward compatibility."""
