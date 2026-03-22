@@ -3,6 +3,7 @@ from .finalize import run_finalize_stage
 from .translation_stage import run_translation_stage
 from .source_stage import prepare_source_srt
 from .base import detect_subtitle_geometry, migrate_legacy_resolution_srt, resolve_workflow_base
+from .runtime import prepare_runtime_execution
 
 __all__ = [
 	"run_rendering_stage",
@@ -12,4 +13,5 @@ __all__ = [
 	"resolve_workflow_base",
 	"migrate_legacy_resolution_srt",
 	"detect_subtitle_geometry",
+	"prepare_runtime_execution",
 ]
