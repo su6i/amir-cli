@@ -1,0 +1,39 @@
+name: Subtitle CI
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+jobs:
+  subtitle-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install minimal test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest tqdm
+
+      - name: Compile subtitle module
+        run: |
+          python -m compileall lib/python/subtitle
+
+      - name: Run structural verification
+        run: |
+          python scripts/verify_refactoring.py
+
+      - name: Run subtitle tests
+        working-directory: lib/python
+        run: |
+          python -m pytest subtitle/tests -q
