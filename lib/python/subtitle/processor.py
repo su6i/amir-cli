@@ -24,12 +24,10 @@ import socket
 # (Set to 0 if full debug needed, 1 hides progress bars)
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "0" 
 
-import configparser
 import tempfile
 import shutil
 import threading
 import zipfile
-import unicodedata
 from datetime import timedelta, datetime
 from collections import deque
 from typing import List, Dict, Optional, Any, Tuple
@@ -40,6 +38,18 @@ from subtitle.config import (
     LanguageConfig,
     get_language_config,
     has_target_language_chars,
+    load_api_key,
+)
+from subtitle.io import (
+    bundle_outputs_zip,
+    collect_existing_output_files,
+    detect_video_dimensions,
+    ensure_safe_input_filename,
+    format_time,
+    get_video_duration,
+    normalize_digits,
+    parse_to_sec,
+    sanitize_stem_for_fs,
 )
 from subtitle.models import (
     ProcessingCheckpoint,
@@ -488,231 +498,27 @@ class SubtitleProcessor:
 
     @staticmethod
     def _sanitize_stem_for_fs(stem: str) -> str:
-        """Build a terminal-safe ASCII filename stem."""
-        if not stem:
-            return "video"
-        # Keep behavior aligned with the shell-side sanitizer used by
-        # video_download(), especially for apostrophes/curly quotes so
-        # legacy subtitle files and downloaded project folders resolve to the
-        # same canonical stem.
-        stem = (
-            stem.replace("’", "'")
-            .replace("‘", "'")
-            .replace("`", "'")
-            .replace("´", "'")
-        )
-        normalized = unicodedata.normalize('NFKD', stem)
-        ascii_only = normalized.encode('ascii', 'ignore').decode('ascii')
-        ascii_only = ascii_only.replace("'", "_")
-        safe = re.sub(r'[^A-Za-z0-9._-]+', '_', ascii_only)
-        safe = re.sub(r'_+', '_', safe).strip('._-')
-        return safe or "video"
+        return sanitize_stem_for_fs(stem)
 
     def _ensure_safe_input_filename(self, file_path: str) -> str:
-        """Rename input file in-place before processing starts."""
-        if not file_path:
-            return file_path
-
-        src = os.path.abspath(file_path)
-        if not os.path.exists(src):
-            return src
-
-        parent = os.path.dirname(src)
-        name = os.path.basename(src)
-        stem, ext = os.path.splitext(name)
-        safe_stem = self._sanitize_stem_for_fs(stem)
-
-        if safe_stem == stem:
-            return src
-
-        candidate = os.path.join(parent, f"{safe_stem}{ext}")
-        if os.path.abspath(candidate) == src:
-            return src
-
-        idx = 2
-        while os.path.exists(candidate):
-            candidate = os.path.join(parent, f"{safe_stem}_{idx}{ext}")
-            idx += 1
-
-        os.replace(src, candidate)
-        self.logger.info(f"🧹 Input filename normalized: {name} → {os.path.basename(candidate)}")
-        return candidate
+        return ensure_safe_input_filename(file_path, logger=self.logger)
 
     @staticmethod
     def _collect_existing_output_files(result: Dict[str, Any]) -> List[str]:
-        files: List[str] = []
-
-        def _collect(value: Any):
-            if isinstance(value, str) and os.path.exists(value):
-                files.append(os.path.abspath(value))
-            elif isinstance(value, dict):
-                for v in value.values():
-                    _collect(v)
-            elif isinstance(value, list):
-                for v in value:
-                    _collect(v)
-
-        _collect(result)
-
-        seen = set()
-        unique: List[str] = []
-        for path in files:
-            if path not in seen:
-                seen.add(path)
-                unique.append(path)
-        return unique
+        return collect_existing_output_files(result)
 
     def _bundle_outputs_zip(self, base_path: str, files: List[str]) -> Optional[str]:
-        zip_path = f"{base_path}.zip"
-        base_abs = os.path.abspath(base_path)
-        base_dir = os.path.dirname(base_abs)
-        base_name = os.path.basename(base_abs)
-
-        # Start with explicit workflow outputs, then enrich with every related
-        # artifact on disk (same base prefix) so ZIP is complete even when some
-        # files were produced by auxiliary steps and not registered in `result`.
-        merged_files = [os.path.abspath(f) for f in files if isinstance(f, str)]
-
-        try:
-            for p in Path(base_dir).glob(f"{base_name}_*"):
-                if p.is_file():
-                    merged_files.append(str(p.resolve()))
-        except Exception:
-            pass
-
-        # Keep only non-video deliverables in the ZIP.
-        include_ext = {'.srt', '.ass', '.txt', '.pdf', '.vtt', '.md'}
-        video_ext = {'.mp4', '.mov', '.mkv', '.webm', '.avi', '.m4v'}
-
-        filtered: List[str] = []
-        seen = set()
-        zip_abs = os.path.abspath(zip_path)
-        for f in merged_files:
-            abs_f = os.path.abspath(f)
-            if abs_f == zip_abs or not os.path.exists(abs_f):
-                continue
-            ext = Path(abs_f).suffix.lower()
-            if ext in video_ext or ext == '.zip':
-                continue
-            if ext not in include_ext:
-                continue
-
-            # Prefer canonical names without resolution in non-video artifacts.
-            # Example: keep "..._fa.srt", skip legacy "..._240p_fa.srt" if both exist.
-            base_name_only = os.path.basename(abs_f)
-            if re.search(r'_\d{3,4}p_([a-z]{2,3})(_|\.)', base_name_only, flags=re.IGNORECASE):
-                canonical_name = re.sub(r'_\d{3,4}p(?:_q\d+)?_', '_', base_name_only, count=1, flags=re.IGNORECASE)
-                canonical_path = os.path.join(base_dir, canonical_name)
-                if os.path.exists(canonical_path):
-                    continue
-
-            if abs_f in seen:
-                continue
-            seen.add(abs_f)
-            filtered.append(abs_f)
-
-        if not filtered:
-            return None
-
-        with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
-            for f in filtered:
-                if os.path.exists(f):
-                    zf.write(f, arcname=os.path.basename(f))
-
-        return zip_path
+        return bundle_outputs_zip(base_path, files, logger=self.logger)
 
     def _detect_video_dimensions(self, video_path: str) -> tuple:
-        """Detect video width and height using ffprobe.
-
-        Returns:
-            (width, height) as ints, or (None, None) if undetectable.
-        """
-        try:
-            result = subprocess.run(
-                ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
-                 '-show_entries', 'stream=width,height',
-                 '-of', 'csv=p=0:s=x', video_path],
-                capture_output=True, text=True, timeout=10
-            )
-            dims = result.stdout.strip()
-            if dims and 'x' in dims:
-                w, h = dims.split('x')
-                return int(w), int(h)
-        except Exception:
-            pass
-        return None, None
+        return detect_video_dimensions(video_path)
 
     def _get_video_duration(self, video_path: str) -> float:
-        """Get video duration in seconds using ffprobe.
-        
-        Returns:
-            Duration in seconds as float, or 0.0 if undetectable.
-        """
-        try:
-            cmd = [
-                'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
-                '-of', 'default=noprint_wrappers=1:nokey=1', video_path
-            ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-            dur = result.stdout.strip()
-            if dur:
-                return float(dur)
-        except Exception:
-            pass
-        return 0.0
+        return get_video_duration(video_path)
 
     @staticmethod
     def load_api_key(config_file: str = '.config') -> str:
-        """Load API key from env, .env file, or config"""
-        # Check environment variables (both formats)
-        if os.environ.get('DEEPSEEK_API'):
-            return os.environ['DEEPSEEK_API']
-        if os.environ.get('DEEPSEEK_API_KEY'):
-            return os.environ['DEEPSEEK_API_KEY']
-
-        # Search in multiple locations
-        search_paths = [
-            config_file,
-            os.path.join(os.getcwd(), '.env'),
-            os.path.join(os.getcwd(), '.config'),
-            os.path.expanduser('~/.amir/config'),
-            os.path.expanduser('~/.env'),
-        ]
-
-        for path in search_paths:
-            if not os.path.exists(path):
-                continue
-            
-            # Try .env format first (KEY=value)
-            try:
-                with open(path, 'r') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line.startswith('DEEPSEEK_API_KEY='):
-                            key = line.split('=', 1)[1].strip().strip('"').strip("'")
-                            if key and key not in ["REPLACE_WITH_YOUR_KEY", "sk-your-key"]:
-                                return key
-                        elif line.startswith('DEEPSEEK_API='):
-                            key = line.split('=', 1)[1].strip().strip('"').strip("'")
-                            if key and key not in ["REPLACE_WITH_YOUR_KEY", "sk-your-key"]:
-                                return key
-            except:
-                pass
-            
-            # Try ConfigParser format
-            try:
-                config = configparser.ConfigParser()
-                config.read(path)
-                if 'DEFAULT' in config:
-                    for key_name in ['DEEPSEEK_API_KEY', 'DEEPSEEK_API']:
-                        if key_name in config['DEFAULT']:
-                            key = config['DEFAULT'][key_name].strip()
-                            if key and key not in ["REPLACE_WITH_YOUR_KEY", "sk-your-key"]:
-                                return key
-            except:
-                continue
-        
-        return ""
+        return load_api_key(config_file)
 
     # ==================== SHARED WHISPER SERVER ====================
 
@@ -2068,30 +1874,15 @@ if __name__ == "__main__":
 
     @staticmethod
     def parse_to_sec(t_str: str) -> float:
-        """Convert SRT time format to seconds"""
-        try:
-            h, m, s_ms = t_str.replace(',', '.').split(':')
-            s, ms = s_ms.split('.')
-            return int(h)*3600 + int(m)*60 + int(s) + int(ms)/1000
-        except Exception:
-            return 0.0
+        return parse_to_sec(t_str)
 
     @staticmethod
     def format_time(seconds: float) -> str:
-        """SRT time format"""
-        td = timedelta(seconds=float(seconds))
-        total_seconds = int(td.total_seconds())
-        hours, remainder = divmod(total_seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        milliseconds = int(td.microseconds / 1000)
-        return f"{hours:02}:{minutes:02}:{seconds:02},{milliseconds:03}"
+        return format_time(seconds)
 
     @staticmethod
     def _normalize_digits(text: str) -> str:
-        """Normalize Persian/Arabic-Indic digits to ASCII for robust parsing."""
-        if not text:
-            return text
-        return text.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
+        return normalize_digits(text)
 
     def _merge_split_numbers(self, segments: List[Dict]) -> List[Dict]:
         """
