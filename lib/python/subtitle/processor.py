@@ -87,6 +87,11 @@ from subtitle.translation import (
     translate_batch_single_attempt as run_translate_batch_single_attempt,
     translate_with_batch_fallback_chain as run_translate_with_batch_fallback_chain,
 )
+from subtitle.social import (
+    call_llm_for_post,
+    sanitize_post,
+    telegram_sections_complete,
+)
 from subtitle.segmentation import (
     group_entries_into_paragraphs,
     take_n_words_with_punct_snap,
@@ -4222,91 +4227,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             )
 
     def _call_llm_for_post(self, system: str, user: str) -> Optional[str]:
-        """Call LLM with DeepSeek → Gemini fallback. Returns generated text or None."""
-        # Sanitize surrogate chars that break UTF-8 API calls
-        system = system.encode('utf-8', errors='replace').decode('utf-8')
-        user = user.encode('utf-8', errors='replace').decode('utf-8')
-        try:
-            _ds = OpenAI(api_key=self.api_key, base_url="https://api.deepseek.com/v1")
-            _resp = _ds.chat.completions.create(
-                model="deepseek-chat",
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                temperature=0.7,
-                max_tokens=2000,
-            )
-            return _resp.choices[0].message.content.strip()
-        except Exception as _e1:
-            self.logger.warning(f"⚠️ DeepSeek unavailable for post: {_e1} — trying Gemini…")
-            try:
-                _gc = genai.Client(api_key=self.google_api_key)
-                _gresp = _gc.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=[f"{system}\n\n{user}"],
-                )
-                return _gresp.text.strip()
-            except Exception as _e2:
-                self.logger.error(f"❌ Post generation failed: {_e2}")
-                return None
+        return call_llm_for_post(
+            self,
+            system=system,
+            user=user,
+            has_gemini=HAS_GEMINI,
+            genai_module=genai if HAS_GEMINI else None,
+        )
 
     @staticmethod
     def _sanitize_post(text: str, platform: str) -> str:
-        """Post-process LLM output to enforce platform-specific formatting rules."""
-        if platform == 'telegram':
-            # Strip bold/italic markdown that Telegram renders as literal asterisks
-            # **text** → text,  __text__ → text,  *text* → text
-            text = re.sub(r'\*\*(.+?)\*\*', r'\1', text, flags=re.DOTALL)
-            text = re.sub(r'__(.+?)__', r'\1', text, flags=re.DOTALL)
-            text = re.sub(r'\*(.+?)\*', r'\1', text, flags=re.DOTALL)
-            # Strip leading/trailing --- separator lines that may appear from template
-            text = re.sub(r'^-{3,}\s*\n?', '', text)
-            text = re.sub(r'\n?-{3,}\s*$', '', text)
-            text = text.strip()
-            # Hard cap: Telegram caption limit is 1024 characters; trim gracefully
-            if len(text) > 1024:
-                # Try cutting at last newline within limit
-                cut = text[:1024].rfind('\n')
-                if cut < 800: # If no newline or it's too early, try last space
-                    cut = text[:1024].rfind(' ')
-                
-                text = text[:cut if cut > 500 else 1024].rstrip()
-                if len(text) < len(text.strip()): # ensure we don't end on half word
-                     pass
-                text += "..." if len(text) < 1024 else ""
-        return text
+        return sanitize_post(text, platform)
 
     @staticmethod
     def _telegram_sections_complete(text: str) -> tuple:
-        """Return (ok: bool, missing: list[str]) for required Telegram post sections.
-
-        Checks every mandatory visual marker that the format template requires:
-          📽️  title icon
-          🔴   pull-quote
-          🚨   key-points header
-          5×🔹 bullet points
-          ✨   summary paragraph
-          📌   call-to-action
-          ⏱️  duration line
-          #    at least one hashtag
-        """
-        missing = []
-        for marker, label in [
-            ('\U0001f4fd',   '📽️ title icon'),
-            ('\U0001f534',   '🔴 pull-quote'),
-            ('\U0001f6a8',   '🚨 key-points header'),
-            ('\u2728',       '✨ summary paragraph'),
-            ('\u23f1',       '⏱️ duration'),
-        ]:
-            if marker not in text:
-                missing.append(label)
-        bullet_count = text.count('\U0001f539')
-        if bullet_count < 4:
-            missing.append(f'🔹 bullet points (found {bullet_count}, need 4)')
-        if '#' not in text:
-            missing.append('hashtags (#)')
-        return (len(missing) == 0, missing)
+        return telegram_sections_complete(text)
 
     @staticmethod
     def _format_publish_date(value: str) -> str:
