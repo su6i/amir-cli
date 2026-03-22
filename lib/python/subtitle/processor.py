@@ -61,11 +61,16 @@ from subtitle.io import (
     collect_existing_output_files,
     detect_video_dimensions,
     ensure_safe_input_filename,
+    format_total_seconds,
     format_time,
     get_video_duration,
     normalize_digits,
     parse_to_sec,
+    parse_srt_file,
+    srt_duration_str,
     sanitize_stem_for_fs,
+    to_persian_digits,
+    validate_srt_file,
 )
 from subtitle.transcription import (
     ensure_whisper_server,
@@ -2921,127 +2926,27 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     @staticmethod
     def _to_persian_digits(value) -> str:
-        """Convert Arabic/Latin digits to Persian-Indic numerals (۰–۹)."""
-        arabic_to_persian = str.maketrans('0123456789', '۰۱۲۳۴۵۶۷۸۹')
-        return str(value).translate(arabic_to_persian)
+        return to_persian_digits(value)
 
     @staticmethod
     def _srt_duration_str(entries: List[Dict], lang: str = 'fa') -> str:
-        """Return human-readable duration from the last SRT entry's end timestamp.
-
-        When ``lang == 'fa'`` numbers are Persian-Indic and words are Farsi
-        (e.g. ۲۴ دقیقه و ۵۰ ثانیه). All other language codes produce
-        Arabic numerals with English words (e.g. 24 min 50 sec).
-        """
-        if not entries:
-            return ''
-        last_end = entries[-1]['end']  # e.g. '00:24:50,260'
-        try:
-            hms, ms = last_end.split(',')
-            h, m, s = map(int, hms.split(':'))
-            total_sec = h * 3600 + m * 60 + s
-            return SubtitleProcessor._format_total_seconds(total_sec, lang=lang)
-        except Exception:
-            return ''
+        return srt_duration_str(entries, lang=lang)
 
     @staticmethod
     def _format_total_seconds(total_sec: float, lang: str = 'fa') -> str:
-        """Format raw seconds into human-readable duration (e.g. 1 hr 44 min)."""
-        total_sec = int(total_sec)
-        hours = total_sec // 3600
-        mins  = (total_sec % 3600) // 60
-        secs  = total_sec % 60
-
-        def _fa(n: int) -> str:
-            return str(n).translate(str.maketrans('0123456789', '۰۱۲۳۴۵۶۷۸۹'))
-
-        if lang == 'fa':
-            if hours > 0:
-                ret = f'{_fa(hours)} ساعت'
-                if mins > 0: ret += f' و {_fa(mins)} دقیقه'
-                return ret
-            elif mins > 0:
-                if secs >= 30:
-                    return f'{_fa(mins)} دقیقه و {_fa(secs)} ثانیه'
-                else:
-                    return f'{_fa(mins)} دقیقه'
-            else:
-                return f'{_fa(secs)} ثانیه'
-        else:
-            if hours > 0:
-                ret = f'{hours} hr'
-                if mins > 0: ret += f' {mins} min'
-                return ret
-            elif mins > 0:
-                if secs >= 30:
-                    return f'{mins} min {secs} sec'
-                else:
-                    return f'{mins} min'
-            else:
-                return f'{secs} sec'
+        return format_total_seconds(total_sec, lang=lang)
 
     def parse_srt(self, srt_path: str) -> List[Dict]:
-        with open(srt_path, 'r', encoding='utf-8-sig') as f:
-            content = f.read()
-        
-        pattern = re.compile(
-            r'(\d+)\n(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\n((?:(?!\n\n).)*)',
-            re.DOTALL
-        )
-        
-        entries = []
-        for m in pattern.finditer(content):
-            entries.append({
-                'index': m.group(1),
-                'start': m.group(2),
-                'end': m.group(3),
-                'text': m.group(4).strip().replace('\n', ' ')
-            })
-        return entries
+        return parse_srt_file(srt_path)
 
     def validate_srt(self, srt_path: str, expected_count: int, target_lang: str = 'fa') -> bool:
-        """Thorough validation of SRT file against entry count, language integrity and hallucination patterns"""
-        if not os.path.exists(srt_path): return False
-        try:
-            # Check size first as a quick filter
-            if os.path.getsize(srt_path) < 50: return False
-            
-            entries = self.parse_srt(srt_path)
-            actual_count = len(entries)
-            
-            if actual_count != expected_count:
-                self.logger.warning(f"⚠️ Parity mismatch for {Path(srt_path).name}: expected {expected_count}, found {actual_count}.")
-                return False
-            
-            # CONTENT & DIVERSITY AUDIT
-            texts = [e['text'].strip() for e in entries if e['text'].strip()]
-            if not texts: return False
-
-            # 1. Language Integrity (Strict: 98%)
-            if target_lang == 'fa':
-                persian_lines = sum(1 for t in texts if any('\u0600' <= c <= '\u06FF' for c in t))
-                ratio = persian_lines / actual_count
-                if ratio < 0.98:
-                    self.logger.warning(f"⚠️ Content audit failed for {Path(srt_path).name}: Only {persian_lines}/{actual_count} ({ratio:.1%}) lines are Persian.")
-                    return False
-            
-            # 2. Diversity Audit (Hallucination detection)
-            if len(texts) > 50:
-                # Check for extreme repetitions (common in LLM stuck loops)
-                counts = {}
-                for t in texts: counts[t] = counts.get(t, 0) + 1
-                
-                most_common_text = max(counts, key=counts.get)
-                max_repeat = counts[most_common_text]
-                
-                if max_repeat > len(texts) * 0.05: # If one sentence repeats > 5% of the file
-                    self.logger.warning(f"⚠️ Hallucination detected: Sentence '{most_common_text[:40]}...' repeats {max_repeat} times.")
-                    return False
-
-            return True
-        except Exception as e:
-            self.logger.debug(f"Validation error: {e}")
-            return False
+        return validate_srt_file(
+            srt_path=srt_path,
+            expected_count=expected_count,
+            target_lang=target_lang,
+            has_target_language_chars_fn=has_target_language_chars,
+            logger=self.logger,
+        )
 
     # ==================== MAIN WORKFLOW (FIXED) ====================
 
