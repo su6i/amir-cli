@@ -27,7 +27,7 @@ import tempfile
 import shutil
 import threading
 import zipfile
-from datetime import timedelta, datetime
+from datetime import timedelta
 from collections import deque
 from typing import List, Dict, Optional, Any, Tuple
 from pathlib import Path
@@ -89,6 +89,8 @@ from subtitle.translation import (
 )
 from subtitle.social import (
     call_llm_for_post,
+    compose_post_file_header,
+    format_publish_date,
     sanitize_post,
     telegram_sections_complete,
 )
@@ -4245,26 +4247,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     @staticmethod
     def _format_publish_date(value: str) -> str:
-        """Normalize common date forms to YYYY-MM-DD (+ weekday) for post headers."""
-        if not value:
-            return ""
-        value = str(value).strip()
-        fa_weekdays = {
-            0: "دوشنبه",
-            1: "سه\u200cشنبه",
-            2: "چهارشنبه",
-            3: "پنج\u200cشنبه",
-            4: "جمعه",
-            5: "شنبه",
-            6: "یکشنبه",
-        }
-        for fmt in ("%Y%m%d", "%Y-%m-%d", "%Y.%m.%d", "%d.%m.%Y", "%Y/%m/%d"):
-            try:
-                dt = datetime.strptime(value, fmt)
-                return f"{dt.strftime('%Y-%m-%d')} ({fa_weekdays.get(dt.weekday(), dt.strftime('%A'))})"
-            except ValueError:
-                continue
-        return value
+        return format_publish_date(value)
 
     def _discover_video_metadata(self, original_base: str, srt_path: Optional[str] = None) -> Dict[str, str]:
         """Best-effort metadata lookup from yt-dlp sidecars near the current video/SRT."""
@@ -4378,32 +4361,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     @staticmethod
     def _compose_post_file_header(platform: str, metadata: Dict[str, str], fallback_title: str) -> str:
-        """Human-readable header added above saved post text files."""
-        title = (metadata.get('title') or fallback_title or '').strip()
-        quality_label = (metadata.get('quality_label') or '360p').strip()
-        publish_date = (metadata.get('publish_date') or '').strip()
-        webpage_url = (metadata.get('webpage_url') or '').strip()
-        uploader = (metadata.get('uploader') or '').strip()
-
-        lines = []
-        if title:
-            lines.append(title)  # Just the title, no prefix as requested
-        if quality_label:
-            lines.append(f"\nکیفیت: {quality_label}")
-        if publish_date:
-            if platform == 'telegram':
-                # Concise date for Telegram (just the YYYY-MM-DD part)
-                clean_date = publish_date.split(' ')[0]
-                lines.append(f"\nDate: {clean_date}")
-            else:
-                lines.append(f"تاریخ انتشار: {publish_date}")
-        if uploader:
-            lines.append(f"\nمنتشرکننده: {uploader}")
-        if webpage_url:
-            lines.append(f"\nلینک مرجع:\n {webpage_url}")
-        if not lines:
-            return ""
-        return "\n".join(lines) + "\n\n" + ("─" * 20) + "\n\n"
+        return compose_post_file_header(platform, metadata, fallback_title)
 
     def generate_posts(
         self,
