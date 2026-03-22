@@ -1230,6 +1230,11 @@ video_download() {
                     shift
                 fi
                 ;;
+            --quality)
+                DL_QUALITY="$2"
+                DL_QUALITY_EXPLICIT=true
+                shift 2
+                ;;
             -*)
                 log_error "Unknown option: $1" >&2
                 echo "Usage: amir video download <url> [options]" >&2
@@ -1311,6 +1316,7 @@ video_download() {
         echo "  --keep-thumb          Keep the downloaded thumbnail sidecar file" >&2
         echo "  --formats, -F         Show available resolutions and sizes before downloading" >&2
         echo "  --resolution, -R <h> [q]  Download max height (e.g. 240/360/480/720/1080); optional quality after it" >&2
+        echo "  --quality <q>         Download quality factor (1-100). Same as optional [q] after --resolution" >&2
         echo "  --extreme                 Fast defaults for subtitle pipeline: 360p + q30" >&2
         return 1
     fi
