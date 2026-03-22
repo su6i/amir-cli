@@ -742,7 +742,7 @@ class SubtitleProcessor:
             # Example: keep "..._fa.srt", skip legacy "..._240p_fa.srt" if both exist.
             base_name_only = os.path.basename(abs_f)
             if re.search(r'_\d{3,4}p_([a-z]{2,3})(_|\.)', base_name_only, flags=re.IGNORECASE):
-                canonical_name = re.sub(r'_\d{3,4}p_', '_', base_name_only, count=1, flags=re.IGNORECASE)
+                canonical_name = re.sub(r'_\d{3,4}p(?:_q\d+)?_', '_', base_name_only, count=1, flags=re.IGNORECASE)
                 canonical_path = os.path.join(base_dir, canonical_name)
                 if os.path.exists(canonical_path):
                     continue
@@ -3959,7 +3959,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # Strip resolution suffix so all variants share one SRT/translation base.
         # Handles both "_240p" and collision names like "_240p_2".
         # e.g. "FooBar_480p", "FooBar_360p_2" -> original_base "FooBar"
-        original_stem = re.sub(r'_\d{3,4}p(?:_\d+)?$', '', original_stem)
+        original_stem = re.sub(r'_\d{3,4}p(?:_q\d+)?(?:_\d+)?$', '', original_stem)
 
         # Detect SRT-as-input: user passed a pre-existing transcript file directly.
         # Convention: file is named <base>_<lang>.srt — strip the `_<lang>` suffix so
@@ -3991,7 +3991,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         _target_stem_key = _stem_match_key(_normalized_target_stem)
 
         def _normalize_candidate_stem(value: str) -> str:
-            value = re.sub(r'_\d{3,4}p(?:_\d+)?$', '', value or '')
+            value = re.sub(r'_\d{3,4}p(?:_q\d+)?(?:_\d+)?$', '', value or '')
             return self._sanitize_stem_for_fs(value)
 
         _candidate_bases = [
@@ -5321,6 +5321,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     def _compose_post_file_header(platform: str, metadata: Dict[str, str], fallback_title: str) -> str:
         """Human-readable header added above saved post text files."""
         title = (metadata.get('title') or fallback_title or '').strip()
+        quality_label = (metadata.get('quality_label') or '360p').strip()
         publish_date = (metadata.get('publish_date') or '').strip()
         webpage_url = (metadata.get('webpage_url') or '').strip()
         uploader = (metadata.get('uploader') or '').strip()
@@ -5328,6 +5329,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         lines = []
         if title:
             lines.append(title)  # Just the title, no prefix as requested
+        if quality_label:
+            lines.append(f"\nکیفیت: {quality_label}")
         if publish_date:
             if platform == 'telegram':
                 # Concise date for Telegram (just the YYYY-MM-DD part)

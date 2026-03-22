@@ -75,7 +75,13 @@ run_subtitle() {
     # Translate --sub-only (public flag) to --no-render (internal Python flag)
     local -a _args_tr=()
     for _a in "$@"; do
-        [[ "$_a" == "--sub-only" ]] && _args_tr+=("--no-render") || _args_tr+=("$_a")
+        local _norm="$_a"
+        # Normalize common Unicode dash characters from copy/paste to ASCII '-'
+        _norm="${_norm//$'\u2013'/-}"  # en dash
+        _norm="${_norm//$'\u2014'/-}"  # em dash
+        _norm="${_norm//$'\u2212'/-}"  # minus sign
+
+        [[ "$_norm" == "--sub-only" ]] && _args_tr+=("--no-render") || _args_tr+=("$_norm")
     done
     set -- "${_args_tr[@]}"
 
@@ -95,7 +101,7 @@ run_subtitle() {
         source "$LIB_DIR/commands/video.sh"
 
         # Separate download-only flags from subtitle flags.
-        # Download flags accepted here: --resolution/-R, --extreme, --browser/-b, --cookies, -y/--yes
+        # Download flags accepted here: --resolution/-R, --quality, --extreme, --browser/-b, --cookies, -y/--yes
         # Everything else (-s, -t, --llm, --model, --no-render …) goes to _subtitle_run.
         local -a _orig=("$@")
         local -a _dl_flags=()
@@ -121,6 +127,7 @@ run_subtitle() {
                     fi ;;
                 --quality)
                     _has_quality=true
+                    _dl_flags+=("$_cur" "${_orig[_i+1]}")
                     _sub_flags+=("$_cur" "${_orig[_i+1]}")
                     (( _i += 2 )) ;;
                 --browser|-b|--cookies)
@@ -136,6 +143,12 @@ run_subtitle() {
                     _sub_flags+=("$_cur"); (( _i++ )) ;;
             esac
         done
+
+        # Default to extreme download profile for `amir video subtitle <URL>`.
+        if ! $_has_extreme; then
+            _has_extreme=true
+            _dl_flags+=("--extreme")
+        fi
 
         # Keep subtitle render profile aligned with video_download extreme defaults.
         if $_has_extreme; then
