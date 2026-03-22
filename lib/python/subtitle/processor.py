@@ -84,6 +84,7 @@ from subtitle.transcription import (
 from subtitle.translation import (
     parse_translated_batch_output,
     resegment_translation,
+    translate_batch_single_attempt as run_translate_batch_single_attempt,
     translate_with_batch_fallback_chain as run_translate_with_batch_fallback_chain,
 )
 from subtitle.segmentation import (
@@ -4680,217 +4681,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         batch_size: int = 25,
         max_retries: int = 2
     ) -> List[str]:
-        """
-        Single model translation with minimal retries (1-2 attempts only).
-        Raises exception immediately if it fails so fallback chain can try next model.
-        
-        Args:
-            batch: Texts to translate
-            target_lang: Target language
-            source_lang: Source language
-            model_name: Model to use (deepseek, minimax, gemini, grok)
-            batch_size: Batch size for this model
-            max_retries: Max retry attempts (default 2)
-        
-        Returns:
-            Translated texts or raises exception
-        """
-        if model_name == "deepseek":
-            client = OpenAI(api_key=self.api_key, base_url="https://api.deepseek.com/v1")
-            
-            for attempt in range(1, max_retries + 1):
-                try:
-                    # Context lines (3 before + 3 after)
-                    ctx_section = ""
-                    batch_text = "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(batch)])
-                    
-                    response = client.chat.completions.create(
-                        model=self.llm_models["deepseek"],
-                        messages=[
-                            {"role": "system", "content": self.get_translation_prompt(target_lang)},
-                            {"role": "user", "content": batch_text}
-                        ],
-                        temperature=self.temperature,
-                        max_tokens=4000
-                    )
-                    
-                    output = response.choices[0].message.content.strip()
-                    
-                    # Log DeepSeek KV cache hit tokens (automatically cached at 10x discount)
-                    if hasattr(response, 'usage') and response.usage:
-                        cached_tokens = getattr(response.usage, 'prompt_cache_hit_tokens', 0) or 0
-                        if cached_tokens:
-                            self._cost_savings["deepseek_cache_hit_tokens"] += cached_tokens
-                    
-                    trans_list = self._parse_translated_batch_output(output, len(batch))
-                    
-                    if trans_list and len(trans_list) >= len(batch):
-                        result_batch = trans_list[:len(batch)]
-                        # Apply Persian fixes if needed
-                        if target_lang == 'fa':
-                            processed_list = []
-                            for idx_in_batch, t in enumerate(trans_list):
-                                if not t or not t.strip():
-                                    processed_list.append(batch[idx_in_batch])
-                                    continue
-                                if not any('\u0600' <= c <= '\u06FF' for c in t):
-                                    processed_list.append(batch[idx_in_batch])
-                                else:
-                                    processed_list.append(self.fix_persian_text(self.strip_english_echo(t)))
-                            trans_list = processed_list
-                        return trans_list[:len(batch)]
-                    else:
-                        raise ValueError(f"Incomplete response: expected {len(batch)}, got {len(trans_list) if trans_list else 0}")
-                
-                except Exception as e:
-                    if attempt >= max_retries:
-                        raise
-                    wait_time = 5 * attempt
-                    self.logger.debug(f"DeepSeek attempt {attempt} failed, retrying in {wait_time}s: {str(e)[:50]}")
-                    time.sleep(wait_time)
-        
-        elif model_name == "minimax":
-            for attempt in range(1, max_retries + 1):
-                try:
-                    import requests
-                    api_key = self.minimax_api_key
-                    if not api_key:
-                        raise ValueError("MINIMAX_API_KEY not set")
-                    
-                    batch_text = "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(batch)])
-                    
-                    # Minimax API call (simplified)
-                    headers = {"Authorization": f"Bearer {api_key}"}
-                    data = {
-                        "model": self.llm_models["minimax"],
-                        "messages": [
-                            {"role": "system", "content": self.get_translation_prompt(target_lang)},
-                            {"role": "user", "content": batch_text}
-                        ]
-                    }
-                    
-                    response = requests.post("https://api.minimaxi.com/v1/text/chatcompletion_pro", json=data, headers=headers, timeout=30)
-                    response.raise_for_status()
-                    result = response.json()
-                    output = result.get("reply", "")
-                    trans_list = self._parse_translated_batch_output(output, len(batch))
-                    
-                    if trans_list and len(trans_list) >= len(batch):
-                        return trans_list[:len(batch)]
-                    else:
-                        raise ValueError(f"Incomplete response: expected {len(batch)}, got {len(trans_list) if trans_list else 0}")
-                
-                except Exception as e:
-                    if attempt >= max_retries:
-                        raise
-                    wait_time = 5 * attempt
-                    self.logger.debug(f"MiniMax attempt {attempt} failed, retrying in {wait_time}s: {str(e)[:50]}")
-                    time.sleep(wait_time)
-        
-        elif model_name == "gemini":
-            # Try to get/create server-side CachedContent for system instruction
-            gemini_cache_name = self._get_gemini_content_cache(target_lang)
-            
-            for attempt in range(1, max_retries + 1):
-                try:
-                    if not HAS_GEMINI or not self.google_api_key:
-                        raise ValueError("Gemini SDK not available or API key not set")
-                    
-                    from google import genai
-                    from google.genai import types as genai_types
-                    client = genai.Client(api_key=self.google_api_key)
-                    
-                    batch_text = "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(batch)])
-                    
-                    model = self.llm_models["gemini"]
-                    
-                    if gemini_cache_name:
-                        # USE EXPLICIT CACHE: system instruction is already cached on Gemini's servers
-                        # Only pay for user message tokens, not system instruction tokens (guaranteed savings)
-                        response = client.models.generate_content(
-                            model=model,
-                            contents=batch_text,
-                            config=genai_types.GenerateContentConfig(
-                                cached_content=gemini_cache_name
-                            )
-                        )
-                    else:
-                        # Fallback: implicit caching (system prompt embedded, may or may not cache)
-                        response = client.models.generate_content(
-                            model=model,
-                            contents=f"{self.get_translation_prompt(target_lang)}\n\n{batch_text}"
-                        )
-                    
-                    output = response.text.strip() if response else ""
-                    if not output:
-                        raise ValueError(f"Empty response from {model}")
-                    
-                    # Log cached tokens if available
-                    if hasattr(response, 'usage_metadata') and response.usage_metadata:
-                        cached = getattr(response.usage_metadata, 'cached_content_token_count', 0) or 0
-                        if cached:
-                            self._cost_savings["gemini_cached_tokens"] += cached
-                    
-                    trans_list = self._parse_translated_batch_output(output, len(batch))
-                    
-                    if trans_list and len(trans_list) >= len(batch):
-                        return trans_list[:len(batch)]
-                    else:
-                        raise ValueError(f"Incomplete response: expected {len(batch)}, got {len(trans_list) if trans_list else 0}")
-                
-                except Exception as e:
-                    if attempt >= max_retries:
-                        raise
-                    wait_time = 5 * attempt
-                    self.logger.debug(f"Gemini attempt {attempt} failed, retrying in {wait_time}s: {str(e)[:50]}")
-                    time.sleep(wait_time)
-        
-        elif model_name == "grok":
-            for attempt in range(1, max_retries + 1):
-                try:
-                    from openai import OpenAI as XAI_Client
-                    if not self.grok_api_key:
-                        raise ValueError("GROK_API_KEY not set")
-                    
-                    client = XAI_Client(api_key=self.grok_api_key, base_url="https://api.x.ai/v1")
-                    
-                    batch_text = "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(batch)])
-                    
-                    response = client.chat.completions.create(
-                        model=self.llm_models["grok"],
-                        messages=[
-                            {"role": "system", "content": self.get_translation_prompt(target_lang)},
-                            {"role": "user", "content": batch_text}
-                        ],
-                        temperature=0.7,
-                        max_tokens=4000
-                    )
-                    
-                    output = (response.choices[0].message.content or "").strip()
-                    if not output:
-                        raise ValueError("Empty response from Grok")
-                    
-                    # Log Grok cached prompt tokens (auto-cached, discounted)
-                    if hasattr(response, 'usage') and response.usage:
-                        cached_tokens = getattr(response.usage, 'prompt_cache_hit_tokens', 0) or 0
-                        if cached_tokens:
-                            self._cost_savings["grok_cache_hit_tokens"] += cached_tokens
-                    
-                    trans_list = self._parse_translated_batch_output(output, len(batch))
-                    
-                    if trans_list and len(trans_list) >= len(batch):
-                        return trans_list[:len(batch)]
-                    else:
-                        raise ValueError(f"Incomplete response: expected {len(batch)}, got {len(trans_list) if trans_list else 0}")
-                
-                except Exception as e:
-                    if attempt >= max_retries:
-                        raise
-                    wait_time = 5 * attempt
-                    self.logger.debug(f"Grok attempt {attempt} failed, retrying in {wait_time}s: {str(e)[:50]}")
-                    time.sleep(wait_time)
-        
-        raise ValueError(f"Unknown model: {model_name}")
+        return run_translate_batch_single_attempt(
+            self,
+            batch=batch,
+            target_lang=target_lang,
+            source_lang=source_lang,
+            model_name=model_name,
+            batch_size=batch_size,
+            max_retries=max_retries,
+            has_gemini=HAS_GEMINI,
+        )
 
     # ==================== TRANSLATE-THEN-RESEGMENT ====================
     # Industry-standard approach: translate full sentences, then re-segment
