@@ -1,3 +1,9 @@
+from .checkpoint import (
+    clear_checkpoint,
+    get_checkpoint_path,
+    load_checkpoint,
+    save_checkpoint,
+)
 from .helpers import (
     create_balanced_batches,
     load_local_translation_cache,
@@ -10,6 +16,10 @@ from .helpers import (
 
 __all__ = [
     "create_balanced_batches",
+    "save_checkpoint",
+    "load_checkpoint",
+    "clear_checkpoint",
+    "get_checkpoint_path",
     "local_cache_key",
     "load_local_translation_cache",
     "save_local_translation_cache",

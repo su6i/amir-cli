@@ -17,7 +17,6 @@ import time
 import json
 import logging
 import gc
-import hashlib
 import socket
 
 # Environment control for library verbosity
@@ -41,10 +40,14 @@ from subtitle.config import (
     load_api_key,
 )
 from subtitle.cache import (
+    clear_checkpoint,
     create_balanced_batches,
+    get_checkpoint_path,
     load_local_translation_cache,
+    load_checkpoint,
     local_cache_key,
     log_cost_savings,
+    save_checkpoint,
     lookup_local_cache,
     save_local_translation_cache,
     store_local_cache,
@@ -511,48 +514,19 @@ class SubtitleProcessor:
     # ==================== CHECKPOINT ====================
 
     def save_checkpoint(self, checkpoint: ProcessingCheckpoint):
-        checkpoint_file = self._get_checkpoint_path(checkpoint.video_path)
         try:
-            with open(checkpoint_file, 'w', encoding='utf-8') as f:
-                json.dump({
-                    'video_path': checkpoint.video_path,
-                    'stage': checkpoint.stage.value,
-                    'source_lang': checkpoint.source_lang,
-                    'target_langs': checkpoint.target_langs,
-                    'timestamp': checkpoint.timestamp,
-                    'data': checkpoint.data
-                }, f, indent=2)
+            save_checkpoint(self.cache_dir, checkpoint)
         except Exception as e:
             self.logger.error(f"Checkpoint save failed: {e}")
 
     def load_checkpoint(self, video_path: str) -> Optional[ProcessingCheckpoint]:
-        checkpoint_file = self._get_checkpoint_path(video_path)
-        if not checkpoint_file.exists():
-            return None
-        
-        try:
-            with open(checkpoint_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            return ProcessingCheckpoint(
-                video_path=data['video_path'],
-                stage=ProcessingStage(data['stage']),
-                source_lang=data['source_lang'],
-                target_langs=data['target_langs'],
-                timestamp=data['timestamp'],
-                data=data['data']
-            )
-        except:
-            return None
+        return load_checkpoint(self.cache_dir, video_path)
 
     def clear_checkpoint(self, video_path: str):
-        checkpoint_file = self._get_checkpoint_path(video_path)
-        if checkpoint_file.exists():
-            checkpoint_file.unlink()
+        clear_checkpoint(self.cache_dir, video_path)
 
     def _get_checkpoint_path(self, video_path: str) -> Path:
-        video_hash = hashlib.md5(video_path.encode()).hexdigest()[:8]
-        return self.cache_dir / f"checkpoint_{video_hash}.json"
+        return get_checkpoint_path(self.cache_dir, video_path)
 
     # ==================== CACHE ====================
 
