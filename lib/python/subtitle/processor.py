@@ -40,6 +40,15 @@ from subtitle.config import (
     has_target_language_chars,
     load_api_key,
 )
+from subtitle.cache import (
+    create_balanced_batches,
+    load_local_translation_cache,
+    local_cache_key,
+    log_cost_savings,
+    lookup_local_cache,
+    save_local_translation_cache,
+    store_local_cache,
+)
 from subtitle.io import (
     bundle_outputs_zip,
     collect_existing_output_files,
@@ -737,69 +746,29 @@ class SubtitleProcessor:
     # ==================== CACHE ====================
 
     def _create_balanced_batches(self, indices: List[int], texts: List[str], max_batch_size: int, max_chars: int = 5000) -> List[List[int]]:
-        """Dynamically split indices into batches based on text length and count to respect context limits"""
-        batches = []
-        current_batch = []
-        current_chars = 0
-        
-        for idx in indices:
-            text_len = len(texts[idx])
-            # Start new batch if adding this exceeds COUNT or CHAR limit
-            # 5000 chars is ~1250-1500 tokens, safe for all modern models and response windows
-            if len(current_batch) >= max_batch_size or (current_batch and current_chars + text_len > max_chars):
-                batches.append(current_batch)
-                current_batch = []
-                current_chars = 0
-            
-            current_batch.append(idx)
-            current_chars += text_len
-            
-        if current_batch:
-            batches.append(current_batch)
-            
-        self.logger.debug(f"⚖️ Batch Balancer: Created {len(batches)} optimal batches for {len(indices)} entries.")
-        return batches
+        return create_balanced_batches(indices, texts, max_batch_size, max_chars=max_chars, logger=self.logger)
 
     # Cache system removed - users manage their own SRT files
 
     # ==================== COST SAVING HELPERS ====================
 
     def _local_cache_key(self, text: str, target_lang: str) -> str:
-        """Stable hash key for local translation cache"""
-        return hashlib.md5(f"{text}|||{target_lang}".encode("utf-8")).hexdigest()
+        return local_cache_key(text, target_lang)
 
     def _load_local_translation_cache(self):
-        """Load persisted local translation cache from disk"""
-        try:
-            if self._local_cache_path.exists():
-                with open(self._local_cache_path, 'r', encoding='utf-8') as f:
-                    self._local_cache = json.load(f)
-                self.logger.debug(f"💾 Local translation cache loaded: {len(self._local_cache)} entries")
-        except Exception as e:
-            self.logger.warning(f"Could not load local translation cache: {e}")
-            self._local_cache = {}
+        self._local_cache = load_local_translation_cache(self._local_cache_path, logger=self.logger)
 
     def _save_local_translation_cache(self):
-        """Persist local translation cache to disk"""
         if not self._local_cache_dirty:
             return
-        try:
-            self._local_cache_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self._local_cache_path, 'w', encoding='utf-8') as f:
-                json.dump(self._local_cache, f, ensure_ascii=False, indent=None)
+        if save_local_translation_cache(self._local_cache_path, self._local_cache, logger=self.logger):
             self._local_cache_dirty = False
-        except Exception as e:
-            self.logger.warning(f"Could not save local translation cache: {e}")
 
     def _lookup_local_cache(self, text: str, target_lang: str) -> Optional[str]:
-        """Return cached translation or None"""
-        return self._local_cache.get(self._local_cache_key(text, target_lang))
+        return lookup_local_cache(self._local_cache, text, target_lang)
 
     def _store_local_cache(self, text: str, target_lang: str, translation: str):
-        """Store a single translation in local cache"""
-        if translation and translation.strip():
-            key = self._local_cache_key(text, target_lang)
-            self._local_cache[key] = translation
+        if store_local_cache(self._local_cache, text, target_lang, translation):
             self._local_cache_dirty = True
 
     def _get_gemini_content_cache(self, target_lang: str) -> Optional[str]:
@@ -842,27 +811,7 @@ class SubtitleProcessor:
             return None
 
     def _log_cost_savings(self):
-        """Print accumulated cost savings summary"""
-        s = self._cost_savings
-        total_local = s["local_cache_hits"]
-        ds_cached = s["deepseek_cache_hit_tokens"]
-        grok_cached = s["grok_cache_hit_tokens"]
-        gem_cached = s["gemini_cached_tokens"]
-        
-        if total_local + ds_cached + grok_cached + gem_cached == 0:
-            return
-        
-        self.logger.info("──────────────────────────────────────────")
-        self.logger.info("💰 Cost Savings Report:")
-        if total_local:
-            self.logger.info(f"   • Local cache hits: {total_local} lines (100% saved)")
-        if ds_cached:
-            self.logger.info(f"   • DeepSeek cached tokens: {ds_cached:,} (90% cheaper)")
-        if grok_cached:
-            self.logger.info(f"   • Grok cached tokens: {grok_cached:,} (discounted)")
-        if gem_cached:
-            self.logger.info(f"   • Gemini cached tokens: {gem_cached:,} (guaranteed discount)")
-        self.logger.info("──────────────────────────────────────────")
+        log_cost_savings(self._cost_savings, self.logger)
 
     def detect_source_language(self, video_path: str) -> str:
         """Detect source language from audio using a lightweight Whisper pass."""
