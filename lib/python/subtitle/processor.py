@@ -86,6 +86,7 @@ from subtitle.translation import (
     resegment_translation,
     translate_batch_single_attempt as run_translate_batch_single_attempt,
     translate_with_batch_fallback_chain as run_translate_with_batch_fallback_chain,
+    validate_and_retry_translations,
 )
 from subtitle.social import (
     call_llm_for_post,
@@ -3536,182 +3537,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     continue
             
             # POST-TRANSLATION VALIDATION: Ensure 100% translation before proceeding
-            for tgt in target_langs:
-                if tgt == source_lang:
-                    continue
-                
-                tgt_srt = f"{original_base}_{tgt}.srt"
-                if not os.path.exists(tgt_srt):
-                    continue
-                    
-                max_retries = 3
-                retry_count = 0
-                
-                while retry_count < max_retries:
-                    try:
-                        # MASTER TIMELINE: No target-side structural sanitation! 
-                        # We MUST follow the source index for 1:1 mapping.
-                        # But we DO need to apply BiDi/Informal fixes to the text.
-                        tgt_entries = self.parse_srt(tgt_srt)
-                        for e in tgt_entries:
-                            e['text'] = self.fix_persian_text(e['text'])
-                        
-                        # Save fixed version back
-                        with open(tgt_srt, 'w', encoding='utf-8-sig') as f:
-                            for idx, entry in enumerate(tgt_entries, 1):
-                                f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
-
-                        src_entries = self.parse_srt(src_srt)
-                        
-                        # Find untranslated lines
-                        untranslated_indices = []
-                        
-                        # Get language configuration
-                        lang_config = get_language_config(tgt)
-                        
-                        for i, entry in enumerate(tgt_entries):
-                            text = entry['text'].strip()
-                            if not text:
-                                untranslated_indices.append(i)
-                                continue
-                            
-                            # Check if target language uses non-Latin script
-                            if lang_config.char_range:
-                                char_start, char_end = lang_config.char_range
-                                has_target_chars = any(char_start <= c <= char_end for c in text)
-                                
-                                # If no target language characters found
-                                if not has_target_chars:
-                                    # Check if it's a technical term pattern with parentheses
-                                    has_parenthetical_english = bool(re.search(r'\([A-Za-z0-9\s\-]+\)', text))
-                                    
-                                    # If no target chars AND no parenthetical pattern, mark as untranslated
-                                    if not has_parenthetical_english:
-                                        untranslated_indices.append(i)
-                            else:
-                                # For Latin-script languages (es, fr, de, pt, it, etc.)
-                                # Check if text differs from source
-                                if text == src_entries[i]['text'].strip():
-                                    untranslated_indices.append(i)
-                        
-                        if not untranslated_indices:
-                            self.logger.info(f"✅ Translation validation: 100% of lines translated to {tgt.upper()}")
-                            break
-                        
-                        untranslated_count = len(untranslated_indices)
-                        total_count = len(tgt_entries)
-                        percentage = (total_count - untranslated_count) / total_count * 100
-                        
-                        self.logger.warning(f"⚠️ Incomplete translation: {untranslated_count}/{total_count} lines ({100-percentage:.1f}%) not translated to {tgt.upper()}")
-                        # Present a user-friendly table of untranslated line numbers and their current text
-                        try:
-                            rows = []
-                            for idx in untranslated_indices:
-                                # Display SRT-style line numbers (1-based) and single-line text
-                                line_no = idx + 1
-                                text = tgt_entries[idx]['text'].replace('\n', ' ').strip()
-                                if not text:
-                                    # Fall back to source text if target empty
-                                    text = src_entries[idx]['text'].replace('\n', ' ').strip()
-                                # Truncate long lines for readability
-                                if len(text) > 240:
-                                    text = text[:237] + '...'
-                                rows.append((line_no, text))
-
-                            # Compute padding
-                            idx_width = max((len(str(r[0])) for r in rows), default=4)
-
-                            print('\n📋 Untranslated lines:\n')
-                            print(f"{'Line'.rjust(idx_width)}  | Text")
-                            print('-' * (idx_width + 3 + 80))
-                            for ln, txt in rows:
-                                print(f"{str(ln).rjust(idx_width)}  | {txt}")
-                            print(f"\nTotal untranslated: {untranslated_count}/{total_count}\n")
-                        except Exception as e:
-                            # Fallback to simple index log
-                            self.logger.warning(f"⚠️ Error printing table: {e}")
-                            self.logger.info(f"📋 Untranslated line indices: {untranslated_indices[:10]}{'...' if len(untranslated_indices) > 10 else ''}")
-                        
-                        # Log untranslated info; auto-retry will happen next iteration.
-                        self.logger.warning(f"⚠️ Incomplete translation (attempt {retry_count + 1}/{max_retries}): {untranslated_count}/{total_count} lines ({100-percentage:.1f}%) not translated to {tgt.upper()}")
-                        
-                        # Auto-retry untranslated lines without prompting.
-                        # Continue looping; incremented retry_count will exit if >= max_retries.
-                        retry_count += 1
-                        self.logger.info(f"🔄 Retrying translation for {untranslated_count} lines (Attempt {retry_count}/{max_retries})...")
-                        
-                        # Extract only untranslated lines
-                        texts_to_retry = [src_entries[i]['text'] for i in untranslated_indices]
-                        
-                        # Translate only these lines with CONTEXT
-                        retried_translations = []
-                        
-                        # New Context-Aware Retry Logic
-                        for idx in untranslated_indices:
-                            text_to_retry = src_entries[idx]['text']
-                            
-                            # Get context (3 lines before, 3 lines after)
-                            prev_lines = [src_entries[i]['text'] for i in range(max(0, idx-3), idx)]
-                            next_lines = [src_entries[i]['text'] for i in range(idx+1, min(len(src_entries), idx+4))]
-                            
-                            try:
-                                translation = self.translate_single_with_context(
-                                    text_to_retry, 
-                                    prev_lines, 
-                                    next_lines, 
-                                    tgt, 
-                                    source_lang
-                                )
-                                retried_translations.append(translation)
-                            except Exception as e:
-                                self.logger.error(f"Failed to retry line {idx+1}: {e}")
-                                retried_translations.append(None) # Keep existing if failed
-                        
-                        
-                        # Update only those lines in the SRT file
-                        for i, (idx, new_translation) in enumerate(zip(untranslated_indices, retried_translations)):
-                            if new_translation and new_translation.strip():
-                                tgt_entries[idx]['text'] = new_translation
-                        
-                        # Save updated SRT
-                        with open(tgt_srt, 'w', encoding='utf-8-sig') as f:
-                            for idx, entry in enumerate(tgt_entries, 1):
-                                f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
-                        
-                        # Display results of retry
-                        print('\n✅ Retried translations results:\n')
-                        success_rows = []
-                        for i, (idx, new_translation) in enumerate(zip(untranslated_indices, retried_translations)):
-                            if new_translation and new_translation.strip():
-                                line_no = idx + 1
-                                source_text = src_entries[idx]['text'].replace('\n', ' ').strip()
-                                trans_text = new_translation.replace('\n', ' ').strip()
-                                
-                                if len(source_text) > 40: source_text = source_text[:37] + '...'
-                                if len(trans_text) > 40: trans_text = trans_text[:37] + '...'
-                                
-                                success_rows.append((line_no, source_text, trans_text))
-                        
-                        if success_rows:
-                            idx_w = max(len(str(r[0])) for r in success_rows)
-                            src_w = max(len(r[1]) for r in success_rows)
-                            
-                            print(f"{'Line'.rjust(idx_w)} | {'Source'.ljust(src_w)} | Translation")
-                            print("-" * (idx_w + 3 + src_w + 3 + 40))
-                            for ln, src, tr in success_rows:
-                                print(f"{str(ln).rjust(idx_w)} | {src.ljust(src_w)} | {tr}")
-                            print(f"\nSuccessfully retried: {len(success_rows)}/{len(untranslated_indices)}\n")
-                        else:
-                            print("No lines were successfully retried.\n")
-                        
-                        self.logger.info(f"💾 Updated {Path(tgt_srt).name} with retried translations")
-                        
-                    except Exception as e:
-                        self.logger.error(f"❌ Validation/retry failed: {e}")
-                        break
-                
-                if retry_count >= max_retries:
-                    self.logger.warning(f"⚠️ Maximum retries ({max_retries}) reached. Some lines may remain untranslated.")
+            validate_and_retry_translations(
+                self,
+                source_lang=source_lang,
+                target_langs=target_langs,
+                result=result,
+                src_srt=src_srt,
+            )
             
             # Final Save with structural and BiDi check BEFORE rendering
             if source_lang == 'en':
