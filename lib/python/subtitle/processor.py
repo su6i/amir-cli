@@ -103,6 +103,7 @@ from subtitle.workflow import (
     detect_subtitle_geometry,
     migrate_legacy_resolution_srt,
     prepare_source_srt,
+    prepare_runtime_execution,
     resolve_workflow_base,
     run_finalize_stage,
     run_rendering_stage,
@@ -3120,52 +3121,31 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # across multiple terminals.
             workflow_lock_path = self._acquire_workflow_lock(lock_key, video_path)
 
-            # Post-only mode: skip all processing and generate post from existing SRTs.
-            if post_only:
-                try:
-                    self.generate_posts(original_base, source_lang, {}, platforms=platforms or ['telegram'],
-                                        prompt_file=prompt_file, post_langs=post_langs)
-                except Exception as _pe:
-                    self.logger.warning(f"⚠️ Post generation skipped (post-only mode): {_pe}")
+            runtime_ctx = prepare_runtime_execution(
+                self,
+                video_path=video_path,
+                source_lang=source_lang,
+                target_langs=target_langs,
+                original_stem=original_stem,
+                original_base=original_base,
+                is_srt_input=_is_srt_input,
+                source_auto_requested=_source_auto_requested,
+                post_only=post_only,
+                platforms=platforms,
+                prompt_file=prompt_file,
+                post_langs=post_langs,
+                limit_start=limit_start,
+                limit_end=limit_end,
+            )
+            if runtime_ctx["post_only_done"]:
                 return {}
 
-            # SAFETY: Check disk space before starting
-            self._check_disk_space(min_gb=1)
-            
-            # Limit handling (creates a temp input file for time range)
-            current_video_input = video_path
-            _limit_start = limit_start or 0.0
-            _has_limit = _limit_start > 0 or limit_end is not None
-            if _has_limit:
-                _info = f"{_limit_start}s → {'end' if limit_end is None else f'{limit_end}s'}"
-                self.logger.info(f"⏱️  Time range restriction: {_info}")
-                if _is_srt_input:
-                    # SRT input: no video to clip with ffmpeg.
-                    # Time-range filtering is applied after the SRT is parsed (see below).
-                    self.logger.info("⏱️  SRT input detected — time-range filter will be applied to entries.")
-                else:
-                    temp_vid = os.path.join(tempfile.gettempdir(), f"temp_{int(time.time())}_{original_stem}.mp4")
-                    cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error"]
-                    if _limit_start > 0:
-                        cmd += ["-ss", str(_limit_start)]
-                    cmd += ["-i", video_path]
-                    if limit_end is not None:
-                        cmd += ["-t", str(limit_end - _limit_start)]
-                    cmd += ["-c", "copy", temp_vid]
-                    subprocess.run(cmd, check=True)
-                    current_video_input = temp_vid
-
-            # Auto source detection for video input if user did not provide --source.
-            if _source_auto_requested and not _is_srt_input:
-                source_lang = self.detect_source_language(current_video_input)
-
-            # Resolve target list now that source language is final.
-            resolved_targets: List[str] = []
-            for _t in target_langs:
-                _resolved = source_lang if _t in ('auto', 'detect', 'source') else _t
-                if _resolved and _resolved not in resolved_targets:
-                    resolved_targets.append(_resolved)
-            target_langs = resolved_targets or [source_lang, 'fa']
+            current_video_input = runtime_ctx["current_video_input"]
+            temp_vid = runtime_ctx["temp_vid"]
+            _limit_start = runtime_ctx["limit_start"]
+            _has_limit = runtime_ctx["has_limit"]
+            source_lang = runtime_ctx["source_lang"]
+            target_langs = runtime_ctx["target_langs"]
             
             # 1. Source SRT preparation (reuse/transcribe + sanitize/merge)
             src_srt = prepare_source_srt(
