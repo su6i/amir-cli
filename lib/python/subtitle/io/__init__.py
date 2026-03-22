@@ -1,3 +1,4 @@
+from .duration import format_total_seconds, srt_duration_str, to_persian_digits
 from .media_io import (
     bundle_outputs_zip,
     collect_existing_output_files,
@@ -6,6 +7,7 @@ from .media_io import (
     get_video_duration,
     sanitize_stem_for_fs,
 )
+from .srt_parser import parse_srt_file, validate_srt_file
 from .srt_time import format_time, normalize_digits, parse_to_sec
 
 __all__ = [
@@ -18,4 +20,9 @@ __all__ = [
     "parse_to_sec",
     "format_time",
     "normalize_digits",
+    "to_persian_digits",
+    "srt_duration_str",
+    "format_total_seconds",
+    "parse_srt_file",
+    "validate_srt_file",
 ]
