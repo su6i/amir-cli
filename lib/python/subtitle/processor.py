@@ -82,6 +82,12 @@ from subtitle.transcription import (
     whisper_server_enabled,
 )
 from subtitle.translation import parse_translated_batch_output
+from subtitle.segmentation import (
+    group_entries_into_paragraphs,
+    take_n_words_with_punct_snap,
+    take_words_up_to,
+    vis_len,
+)
 from subtitle.text import clean_bidi, fix_persian_text, strip_english_echo
 from subtitle.models import (
     ProcessingCheckpoint,
@@ -4888,193 +4894,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     @staticmethod
     def _group_entries_into_paragraphs(entries: List[Dict]) -> List[List[int]]:
-        """Group consecutive subtitle entries into sentence-level paragraphs.
-        
-        A paragraph boundary is placed after any entry whose text ends with
-        sentence-ending punctuation (. ! ? … 。？！). This ensures the LLM
-        receives complete sentences for translation.
-        
-        Safety caps:
-          - 8 entries max per group (word count safety)
-          - 9 seconds max per group (time-domain safety for resegmentation)
-        
-        Returns:
-            List of groups, where each group is a list of indices into `entries`.
-            Example: [[0,1,2], [3,4], [5], ...]
-        """
-        sentence_enders = {'.', '!', '?', '…', '。', '？', '！'}
-        groups = []
-        current_group = []
-        group_start_sec = 0.0
-        MAX_GROUP_SECONDS = 15.0
-
-        def _ts_to_sec(ts: str) -> float:
-            ts = ts.replace(',', '.')
-            h, m, s = ts.split(':')
-            return int(h) * 3600 + int(m) * 60 + float(s)
-        
-        for i, entry in enumerate(entries):
-            # Track group start time
-            if not current_group:
-                group_start_sec = _ts_to_sec(entry.get('start', '00:00:00,000'))
-            
-            current_group.append(i)
-            text = entry.get('text', '').strip()
-            
-            # Check if this entry ends a sentence
-            ends_sentence = False
-            if text:
-                last_char = text.rstrip()[-1] if text.rstrip() else ''
-                if last_char in sentence_enders:
-                    ends_sentence = True
-                # Also break on ellipsis patterns
-                if text.rstrip().endswith('...') or text.rstrip().endswith('…'):
-                    ends_sentence = True
-
-            # Time span of this group so far
-            group_end_sec = _ts_to_sec(entry.get('end', entry.get('start', '00:00:00,000')))
-            group_duration = group_end_sec - group_start_sec
-            
-            # Flush group if sentence ends OR safety cap reached
-            if ends_sentence or len(current_group) >= 8 or group_duration >= MAX_GROUP_SECONDS:
-                groups.append(current_group)
-                current_group = []
-        
-        # Flush remaining
-        if current_group:
-            groups.append(current_group)
-        
-        return groups
+        return group_entries_into_paragraphs(entries)
 
     @staticmethod
     def _take_words_up_to(words: List[str], target_chars: int) -> tuple:
-        """Take words from the front of the list until we reach target_chars.
-        
-        OPTIMIZED: Uses 'Punctuation Snapping' to favor breaking at sentence or 
-        clause boundaries (. ! ? , : ; ...) if they are within a reasonable 
-        window (80% - 130% of target). If no punctuation is found, it uses 
-        'Lexical Snapping' to avoid breaking after dangling prepositions/conjunctions.
-        
-        Returns:
-            (segment_text, remaining_words)
-        """
-        if not words:
-            return ('', [])
-        
-        punctuations = {'.', '!', '?', '…', '。', '？', '！', ',', ';', ':', '،', '؛', '»', ')', '}', ']'}
-        
-        # Words we absolutely DO NOT want at the END of a subtitle line 
-        # (they should start the next line instead)
-        bad_enders = {
-            'و', 'در', 'به', 'که', 'از', 'با', 'برای', 'تا', 'چون', 'اگر', 
-            'یا', 'پس', 'اما', 'ولی', 'هم', 'نیز', 'را',
-            'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with', 'by', 'of', 'that'
-        }
-        
-        best_index = 0
-        chars_so_far = 0
-        best_punctuated_index = -1
-        
-        for i, word in enumerate(words):
-            word_len = len(word) + (1 if i > 0 else 0)
-            chars_so_far += word_len
-            
-            clean_word = word.rstrip(''.join(punctuations)).strip()
-            ends_in_punct = word.rstrip() and word.rstrip()[-1] in punctuations
-            
-            # --- PEAK SELECTION LOGIC ---
-            # 1. Punctuation Priority: Store index of last word with punctuation in window [80%, 130%]
-            if 0.8 * target_chars <= chars_so_far <= 1.3 * target_chars:
-                if ends_in_punct:
-                    best_punctuated_index = i
-            
-            # 2. Hard Stop: We have exceeded the window, we MUST break
-            if chars_so_far > 1.3 * target_chars and i > 0:
-                break
-            
-            # 3. Mathematical Best Fit (fallback)
-            if chars_so_far <= target_chars:
-                best_index = i
-            elif best_index == 0: # safety: take at least one word
-                best_index = i
-        
-        # FINAL DECISION TIER
-        if best_punctuated_index != -1:
-            final_idx = best_punctuated_index
-        else:
-            final_idx = best_index
-            # Lexical Snapping: Move the break back if it lands on a bad ender
-            # (e.g. don't end a line with "در")
-            clean_end_word = words[final_idx].rstrip(''.join(punctuations)).strip().lower()
-            if clean_end_word in bad_enders and final_idx > 0:
-                final_idx -= 1
-        
-        taken = words[:final_idx + 1]
-        remaining = words[final_idx + 1:]
-        
-        return (' '.join(taken).strip(), remaining)
+        return take_words_up_to(words, target_chars)
 
     @staticmethod
     def _take_n_words_with_punct_snap(words: List[str], target_n: int, min_n: int, max_n: int = None) -> tuple:
-        """Take ~target_n words from the front, preferring to end at punctuation.
-        
-        Looks for punctuation within [min_n, hard_max] word range.
-        Takes the LAST punctuation found in that window (closest to target).
-        Never takes fewer than min_n words (unless list is shorter).
-        Never takes more than max_n words — hard ceiling, defaults to target_n+1.
-        
-        Returns:
-            (taken_words_list, remaining_words_list)
-        """
-        if not words:
-            return ([], [])
-        
-        punctuations = {'.', '!', '?', '…', '،', '؟', '؛', ',', ';', ':', '。', '？', '！'}
-        bad_enders = {
-            'و', 'در', 'به', 'که', 'از', 'با', 'برای', 'تا', 'چون', 'اگر',
-            'یا', 'پس', 'اما', 'ولی', 'هم', 'نیز', 'را',
-            'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with', 'by', 'of', 'that'
-        }
-        
-        available = len(words)
-        # Hard ceiling: never take more than this many words
-        hard_max = min(max_n if max_n is not None else target_n + 1, available)
-        
-        final_n = max(min_n, min(target_n, hard_max))
-        
-        # Punctuation search window: near target_n (within ±1 word), bounded by hard_max.
-        # Using hard_max as the search ceiling would greedily take far too many words.
-        search_low = min_n - 1  # inclusive, 0-based
-        search_high = min(hard_max - 1, target_n + 1)  # near target, not up to hard_max
-        
-        best_punct_idx = -1  # 0-based index of best punctuation word
-        for i in range(search_low, search_high + 1):
-            w = words[i].rstrip()
-            if w and w[-1] in punctuations:
-                best_punct_idx = i  # keep updating: last punct in window wins
-        
-        if best_punct_idx >= 0:
-            final_n = best_punct_idx + 1  # convert to count
-        else:
-            # Lexical snapping: step back off dangling connectors
-            punct_chars = ''.join(punctuations)
-            while final_n > min_n:
-                w = words[final_n - 1].rstrip(punct_chars).strip().lower()
-                if w in bad_enders:
-                    final_n -= 1
-                else:
-                    break
-        
-        final_n = max(min_n, min(final_n, hard_max))
-        return (words[:final_n], words[final_n:])
+        return take_n_words_with_punct_snap(words, target_n, min_n, max_n)
 
     @staticmethod
     def _vis_len(s: str) -> int:
-        """Visual character length: excludes zero-width Unicode format
-        characters (ZWNJ U+200C, ZWJ U+200D, RLM, LRM …) that Python's
-        len() counts but that occupy no rendered width in the font."""
-        import unicodedata
-        return sum(1 for c in s if unicodedata.category(c) != 'Cf')
+        return vis_len(s)
 
     def _resegment_translation(
         self,
