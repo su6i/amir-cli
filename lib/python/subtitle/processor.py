@@ -82,6 +82,7 @@ from subtitle.transcription import (
     whisper_server_enabled,
 )
 from subtitle.translation import (
+    apply_final_target_text_fixes,
     parse_translated_batch_output,
     resegment_translation,
     translate_batch_single_attempt as run_translate_batch_single_attempt,
@@ -3547,17 +3548,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             )
             
             # Final Save with structural and BiDi check BEFORE rendering
-            if source_lang == 'en':
-                for tgt in target_langs:
-                    if tgt == source_lang: continue
-                    tgt_path = result.get(tgt)
-                    if tgt_path and os.path.exists(tgt_path):
-                        tgt_entries = self.parse_srt(tgt_path)
-                        for e in tgt_entries:
-                            e['text'] = self.fix_persian_text(e['text'])
-                        with open(tgt_path, 'w', encoding='utf-8-sig') as f:
-                            for idx, entry in enumerate(tgt_entries, 1):
-                                f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
+            apply_final_target_text_fixes(
+                self,
+                source_lang=source_lang,
+                target_langs=target_langs,
+                result=result,
+            )
             
             # 3. RENDERING (skip when input is SRT-only — no video source available)
             if render and not _is_srt_input:
