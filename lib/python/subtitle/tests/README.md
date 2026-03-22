@@ -23,6 +23,13 @@ tests/
 python3 -m pytest lib/python/subtitle/tests -v
 ```
 
+### Run exactly like CI
+```bash
+python3 -m compileall lib/python/subtitle
+python3 scripts/verify_refactoring.py
+cd lib/python && python3 -m pytest subtitle/tests -q
+```
+
 ### Run specific test file
 ```bash
 python3 -m pytest lib/python/subtitle/tests/test_workflow_base.py -v
