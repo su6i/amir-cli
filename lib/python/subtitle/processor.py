@@ -99,7 +99,7 @@ from subtitle.social import (
     sanitize_post,
     telegram_sections_complete,
 )
-from subtitle.workflow import run_finalize_stage, run_rendering_stage
+from subtitle.workflow import run_finalize_stage, run_rendering_stage, run_translation_stage
 from subtitle.segmentation import (
     group_entries_into_paragraphs,
     take_n_words_with_punct_snap,
@@ -3421,122 +3421,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             result[source_lang] = src_srt
             
             # 2. Translation
-            _tgt_langs_to_translate = [t for t in target_langs if t != source_lang]
-            _tgt_count = len(_tgt_langs_to_translate)
-            _emit_progress(55, f"🌐 Starting translation to {', '.join(t.upper() for t in _tgt_langs_to_translate)}...")
-            for tgt in target_langs:
-                if tgt == source_lang:
-                    continue
-                
-                tgt_srt = f"{original_base}_{tgt}.srt"
-                _migrate_legacy_resolution_srt(tgt, tgt_srt)
-                
-                if os.path.exists(tgt_srt) and not force:
-                    # ROBUST VALIDATION: Check entry parity AND language integrity
-                    src_entries_count = len(self.parse_srt(src_srt))
-                    if self.validate_srt(tgt_srt, src_entries_count, tgt):
-                        self.logger.info(f"✓ Target asset verification successful: {Path(tgt_srt).name}")
-                        result[tgt] = tgt_srt
-                        continue
-                    else:
-                        self.logger.info(f"� Smart Resume: Target asset {Path(tgt_srt).name} is incomplete or untranslated. Recovering good segments...")
-                
-                # If we reach here, either tgt_srt doesn't exist, or force is true, or validation failed.
-                # In any case, we proceed with translation.
-                
-                self.logger.info(f"--- Translation Sequence initiated (Target ISO: {tgt.upper()}) ---")
-                _tgt_idx = _tgt_langs_to_translate.index(tgt) if tgt in _tgt_langs_to_translate else 0
-                _start_pct = 55 + int(_tgt_idx / max(1, _tgt_count) * 20)
-                _emit_progress(_start_pct, f"🌐 Translating to {tgt.upper()}...")
-                
-                try:
-                    entries = self.parse_srt(src_srt)
-                    # entries are already clause-merged (via src_srt save above)
-                    
-                    # 💰 SMART RESUME: Ingest partial work before calling LLM (returns recovered mappings)
-                    # Skip SRT-based recovery when force=True (still uses local hash cache + provider KV caches)
-                    recovered_map = {}
-                    if not force:
-                        recovered_map.update(self._ingest_partial_srt(entries, tgt_srt.replace('.srt', '_partial.srt'), tgt) or {})
-                        recovered_map.update(self._ingest_partial_srt(entries, tgt_srt, tgt) or {})
-                    
-                    texts = [e['text'] for e in entries]
-                    
-                    # ── TRANSLATE-THEN-RESEGMENT (Industry Standard) ──
-                    # Instead of translating individual subtitle fragments (which causes
-                    # line drift when the LLM merges partial sentences), we:
-                    # 1. Group entries into complete sentence paragraphs
-                    # 2. Translate full paragraphs (giving the LLM complete context)
-                    # 3. Re-segment translated text back onto original timecodes
-                    
-                    paragraph_groups = self._group_entries_into_paragraphs(entries)
-                    paragraph_texts = []
-                    for group in paragraph_groups:
-                        # Join all fragment texts in this paragraph group
-                        paragraph_texts.append(' '.join(entries[idx]['text'] for idx in group))
-                    
-                    self.logger.info(f"📐 Paragraph grouping: {len(entries)} fragments → {len(paragraph_texts)} paragraphs")
-                    
-                    # Create virtual entries for the paragraph-level translation
-                    # (needed for incremental SRT save inside the translation function)
-                    para_entries = []
-                    for group in paragraph_groups:
-                        para_entries.append({
-                            'start': entries[group[0]]['start'],
-                            'end': entries[group[-1]]['end'],
-                            'text': ' '.join(entries[idx]['text'] for idx in group),
-                        })
-                    
-                    # Choose translation strategy based on llm_choice
-                    translated_paragraphs = []
-                    
-                    # If user specified a particular LLM via --llm flag, respect that choice
-                    if self.llm_choice == "gemini":
-                        translated_paragraphs = self.translate_with_gemini(paragraph_texts, tgt, source_lang, original_entries=para_entries, output_srt=tgt_srt, existing_translations=recovered_map)
-                    elif self.llm_choice == "litellm":
-                        translated_paragraphs = self.translate_with_litellm(paragraph_texts, tgt, source_lang, original_entries=para_entries, output_srt=tgt_srt, existing_translations=recovered_map)
-                    elif self.llm_choice == "minimax":
-                        translated_paragraphs = self.translate_with_minimax(paragraph_texts, tgt, source_lang, original_entries=para_entries, output_srt=tgt_srt, existing_translations=recovered_map)
-                    elif self.llm_choice == "grok":
-                        translated_paragraphs = self.translate_with_grok(paragraph_texts, tgt, source_lang, original_entries=para_entries, output_srt=tgt_srt, existing_translations=recovered_map)
-                    else:
-                        # Default: Use per-batch fallback chain for optimal rate limit distribution
-                        translated_paragraphs = self.translate_with_batch_fallback_chain(
-                            paragraph_texts,
-                            tgt,
-                            source_lang,
-                            original_entries=para_entries,
-                            output_srt=tgt_srt,
-                            existing_translations=recovered_map
-                        )
-                    
-                    # Re-segment translated paragraphs back onto original timecodes
-                    translated = self._resegment_translation(entries, paragraph_groups, translated_paragraphs)
-                    
-                    # Apply Persian text fixes after re-segmentation
-                    if tgt == 'fa':
-                        translated = [self.fix_persian_text(self.strip_english_echo(t)) if t and t.strip() else t for t in translated]
-                    
-                    # Write the final re-segmented SRT with original timecodes
-                    with open(tgt_srt, 'w', encoding='utf-8-sig') as f:
-                        for idx_srt, entry in enumerate(entries, 1):
-                            t_text = translated[idx_srt - 1] if idx_srt - 1 < len(translated) else entry['text']
-                            f.write(f"{idx_srt}\n{entry['start']} --> {entry['end']}\n{t_text}\n\n")
-
-                    
-                    # FINAL VERIFICATION: Ensure we actually got some Persian if tgt is FA
-                    if tgt == 'fa' and translated:
-                        lang_specific_count = sum(1 for t in translated if has_target_language_chars(str(t), tgt))
-                        if lang_specific_count < len(translated) // 2:
-                            self.logger.warning(f"⚠️ Translation audit failed: Only {lang_specific_count}/{len(translated)} lines are Persian. LLM may have hallucinated or failed.")
-                    
-                    result[tgt] = tgt_srt
-                    self.logger.info(f"✓ Final save completed: {Path(tgt_srt).name}")
-                
-                except Exception as e:
-                    self.logger.error(f"❌ Translation to {tgt} failed: {e}")
-                    if self.fail_on_translation_error: raise
-                    continue
+            run_translation_stage(
+                self,
+                result=result,
+                source_lang=source_lang,
+                target_langs=target_langs,
+                src_srt=src_srt,
+                original_base=original_base,
+                force=force,
+                emit_progress=_emit_progress,
+                migrate_legacy_resolution_srt_fn=_migrate_legacy_resolution_srt,
+            )
             
             # POST-TRANSLATION VALIDATION: Ensure 100% translation before proceeding
             validate_and_retry_translations(
