@@ -98,7 +98,7 @@ from subtitle.social import (
     sanitize_post,
     telegram_sections_complete,
 )
-from subtitle.workflow import run_rendering_stage
+from subtitle.workflow import run_finalize_stage, run_rendering_stage
 from subtitle.segmentation import (
     group_entries_into_paragraphs,
     take_n_words_with_punct_snap,
@@ -3585,56 +3585,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 if not _render_ok:
                     return None
 
-            # Social post generation (auto-triggered when platforms list is given)
-            if platforms:
-                try:
-                    saved_posts = self.generate_posts(original_base, source_lang, result, platforms=platforms,
-                                                      prompt_file=prompt_file, post_langs=post_langs)
-                    if saved_posts:
-                        result['posts'] = saved_posts
-                except Exception as _pe:
-                    self.logger.warning(f"⚠️ Post generation failed (workflow continues): {_pe}")
-
-            # Document export (--save flag)
-            if save_formats:
-                try:
-                    from .exporter import export_subtitles
-                    
-                    # Determine which languages to export.
-                    # If target_langs specified, export them. Otherwise export source_lang.
-                    export_langs = set(target_langs) if target_langs else {source_lang}
-                    
-                    srt_paths = {
-                        lang: path for lang, path in result.items()
-                        if isinstance(path, str) and path.endswith('.srt') and lang in export_langs
-                    }
-                    
-                    if srt_paths:
-                        created = export_subtitles(
-                            srt_paths=srt_paths,
-                            base_name=original_stem,
-                            formats=save_formats,
-                            output_dir=original_dir,
-                            title=original_stem.replace('_', ' ').replace('-', ' '),
-                            logger=self.logger
-                        )
-                        if created:
-                            result['exported_docs'] = created
-                    else:
-                        self.logger.warning("⚠️ No SRT files available for document export.")
-                except Exception as _exp_e:
-                    self.logger.warning(f"⚠️ Document export failed: {_exp_e}")
-
-            output_files = self._collect_existing_output_files(result)
-            bundle_path = self._bundle_outputs_zip(original_base, output_files)
-            if bundle_path and os.path.exists(bundle_path):
-                result['bundle_zip'] = bundle_path
-                output_files.append(os.path.abspath(bundle_path))
-
-            if output_files:
-                self.logger.info("📦 Output files:")
-                for p in output_files:
-                    self.logger.info(f"   - {os.path.basename(p)}")
+            run_finalize_stage(
+                self,
+                result=result,
+                original_base=original_base,
+                original_stem=original_stem,
+                original_dir=original_dir,
+                source_lang=source_lang,
+                target_langs=target_langs,
+                platforms=platforms,
+                prompt_file=prompt_file,
+                post_langs=post_langs,
+                save_formats=save_formats,
+            )
 
             self.logger.info("Execution sequence finalized.")
             return result
