@@ -81,7 +81,11 @@ from subtitle.transcription import (
     is_whisper_server_ready,
     whisper_server_enabled,
 )
-from subtitle.translation import parse_translated_batch_output, resegment_translation
+from subtitle.translation import (
+    parse_translated_batch_output,
+    resegment_translation,
+    translate_with_batch_fallback_chain as run_translate_with_batch_fallback_chain,
+)
 from subtitle.segmentation import (
     group_entries_into_paragraphs,
     take_n_words_with_punct_snap,
@@ -4931,192 +4935,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         output_srt: str = None,
         existing_translations: Dict[int, str] = None
     ) -> List[str]:
-        """
-        Translate texts with per-batch model fallback chain.
-        
-        Each batch tries models in sequence (deepseek -> minimax -> gemini -> grok).
-        Each model gets only 1-2 attempts per batch before trying the next model.
-        When a batch succeeds, the next batch starts fresh with the first model.
-        This maximizes rate limit tolerance and distribution.
-        
-        Args:
-            texts: Texts to translate
-            target_lang: Target language code
-            source_lang: Source language code (default: 'en')
-            original_entries: Original SRT entries for incremental save
-            output_srt: Output SRT file path for incremental saves
-            existing_translations: Pre-existing translations to skip (from recovery)
-        
-        Returns:
-            List of translated texts
-        """
-        if not texts or target_lang == source_lang:
-            return texts
-        
-        # Model chain for fallback (resets per batch)
-        MODEL_CHAIN = ["deepseek", "minimax", "gemini", "grok"]
-        
-        # Get batch sizes for each model
-        BATCH_SIZES = {
-            "deepseek": 25,
-            "minimax": 20,
-            "gemini": 40,
-            "grok": 25,
-        }
-        
-        # Initialize result list
-        final_result = [None] * len(texts)
-        
-        # Prefill with existing translations (Smart Resume)
-        if existing_translations:
-            for idx, txt in existing_translations.items():
-                if 0 <= idx < len(final_result) and txt and txt.strip():
-                    final_result[idx] = txt
-        
-        # ── Pass 1: LOCAL CACHE LOOKUP (100% cost saving) ────────────────
-        local_hits = 0
-        for i, text in enumerate(texts):
-            if final_result[i] is None:
-                cached = self._lookup_local_cache(text, target_lang)
-                if cached:
-                    final_result[i] = cached
-                    local_hits += 1
-        if local_hits:
-            self._cost_savings["local_cache_hits"] += local_hits
-            self.logger.info(f"💾 Local cache: {local_hits} translations reused (100% cost saved)")
-
-        # ── Pass 2: DEDUPLICATION ─────────────────────────────────────────
-        # Many subtitles repeat the same sentence multiple times.
-        # Translate each unique text once and fill in all duplicates.
-        indices_to_translate = [i for i in range(len(texts)) if final_result[i] is None]
-        if not indices_to_translate:
-            self._save_local_translation_cache()
-            # CRITICAL: Write the SRT file to disk even when ALL translations came from cache.
-            # Without this, the output file is never created, breaking bilingual ASS rendering.
-            result_texts = [final_result[i] if final_result[i] is not None else texts[i] for i in range(len(texts))]
-            if output_srt and original_entries:
-                try:
-                    with open(output_srt, 'w', encoding='utf-8-sig') as f:
-                        for idx_srt, entry in enumerate(original_entries, 1):
-                            t_text = result_texts[idx_srt-1] if idx_srt-1 < len(result_texts) else entry['text']
-                            f.write(f"{idx_srt}\n{entry['start']} --> {entry['end']}\n{t_text}\n\n")
-                    self.logger.info(f"✓ Cache-only save completed: {Path(output_srt).name}")
-                except Exception as e:
-                    self.logger.warning(f"Failed to save cache-only SRT: {e}")
-            return result_texts
-        
-        # Build unique text → list of original indices
-        unique_text_map: Dict[str, List[int]] = {}
-        for i in indices_to_translate:
-            t = texts[i]
-            unique_text_map.setdefault(t, []).append(i)
-        
-        unique_texts = list(unique_text_map.keys())
-        dedup_count = len(indices_to_translate) - len(unique_texts)
-        if dedup_count > 0:
-            self.logger.info(f"🔁 Deduplication: {len(unique_texts)} unique → saves {dedup_count} redundant API calls")
-        
-        # Create balanced batches over unique texts only
-        unique_indices = list(range(len(unique_texts)))  # virtual indices into unique_texts
-        
-        # We need to batch unique_texts. Build a fake texts array just for batching.
-        batch_indices_list = self._create_balanced_batches(unique_indices, unique_texts, max(BATCH_SIZES.values()))
-        batch_count = len(batch_indices_list)
-        
-        pbar = tqdm(total=len(unique_texts), unit="item", desc=f"  Translating ({target_lang.upper()}) [Fallback Chain]")
-
-        
-        # Process each batch with fallback chain
-        for batch_num, batch_indices in enumerate(batch_indices_list):
-            # batch_indices are virtual indices into unique_texts
-            batch = [unique_texts[idx] for idx in batch_indices]
-            success_batch = False
-            last_error = None
-            
-            # Try each model in chain for this batch (reset per batch)
-            for model_idx, model_name in enumerate(MODEL_CHAIN):
-                if success_batch:
-                    break
-                
-                try:
-                    batch_size = BATCH_SIZES[model_name]
-                    
-                    # Update progress bar postfix instead of printing a new line
-                    pbar.set_postfix_str(f"Batch {batch_num + 1}/{batch_count} via {model_name.upper()}")
-                    
-                    # Call translation with minimal retries
-                    trans_list = self.translate_batch_single_attempt(
-                        batch,
-                        target_lang,
-                        source_lang,
-                        model_name,
-                        batch_size,
-                        max_retries=2  # Only 2 attempts per model
-                    )
-                    
-                    # Fill ALL duplicates and store in local cache
-                    for rel_idx, trans in enumerate(trans_list):
-                        unique_text = batch[rel_idx]
-                        # Store in local cache
-                        self._store_local_cache(unique_text, target_lang, trans)
-                        # Fill all original indices that had this text
-                        for abs_idx in unique_text_map.get(unique_text, []):
-                            final_result[abs_idx] = trans
-                    
-                    # Live save to SRT file
-                    if output_srt and original_entries:
-                        try:
-                            with open(output_srt, 'w', encoding='utf-8-sig') as f:
-                                for idx, entry in enumerate(original_entries, 1):
-                                    trans = final_result[idx - 1]
-                                    t_text = trans if trans is not None else entry['text']
-                                    f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{t_text}\n\n")
-                        except Exception as e:
-                            pbar.write(f"⚠️ Could not save intermediate SRT: {e}")
-                    
-                    # Update progress
-                    pbar.update(len(batch))
-                    success_batch = True
-                    # Emit structured PROGRESS line for external consumers (e.g. su6i_yar.py)
-                    _done_frac = (batch_num + 1) / max(1, batch_count)
-                    _batch_pct = int(55 + _done_frac * 22)  # 55% → 77% across all batches
-                    self.logger.info(f"PROGRESS:{_batch_pct}:🌐 Translation ({batch_num+1}/{batch_count})")
-                    
-                    # Wait to avoid rate limit issues
-                    time.sleep(1)
-                
-                except Exception as e:
-                    error_msg = f"{type(e).__name__}: {str(e)}"
-                    last_error = error_msg
-                    is_api_key = "401" in error_msg or "401 Unauthorized" in error_msg or "Invalid API Key" in error_msg
-                    
-                    if is_api_key:
-                        pbar.write(f"⚠️ Batch {batch_num + 1}: {model_name.upper()} - API Key issue, skipping.")
-                    else:
-                        pbar.write(f"⚠️ Batch {batch_num + 1}: {model_name.upper()} failed - {error_msg[:80]}")
-            
-            # Check if batch succeeded
-            if not success_batch:
-                self.logger.error(f"❌ Batch {batch_num + 1} FAILED: All models exhausted. Using original text.")
-                # Fallback: use original text for all duplicates in failed batch
-                for unique_text in batch:
-                    for abs_idx in unique_text_map.get(unique_text, []):
-                        if final_result[abs_idx] is None:
-                            final_result[abs_idx] = unique_text
-                pbar.update(len(batch))
-        
-        pbar.close()
-        
-        # Persist local cache to disk
-        self._save_local_translation_cache()
-        
-        # Print cost savings report
-        self._log_cost_savings()
-        
-        # Ensure no None values
-        final_result = [final_result[i] if final_result[i] is not None else texts[i] for i in range(len(texts))]
-        
-        return final_result
+        return run_translate_with_batch_fallback_chain(
+            self,
+            texts=texts,
+            target_lang=target_lang,
+            source_lang=source_lang,
+            original_entries=original_entries,
+            output_srt=output_srt,
+            existing_translations=existing_translations,
+        )
 
 
 
