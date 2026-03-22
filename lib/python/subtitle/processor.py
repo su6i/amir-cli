@@ -73,6 +73,7 @@ from subtitle.transcription import (
     is_whisper_server_ready,
     whisper_server_enabled,
 )
+from subtitle.text import clean_bidi, fix_persian_text, strip_english_echo
 from subtitle.models import (
     ProcessingCheckpoint,
     ProcessingStage,
@@ -2702,108 +2703,15 @@ if __name__ == "__main__":
 
     @staticmethod
     def fix_persian_text(text: str) -> str:
-        if not text:
-            return text
-        
-        # 0. Cleanup spaces before punctuation (LLM artifact)
-        text = re.sub(r'\s+([\.!؟،؛])', r'\1', text)
-        
-        # 1. Informal verb normalization + ZWNJ insertion for correct letterform shaping.
-        # Vazirmatn renders ZWNJ (\u200C) as an invisible zero-width glyph, so we CAN use it.
-        informal = {
-            r'\bمی‌باشند\b': 'هستن',
-            r'\bمی‌باشد\b': 'هست',
-        }
-        for p, r in informal.items():
-            text = re.sub(p, r, text)
-
-        # Add ZWNJ where needed for correct Persian word shapes:
-        #   می‌کنیم  — prevents ی+ک joining across morpheme boundary
-        #   کتاب‌ها  — prevents ب+ه joining in plural suffix
-        zwnj_patterns = [
-            (r'(\w)(ها)(\s|$)', '\\1\u200c\\2\\3'),
-            (r'می(\s)', 'می\u200c\\1'),
-        ]
-        for pat, repl in zwnj_patterns:
-            text = re.sub(pat, repl, text)
-
-        # 2. Strip directional control characters — both old embeddings AND any previously
-        # applied isolates (so this function is always idempotent: safe to call repeatedly).
-        # Kept: ZWNJ (\u200c) — Vazirmatn renders it as invisible zero-width glyph; needed
-        # for correct Persian word-boundary shaping.
-        # Stripped embeddings : RLM \u200f, LRM \u200e, ZWJ \u200d, RLE \u202b, LRE \u202a,
-        #                        PDF \u202c, RLO \u202e, LRO \u202d
-        # Stripped isolates   : RLI \u2067, LRI \u2066, PDI \u2069  (re-applied fresh below)
-        for _cp in ('\u200f', '\u200e', '\u200d',
-                    '\u202b', '\u202a', '\u202c', '\u202e', '\u202d',
-                    '\u2067', '\u2066', '\u2069'):
-            text = text.replace(_cp, '')
-
-        # 3. Migration: undo the old "move-to-front" punct transform.
-        # Previous versions of fix_persian_text moved trailing punctuation to logical-START
-        # to compensate for LTR paragraph rendering. With RLI (step 5), the paragraph is
-        # now RTL: logical-START = visual-RIGHT = beginning of sentence = WRONG position
-        # for punctuation. Detect the old pattern (string starts with punct cluster) and
-        # move it back to logical-END where it belongs in an RTL paragraph.
-        text = text.strip()
-        text = re.sub(r'^([.!:،؛؟]+)(.+)$', r'\2\1', text)
-
-        # 4. Isolate English parenthetical terms as LTR runs within the RTL paragraph.
-        # Unicode TR9 §6.3: "use directional isolates instead of embeddings in
-        # programmatically generated text."
-        # LRI (\u2066) ... PDI (\u2069) → equivalent to dir="ltr" unicode-bidi:isolate
-        _LRI = '\u2066'  # LEFT-TO-RIGHT ISOLATE
-        _PDI = '\u2069'  # POP DIRECTIONAL ISOLATE
-        _RLI = '\u2067'  # RIGHT-TO-LEFT ISOLATE
-        text = re.sub(r'(\([A-Za-z][^)]*\))', _LRI + r'\1' + _PDI, text)
-
-        # 5. Wrap the entire string as an RTL isolate paragraph.
-        # This forces libass BiDi P2/P3 "first strong character" resolution to RTL,
-        # isolated from any surrounding LTR context (e.g. the English top line).
-        # RLI (\u2067) ... PDI (\u2069) → equivalent to dir="rtl" unicode-bidi:isolate
-        text = _RLI + text + _PDI
-
-        return text
+        return fix_persian_text(text)
 
     @staticmethod
     def strip_english_echo(text: str) -> str:
-        """Strip echoed English prefix from a Persian translation.
-
-        When an LLM returns 'original sentence. ترجمه فارسی' instead of just
-        the Persian part, this strips everything before the first Persian char.
-        It is safe: if the text already starts with Persian (the normal case)
-        the string is returned unchanged.
-        """
-        if not text:
-            return text
-        # Find the position of the first Persian/Arabic character
-        persian_start = -1
-        for i, c in enumerate(text):
-            if '\u0600' <= c <= '\u06FF':
-                persian_start = i
-                break
-        # Text has no Persian at all – nothing to strip (caller handles fallback)
-        if persian_start < 0:
-            return text
-        # Text already starts with Persian (most common case) – leave untouched
-        if persian_start == 0:
-            return text
-        # There are non-Persian characters before the first Persian character.
-        # Only strip them when the prefix looks like real English words (2+ consecutive
-        # ASCII letters), to avoid trimming legitimate leading punctuation.
-        prefix = text[:persian_start]
-        if re.search(r'[a-zA-Z]{2,}', prefix):
-            return text[persian_start:].strip()
-        return text
+        return strip_english_echo(text)
 
     @staticmethod
     def _clean_bidi(t: str) -> str:
-        """Strip BiDi directional control chars. Preserves ZWNJ (\u200C) — Vazirmatn renders it invisibly."""
-        if not t: return ""
-        for cp in ('\u200f', '\u200e', '\u200d',
-                   '\u202b', '\u202a', '\u202c', '\u202e', '\u202d'):
-            t = t.replace(cp, '')
-        return t.strip()
+        return clean_bidi(t)
 
     def translate_single_with_context(self, text: str, prev_lines: List[str], next_lines: List[str], target_lang: str, source_lang: str) -> str:
         """Translate a single line with context context to avoid literal translation issues"""
