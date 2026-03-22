@@ -34,8 +34,21 @@ from datetime import timedelta, datetime
 from collections import deque
 from typing import List, Dict, Optional, Any, Tuple
 from pathlib import Path
-from dataclasses import dataclass
-from enum import Enum
+
+from subtitle.config import (
+    LANGUAGE_REGISTRY,
+    LanguageConfig,
+    get_language_config,
+    has_target_language_chars,
+)
+from subtitle.models import (
+    ProcessingCheckpoint,
+    ProcessingStage,
+    STYLE_PRESETS,
+    StyleConfig,
+    SubtitleStyle,
+    WordObj,
+)
 
 try:
     from dotenv import load_dotenv
@@ -126,160 +139,6 @@ except ImportError:
     def get_default_crf(): return 23
     def get_default_quality(): return 65
     def detect_best_hw_encoder(): return {'encoder': 'libx264', 'codec': 'h264', 'platform': 'cpu'}
-
-# ==================== ENUMS & DATA CLASSES ====================
-
-class SubtitleStyle(Enum):
-    PODCAST = "podcast"
-    LECTURE = "lecture"
-    VLOG = "vlog"
-    MOVIE = "movie"
-    NEWS = "news"
-    CUSTOM = "custom"
-
-class ProcessingStage(Enum):
-    INIT = "init"
-    TRANSCRIPTION = "transcription"
-    STANDARDIZATION = "standardization"
-    TRANSLATION = "translation"
-    RENDERING = "rendering"
-    COMPLETED = "completed"
-
-@dataclass
-class StyleConfig:
-    name: str
-    font_name: str
-    font_size: int
-    position: str
-    alignment: int
-    outline: int
-    shadow: int
-    border_style: int
-    back_color: str
-    primary_color: str
-    max_chars: int
-    max_lines: int
-    use_banner: bool = False
-    animation: Optional[str] = None
-    secondary_font_size: Optional[int] = None
-
-@dataclass
-class WordObj:
-    start: float
-    end: float
-    word: str
-
-@dataclass
-class ProcessingCheckpoint:
-    video_path: str
-    stage: ProcessingStage
-    source_lang: str
-    target_langs: List[str]
-    timestamp: float
-    data: Dict[str, Any]
-
-# ==================== STYLE PRESETS ====================
-
-STYLE_PRESETS = {
-    SubtitleStyle.LECTURE: StyleConfig(
-        name="Lecture",
-        font_name="Arial",
-        font_size=28,
-        position="bottom",
-        alignment=2,
-        outline=2,
-        shadow=0,
-        border_style=3,
-        back_color="&H80000000",
-        primary_color="&H00FFFF00",
-        max_chars=42,
-        max_lines=1,
-        use_banner=False
-    ),
-    SubtitleStyle.VLOG: StyleConfig(
-        name="Vlog",
-        font_name="Arial",
-        font_size=22,
-        position="top",
-        alignment=8,
-        outline=3,
-        shadow=0,
-        border_style=1,
-        back_color="&H00000000",
-        primary_color="&H00FFFFFF",
-        max_chars=35,
-        max_lines=2,
-        use_banner=False,
-        animation="fade"
-    ),
-}
-
-# ==================== LANGUAGE CONFIGURATION ====================
-
-@dataclass
-class LanguageConfig:
-    """Configuration for a specific language"""
-    code: str
-    name: str
-    char_range: Optional[tuple] = None  # Unicode range for validation (start, end)
-    rtl: bool = False  # Right-to-left script
-    
-# Central language registry - single source of truth
-# Ordered by YouTube priority (top 25 languages + extras)
-LANGUAGE_REGISTRY = {
-    # Top 25 by internet/YouTube reach (2026)
-    'zh': LanguageConfig('zh', 'Chinese', ('\u4e00', '\u9fff')),              # 1. Mandarin/Simplified
-    'en': LanguageConfig('en', 'English'),                                    # 2. English
-    'es': LanguageConfig('es', 'Spanish'),                                    # 3. Spanish
-    'hi': LanguageConfig('hi', 'Hindi', ('\u0900', '\u097F')),               # 4. Hindi (Devanagari)
-    'ar': LanguageConfig('ar', 'Arabic', ('\u0600', '\u06FF'), rtl=True),    # 5. Arabic (Standard)
-    'bn': LanguageConfig('bn', 'Bengali', ('\u0980', '\u09FF')),             # 6. Bengali
-    'pt': LanguageConfig('pt', 'Portuguese'),                                 # 7. Portuguese
-    'ru': LanguageConfig('ru', 'Russian', ('\u0400', '\u04FF')),             # 8. Russian (Cyrillic)
-    'ja': LanguageConfig('ja', 'Japanese', ('\u3040', '\u30ff')),            # 9. Japanese (Hiragana/Katakana)
-    'fr': LanguageConfig('fr', 'French'),                                     # 10. French
-    'ur': LanguageConfig('ur', 'Urdu', ('\u0600', '\u06FF'), rtl=True),      # 11. Urdu (Arabic script)
-    'pa': LanguageConfig('pa', 'Punjabi', ('\u0a00', '\u0a7f')),             # 12. Punjabi (Gurmukhi)
-    'vi': LanguageConfig('vi', 'Vietnamese'),                                 # 13. Vietnamese
-    'tr': LanguageConfig('tr', 'Turkish'),                                    # 14. Turkish
-    'ko': LanguageConfig('ko', 'Korean', ('\uac00', '\ud7af')),              # 15. Korean (Hangul)
-    'id': LanguageConfig('id', 'Indonesian'),                                 # 16. Indonesian
-    'de': LanguageConfig('de', 'German'),                                     # 17. German
-    'fa': LanguageConfig('fa', 'Persian', ('\u0600', '\u06FF'), rtl=True),   # 18. Persian/Dari/Tajik
-    'gu': LanguageConfig('gu', 'Gujarati', ('\u0a80', '\u0aff')),            # 19. Gujarati
-    'it': LanguageConfig('it', 'Italian'),                                    # 20. Italian
-    'mr': LanguageConfig('mr', 'Marathi', ('\u0900', '\u097f')),             # 21. Marathi (Devanagari)
-    'te': LanguageConfig('te', 'Telugu', ('\u0c00', '\u0c7f')),              # 22. Telugu
-    'ta': LanguageConfig('ta', 'Tamil', ('\u0b80', '\u0bff')),               # 23. Tamil
-    'th': LanguageConfig('th', 'Thai', ('\u0e00', '\u0e7f')),                # 24. Thai
-    'ha': LanguageConfig('ha', 'Hausa'),                                      # 25. Hausa (Latin script)
-    
-    # Additional supported languages
-    'el': LanguageConfig('el', 'Greek', ('\u0370', '\u03FF')),
-    'mg': LanguageConfig('mg', 'Malagasy'),                                   # Madagascar
-    'nl': LanguageConfig('nl', 'Dutch'),
-    'pl': LanguageConfig('pl', 'Polish'),
-    'uk': LanguageConfig('uk', 'Ukrainian', ('\u0400', '\u04FF')),
-}
-
-def get_language_config(lang_code: str) -> LanguageConfig:
-    """Get language configuration with fallback to generic config"""
-    return LANGUAGE_REGISTRY.get(lang_code, LanguageConfig(lang_code, lang_code.upper()))
-
-def has_target_language_chars(text: str, lang_code: str) -> bool:
-    """Check if text contains characters from the target language's script"""
-    if not text:
-        return False
-    
-    lang_config = get_language_config(lang_code)
-    
-    # If language doesn't have a specific character range (Latin scripts),
-    # we can't validate by character presence alone
-    if not lang_config.char_range:
-        return True  # Assume valid for Latin scripts
-    
-    char_start, char_end = lang_config.char_range
-    return any(char_start <= c <= char_end for c in text)
 
 # ==================== MAIN PROCESSOR ====================
 
