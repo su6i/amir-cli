@@ -83,11 +83,15 @@ from subtitle.transcription import (
 )
 from subtitle.translation import (
     apply_final_target_text_fixes,
+    build_contextual_batch_text,
+    filter_gemini_generation_models,
     parse_translated_batch_output,
+    rank_gemini_model_name,
     resegment_translation,
     translate_batch_single_attempt as run_translate_batch_single_attempt,
     translate_with_batch_fallback_chain as run_translate_with_batch_fallback_chain,
     validate_and_retry_translations,
+    write_partial_translation_srt,
 )
 from subtitle.social import (
     call_llm_for_post,
@@ -111,9 +115,25 @@ from subtitle.workflow import (
 )
 from subtitle.segmentation import (
     group_entries_into_paragraphs,
+    is_abbrev_dot,
+    merge_orphan_segments,
+    peek_next_clause_words,
     take_n_words_with_punct_snap,
     take_words_up_to,
     vis_len,
+)
+from subtitle.sanitization import (
+    apply_semantic_splitting,
+    deduplicate_consecutive_entries,
+    normalize_and_fix_timing,
+    postprocess_orphans_and_collocations,
+)
+from subtitle.rendering import (
+    build_ass_events,
+    build_ass_header,
+    build_ass_styles,
+    build_secondary_map,
+    compute_ass_layout,
 )
 from subtitle.text import clean_bidi, fix_persian_text, strip_english_echo
 from subtitle.models import (
@@ -1340,24 +1360,6 @@ if __name__ == "__main__":
         sentence_enders = ('?', '!', '...')
         soft_break_chars = (',', ';', ':')
 
-        def _is_abbrev_dot(word_text: str, next_word: str) -> bool:
-            stripped = word_text.rstrip('.')
-            if len(stripped) <= 2: return True
-            if stripped.lower() in _ABBREVS: return True
-            if next_word and next_word[0].islower(): return True
-            return False
-
-        def _peek_next_clause_words(idx: int) -> int:
-            """Count words in the next clause (until next sentence-ender or soft-break)."""
-            count = 0
-            for k in range(idx + 1, min(idx + 20, len(words))):
-                w = words[k].word.strip()
-                if not w: continue
-                count += 1
-                if w.endswith(('?', '!', '...', '.', ',', ';', ':')):
-                    break
-            return count
-
         # ── main pass ────────────────────────────────────────────────────────
         entries: List[Dict] = []
         buf: List = []          # WordObj items
@@ -1408,7 +1410,7 @@ if __name__ == "__main__":
 
             # 1. Hard sentence end → always break (even before clause starters)
             is_sentence_end = text.endswith(sentence_enders)
-            if text.endswith('.') and not _is_abbrev_dot(text, next_text):
+            if text.endswith('.') and not is_abbrev_dot(text, next_text, _ABBREVS):
                 is_sentence_end = True
             if is_sentence_end:
                 _flush_buf()
@@ -1455,28 +1457,13 @@ if __name__ == "__main__":
                     and buf_words >= MIN_WORDS
                     and buf_chars >= limit * 0.6
                     and not next_is_clause_starter):
-                next_clause_len = _peek_next_clause_words(i)
+                next_clause_len = peek_next_clause_words(words, i)
                 if next_clause_len >= MIN_NEXT_CLAUSE:
                     _flush_buf()
                     continue
 
         # ── post-pass: orphan prevention ─────────────────────────────────────
-        # Merge segments with ≤ 2 words into the shorter neighbour
-        merged: List[Dict] = []
-        for entry in entries:
-            w_count = len(entry['text'].split())
-            if w_count <= 2 and merged:
-                # merge into previous
-                prev = merged[-1]
-                combined = prev['text'] + ' ' + entry['text']
-                # only merge if result fits within hard_limit chars
-                if len(combined) <= hard_limit + 10:
-                    prev['end']  = entry['end']
-                    prev['text'] = re.sub(r'\s+', ' ', combined).strip()
-                    continue
-            merged.append(entry)
-
-        entries = merged
+        entries = merge_orphan_segments(entries, hard_limit)
 
         # ── hallucination suppression + timing fix ───────────────────────────
         entries = self.suppress_hallucinations(entries)
@@ -1494,149 +1481,32 @@ if __name__ == "__main__":
 
         if not entries:
             return []
-            
-        # --- PASS 1: Semantic Splitting ---
-        # Ensure every entry fits on a single line horizontally
-        split_entries = []
-        for e in entries:
-            split_entries.extend(self._split_at_best_point(e, max_chars))
-        entries = split_entries
 
-        cleaned = []
-        last_end = 0.0
-        
-        for i, e in enumerate(entries):
-            start = self.parse_to_sec(e['start'])
-            end = self.parse_to_sec(e['end'])
-            
-            # Enforce min duration (extend end if needed)
-            if end - start < min_duration:
-                end = start + min_duration
-            
-            # --- TIMING PADDING ---
-            # Extend end time if there is a silent gap to make subtitles less "hurried"
-            next_start_time = self.parse_to_sec(entries[i+1]['start']) if i + 1 < len(entries) else 1e9
-            gap = next_start_time - end
-            if gap > 0.3:
-                 # Add 0.5s padding, but leave at least 0.05s gap for player consistency
-                 padding = min(0.5, gap - 0.05)
-                 end += padding
-            
-            
-            # Fix Overlap
-            if start < last_end:
-                # Overlap detected!
-                # Option 1: Shrink previous (too late, already processed)
-                # Option 2: Shift current start (might make it too short)
-                # Option 3: Middle ground (best for continuous speech)
-                overlap = last_end - start
-                if overlap > 0:
-                    start = last_end # Hard cut: Start exactly when previous ends
-                    if end - start < min_duration:
-                         end = start + min_duration
+        entries = apply_semantic_splitting(
+            entries,
+            max_chars=max_chars,
+            split_at_best_point_fn=self._split_at_best_point,
+        )
 
-            # Update entry
-            e['start'] = self.format_time(start)
-            e['end'] = self.format_time(end)
-            
-            cleaned.append(e)
-            last_end = end
-            
-        # --- DUPLICATE DETECTION: Remove consecutive identical entries (hallucination fix) ---
-        deduped = []
-        for entry in cleaned:
-            # Skip if this is identical to the last entry
-            if deduped and entry['text'].strip() == deduped[-1]['text'].strip():
-                # Extend the end time of the previous entry instead of creating a new one
-                deduped[-1]['end'] = entry['end']
-                continue
-            deduped.append(entry)
-        
-        # Log if duplicates were found
+        cleaned = normalize_and_fix_timing(
+            entries,
+            min_duration=min_duration,
+            parse_to_sec_fn=self.parse_to_sec,
+            format_time_fn=self.format_time,
+        )
+
+        deduped = deduplicate_consecutive_entries(cleaned)
         removed_count = len(cleaned) - len(deduped)
         if removed_count > 0:
             self.logger.warning(f"⚠️ Removed {removed_count} duplicate entries (Whisper hallucination suppression)")
-        
-        cleaned = deduped
-        
-        # --- Post-processing: orphan prevention and collocation NBSP insertion ---
-        # Load collocations set once
-        collocations = self._load_collocations()
 
-        final = []
-        i = 0
-        # Use 42 as the master limit for bilingual single-line harmony
-        max_chars = getattr(self.style_config, 'max_chars', 42)
-
-        while i < len(cleaned):
-            cur = cleaned[i]
-            text = cur.get('text', '').strip()
-            # Remove Whisper artifacts first
-            text = self._remove_whisper_artifacts(text)
-            cur['text'] = text
-            
-            # Use clean text for length/word logic
-            ctext = self._clean_bidi(text)
-
-            # 1) Orphan prevention: smarter merge preference for short segments
-            # threshold: <= 2 words or < 12 characters (covers Persian translations of single English words)
-            words = ctext.split()
-            if len(words) <= 2 or len(ctext) < 12:
-                prev = final[-1] if final else None
-                nxt = cleaned[i+1] if i + 1 < len(cleaned) else None
-
-                # prefer merging with next if that forms a collocation
-                merged_with_next = False
-                # Aggressive threshold for orphans (allow up to 60 chars)
-                orphan_max = 60
-                
-                if nxt:
-                    cnxt_text = self._clean_bidi(nxt['text'])
-                    right_first = re.findall(r"[\w\u0600-\u06FF'-]+", cnxt_text)
-                    if right_first:
-                        pair = f"{words[0].lower()} {right_first[0].lower()}"
-                        if pair in collocations:
-                            combined_clean = ctext + ' ' + cnxt_text
-                            if len(combined_clean) <= orphan_max:
-                                nxt['start'] = cur['start']
-                                nxt['text'] = combined_clean # No fix_persian_text here!
-                                i += 1
-                                merged_with_next = True
-                                continue
-
-                # otherwise try previous if exists
-                if prev and not merged_with_next:
-                    cprev = self._clean_bidi(prev['text'])
-                    combined_clean = cprev + ' ' + ctext
-                    if len(combined_clean) <= orphan_max:
-                        prev['end'] = cur['end']
-                        prev['text'] = combined_clean # No fix_persian_text here!
-                        i += 1
-                        continue
-
-            # 3) Collocation NBSP insertion within the entry
-            if text:
-                # Normalize and scan for bigrams
-                words_only = [w for w in re.findall(r"[\w\u0600-\u06FF'-]+", text)]
-                if words_only:
-                    rebuilt = text
-                    # Check adjacent word pairs
-                    for a, b in zip(words_only, words_only[1:]):
-                        pair = f"{a.lower()} {b.lower()}"
-                        if pair in collocations:
-                            # replace occurrences of the pair (case-insensitive)
-                            rebuilt = re.sub(re.escape(a) + r"\s+" + re.escape(b), a + '\u00A0' + b, rebuilt, flags=re.IGNORECASE)
-                    cur['text'] = rebuilt
-
-            final.append(cur)
-            i += 1
-
-        # 5) Reset Indices: Ensure stable numeric mapping for all downstream processes
-        # This is critical for the "Master Timeline" strategy.
-        for idx, entry in enumerate(final, 1):
-            entry['index'] = str(idx)
-
-        return final
+        return postprocess_orphans_and_collocations(
+            deduped,
+            max_chars=max_chars,
+            load_collocations_fn=self._load_collocations,
+            remove_whisper_artifacts_fn=self._remove_whisper_artifacts,
+            clean_bidi_fn=self._clean_bidi,
+        )
 
 
     @staticmethod
@@ -1862,10 +1732,6 @@ if __name__ == "__main__":
         
         # Translate
         client = OpenAI(api_key=self.api_key, base_url="https://api.deepseek.com/v1")
-        system = self.get_translation_prompt(target_lang)
-        
-        translated = []
-        last_error = "Unknown error"
         
         # Initialize result list
         final_result = [None] * len(texts)
@@ -1896,31 +1762,11 @@ if __name__ == "__main__":
             attempt = 0
             max_retries = 10
             success_batch = False
-            ds_failed = False
             last_error_msg = ""
             
             while attempt < max_retries and current_target_indices:
                 attempt += 1
-                
-                # Context lines (3 before first target, 3 after last target in the original batch size scope)
-                first_abs = current_target_indices[0]
-                last_abs  = current_target_indices[-1]
-                ctx_before = texts[max(0, first_abs - 3): first_abs]
-                ctx_after  = texts[last_abs + 1: last_abs + 4]
-                ctx_section = ""
-                if ctx_before or ctx_after:
-                    parts = []
-                    if ctx_before:
-                        parts.append("Previous lines (context only, do NOT translate):\n" +
-                                     "\n".join(f"  • {t}" for t in ctx_before))
-                    if ctx_after:
-                        parts.append("Following lines (context only, do NOT translate):\n" +
-                                     "\n".join(f"  • {t}" for t in ctx_after))
-                    ctx_section = "\n".join(parts) + "\n\nLines to translate:\n"
-
-                current_batch_texts = [texts[idx] for idx in current_target_indices]
-                # Keep prompt numbering 1..N matching the output indices we expect
-                batch_text = ctx_section + "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(current_batch_texts)])
+                batch_text = build_contextual_batch_text(texts, current_target_indices)
                 
                 try:
                     response = client.chat.completions.create(
@@ -1943,7 +1789,6 @@ if __name__ == "__main__":
                         time.sleep(delay)
                         if attempt >= max_retries:
                             last_error_msg = f"incomplete response after {max_retries} attempts"
-                            ds_failed = True
                             break
                         continue
                         
@@ -1974,11 +1819,11 @@ if __name__ == "__main__":
                     # LIVE SAVING: Write progress to SRT file immediately
                     if successful_indices and output_srt and original_entries:
                         try:
-                            with open(output_srt, 'w', encoding='utf-8-sig') as f:
-                                for idx_srt, entry in enumerate(original_entries, 1):
-                                    trans = final_result[idx_srt-1]
-                                    t_text = trans if trans is not None else entry['text']
-                                    f.write(f"{idx_srt}\n{entry['start']} --> {entry['end']}\n{t_text}\n\n")
+                            write_partial_translation_srt(
+                                output_srt=output_srt,
+                                original_entries=original_entries,
+                                final_result=final_result,
+                            )
                         except: pass
 
                     if not missing_indices:
@@ -1997,7 +1842,6 @@ if __name__ == "__main__":
                     if "401" in error_msg or "Invalid API Key" in error_msg:
                         raise
                     if attempt >= max_retries:
-                        ds_failed = True
                         break
                     wait_time = min(60, (2 ** (attempt % 6)) * 5)
                     self.logger.warning(f"Batch {i+1} attempt {attempt}/{max_retries} failed: {error_msg}")
@@ -2027,10 +1871,11 @@ if __name__ == "__main__":
                                         final_result[batch_indices[rel_idx]] = trans
                                     if output_srt and original_entries:
                                         try:
-                                            with open(output_srt, 'w', encoding='utf-8-sig') as f:
-                                                for _idx, _entry in enumerate(original_entries, 1):
-                                                    _tr = final_result[_idx-1]
-                                                    f.write(f"{_idx}\n{_entry['start']} --> {_entry['end']}\n{_tr if _tr else _entry['text']}\n\n")
+                                            write_partial_translation_srt(
+                                                output_srt=output_srt,
+                                                original_entries=original_entries,
+                                                final_result=final_result,
+                                            )
                                         except: pass
                                     pbar.update(len(batch))
                                     gemini_ok = True
@@ -2052,49 +1897,8 @@ if __name__ == "__main__":
         """Fetch and rank available models from Google API with smart filtering"""
         try:
             all_models = list(client.models.list())
-            
-            # Specialization Blacklist: Avoid non-text models
-            # These are for image gen, tts, or native audio processing
-            blacklist = ['image', 'tts', 'audio', 'video', 'voice', 'embedding']
-            
-            candidates = []
-            for m in all_models:
-                name_lower = m.name.lower()
-                
-                # Skip blacklisted specialized models
-                if any(word in name_lower for word in blacklist):
-                    continue
-                
-                # Filter for generation capability
-                actions = getattr(m, 'supported_actions', []) or getattr(m, 'supported_generation_methods', [])
-                if 'generateContent' in actions:
-                    candidates.append(m.name)
-            
-            # Ranking Logic (2026 Pro Standard)
-            def rank_score(name):
-                score = 0
-                name_lower = name.lower()
-                
-                # Version boosting (Higher is better)
-                if '3.0' in name_lower: score += 300
-                elif '2.5' in name_lower: score += 250
-                elif '2.0' in name_lower: score += 200
-                elif '1.5' in name_lower: score += 150
-                
-                # Capability boosting
-                if 'pro' in name_lower: score += 50
-                elif 'flash' in name_lower: score += 10
-                
-                # Penalize experimental or specific preview/thinking variants 
-                # unless they are the top-tier version
-                if 'exp' in name_lower: score -= 5
-                if 'preview' in name_lower: score -= 10
-                if 'thinking' in name_lower: score -= 15 # Thinking models are slow for batch translation
-                if '8b' in name_lower: score -= 20 # Smaller models are less accurate
-                
-                return score
-
-            ranked = sorted(candidates, key=rank_score, reverse=True)
+            candidates = filter_gemini_generation_models(all_models)
+            ranked = sorted(candidates, key=rank_gemini_model_name, reverse=True)
             
             # Fallback hardcoded defaults if API returns nothing (safety net)
             defaults = [
@@ -2732,203 +2536,52 @@ if __name__ == "__main__":
         """Generate ASS file"""
         title = f"{get_language_config(lang).name} + {get_language_config('fa').name}" if secondary_srt else get_language_config(lang).name
         self.logger.info(f"Generating ASS asset ({title})...")
-        
+
         style = self.style_config
-        
-        # Portrait videos need stable margins; keep bilingual rows close so they
-        # look like two consecutive lines instead of widely separated tiers.
-        is_portrait = bool(video_width and video_height and video_height > video_width)
-        # Keep a safer side margin in portrait to avoid clipping on narrow frames.
-        margin_h = 64 if is_portrait else 64
-        fa_margin_v = 26 if is_portrait else 10
-        # Previous value (92/56) pushed the English row too high. Tighten the
-        # offset to keep EN directly above FA in bilingual mode.
-        top_margin_v = 44 if is_portrait else 24
-        
-        if lang == 'fa' or secondary_srt:
-            # Calculate actual FA font size based on scales (style.font_size is already scaled by EN scale in __init__)
-            en_scale = getattr(self, 'en_font_scale', 1.0)
-            fa_scale = getattr(self, 'fa_font_scale', 1.0)
-            base_size = style.font_size / en_scale if en_scale > 0 else style.font_size
-            fa_font_size = int(base_size * fa_scale)
-            fa_font_name = getattr(self, 'fa_font_name', 'Vazirmatn')
-            
-            fa_style = (
-                f"Style: FaDefault,{fa_font_name},{fa_font_size},&H00FFFFFF,&H000000FF,&H00000000,{style.back_color},"
-                f"-1,0,0,0,100,100,0,0,{style.border_style},{style.outline},{style.shadow},"
-                f"{style.alignment},{margin_h},{margin_h},{fa_margin_v},1"
-            )
-        
-        # Standard V4+ Styles Format (23 entries)
-        format_line = "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding"
 
-        # Update primary_style to match full format
-        primary_style_full = (
-            f"Style: Default,{style.font_name},{style.font_size},{style.primary_color},&H000000FF,&H00000000,{style.back_color},"
-            f"0,0,0,0,100,100,0,0,{style.border_style},{style.outline},{style.shadow},"
-            f"{style.alignment},{margin_h},{margin_h},{fa_margin_v},1"
+        layout = compute_ass_layout(
+            style=style,
+            lang=lang,
+            secondary_srt=secondary_srt,
+            video_width=video_width,
+            video_height=video_height,
+            en_font_scale=getattr(self, 'en_font_scale', 1.0),
+            fa_font_scale=getattr(self, 'fa_font_scale', 1.0),
+            fa_font_name=getattr(self, 'fa_font_name', 'Vazirmatn'),
         )
-
-        top_style = (
-            f"Style: TopDefault,{style.font_name},{style.font_size},{style.primary_color},&H000000FF,&H00000000,{style.back_color},"
-            f"0,0,0,0,100,100,0,0,{style.border_style},{style.outline},{style.shadow},"
-            f"{style.alignment},{margin_h},{margin_h},{top_margin_v},1"
+        styles_block = build_ass_styles(
+            style=style,
+            secondary_srt=secondary_srt,
+            fa_style=layout['fa_style'],
+            margin_h=layout['margin_h'],
+            fa_margin_v=layout['fa_margin_v'],
+            top_margin_v=layout['top_margin_v'],
         )
+        header = build_ass_header(styles_block, secondary_srt)
 
-        # Build styles block: always include primary, conditionally add FA
-        # PlayResX/Y intentionally omitted — libass uses its default 640×480 coordinate
-        # space, which keeps Fontsize values at their intended visual weight.
-        # MarginL/R are already expressed in that same 640-wide space (see margin_h above).
-        # WrapStyle 2 (no-wrap) in bilingual mode: libass on darwin_arm64 ignores inline
-        # \q override tags, so the only reliable way to prevent the English top row from
-        # being "smart-balanced" into two lines is to set WrapStyle:2 in the header.
-        # Persian lines are pre-segmented and fit comfortably; if one ever overflows it
-        # is truncated at the margin, which is far better than a 3-line layout.
-        # WrapStyle 0 (smart wrap) is kept for monolingual mode as a safety net.
-        wrap_style = "2" if secondary_srt else "0"
-
-        styles_block = f"{format_line}\n{primary_style_full}"
-        if secondary_srt:
-            styles_block += f"\n{top_style}"
-        if lang == 'fa' or secondary_srt:
-            styles_block += f"\n{fa_style}"
-
-        header = f"""[Script Info]
-ScriptType: v4.00+
-WrapStyle: {wrap_style}
-
-[V4+ Styles]
-{styles_block}
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
-        
         secondary_map = {}
         if secondary_srt and os.path.exists(secondary_srt):
             sec = self.parse_srt(secondary_srt)
-            # Sync protection: Do NOT re-sanitize here, assume already sanitized in workflow
-            # Use original INDEX-based mapping to ensure perfect alignment regardless of empty strings
-            for e in sec:
-                secondary_map[e['index']] = e['text'] # fix_persian_text will be handled during rendering
-        
+            secondary_map = build_secondary_map(sec)
+
         entries = self.parse_srt(srt_path)
-        # Sync protection: Do NOT re-sanitize here, assume already sanitized in workflow
-        
-        events = []
-        
-        def wrap_parentheses_with_smaller_font(text: str) -> str:
-            """Wrap English terms in parentheses with a smaller ASS font scale."""
-            # Strip any pre-existing RLM markers around parentheses (from fix_persian_text)
-            pattern = r'[\u200F]?\(([a-zA-Z0-9\s/_\-\.]+)\)[\u200F]?'
-            # Scale down to 75% — no RLM needed; Vazirmatn handles RTL direction natively
-            replacement = r'{\fscx75\fscy75}(\1){\fscx100\fscy100}'
-            return re.sub(pattern, replacement, text)
-        
-        for idx, e in enumerate(entries):
-            start = e['start'].replace(',', '.')
-            end = e['end'].replace(',', '.')
-            # Enforce single line for English text in bilingual mode
-            # Standardize on a single space for all newline markers (\n, \N, \r)
-            text = e['text'].replace('\n', ' ').replace('\\N', ' ').replace('\\n', ' ').strip()
-            # Reduce multiple spaces to one
-            text = ' '.join(text.split())
-            # In bilingual mode, hard-truncate top line to keep it inside frame.
-            # Portrait videos need a stricter cap due narrower width.
-            # At fs13 in the default 640-wide ASS coordinate space, Latin glyphs average
-            # ~7 ASS units, giving ~80 usable chars per line. 70 is a safe generous cap for
-            # landscape; 42 for portrait (9:16 width is roughly 40% narrower in ASS space).
-            max_top_chars = 42 if is_portrait else 70
-            # In bilingual mode, hard-truncate English to avoid wrap/clipping.
-            # rendering regardless of WrapStyle or libass version differences.
-            if secondary_srt and len(text) > max_top_chars:
-                text = text[:max_top_chars].rsplit(' ', 1)[0] + '…'
-            
-            final_text = text
-            _bi_fa_text = None  # Separate Persian event text for bilingual mode
-            
-            # --- PERSIAN SHAPING LOGIC REMOVED ---
-            # FFmpeg is compiled with --enable-libharfbuzz, so it handles Arabic/Persian natively.
-            # Manual reshaping interferes with HarfBuzz and causes "backwards" text.
-            # We simply pass the raw UTF-8 text.
-            
-            # If we need to force RTL base direction, we use standard Unicode markers if needed,
-            # but usually raw text is best for HarfBuzz.
 
-            if secondary_map:
-                # Use INDEX-based matching for perfect alignment
-                sec_text = secondary_map.get(e['index'])
-                
-                if sec_text:
-                    # Clean and re-fix to ensure no double-wrapping
-                    sec_text = SubtitleProcessor._clean_bidi(sec_text)
-                    sec_text_fixed = self.fix_persian_text(sec_text)
-                    # Wrap English terms in parentheses with smaller font
-                    sec_text_formatted = wrap_parentheses_with_smaller_font(sec_text_fixed)
-                    # Top row (primary/source): smaller gray — fixed at 75%, never dynamic.
-                    # Bottom row (secondary/FA): full size white bold — never changes.
-                    # Font size MUST be constant per video; dynamic sizing causes jarring jumps.
-                    top_scale = 0.90 if is_portrait else 0.82
-                    top_fs = max(13, int(style.font_size * top_scale))
-                    bot_fs = style.font_size
-                    # RTL direction handled by FaDefault style (Vazirmatn is inherently RTL).
-                    # Do NOT insert RLM here — libass renders it as a visible rectangle.
-                    # Use TWO separate Dialogue events instead of one combined event.
-                    # Reason: \q is event-level in libass — the last \q tag wins for the entire
-                    # event. A single combined event with {\q2}EN\N{\q0}FA means \q0 cancels
-                    # \q2 and the English top line still word-wraps. Two events each have their
-                    # own independent wrap setting.
-                    # Persian event is added FIRST so libass places it at the natural bottom
-                    # position; the English event (added second) is pushed above by libass
-                    # collision avoidance.
-                    final_text = f"{{\\q2}}{{\\fs{top_fs}}}{{\\c&H808080}}{text}"
-                    _bi_fa_text = f"{{\\b1}}{{\\fs{bot_fs}}}{sec_text_formatted}"
-                else:
-                    final_text = text
-            
-            # ASS requires 1-digit hour (usually) and 2-digit centiseconds
-            # We must convert 00:00:00,000 (SRT) to 0:00:00.00 (ASS)
-            def srt_to_ass_time(t_str):
-                # t_str is HH:MM:SS,mmm — work in whole milliseconds to avoid float errors
-                h, m, s_ms = t_str.replace(',', '.').split(':')
-                s, ms = s_ms.split('.')
-                total_ms = int(h)*3600000 + int(m)*60000 + int(s)*1000 + int(ms)
-                # Apply time offset (e.g. when video was trimmed with --limit)
-                offset_ms = int(time_offset * 1000)
-                total_ms = max(0, total_ms - offset_ms)
-                out_h  = total_ms // 3600000
-                out_m  = (total_ms % 3600000) // 60000
-                out_s  = (total_ms % 60000) // 1000
-                out_cs = (total_ms % 1000) // 10
-                return f"{out_h}:{out_m:02d}:{out_s:02d}.{out_cs:02d}"
+        events = build_ass_events(
+            entries=entries,
+            secondary_map=secondary_map,
+            lang=lang,
+            style=style,
+            is_portrait=layout['is_portrait'],
+            secondary_srt=secondary_srt,
+            time_offset=time_offset,
+            clean_bidi_fn=SubtitleProcessor._clean_bidi,
+            fix_persian_text_fn=self.fix_persian_text,
+        )
 
-            ass_start = srt_to_ass_time(e['start'])
-            ass_end = srt_to_ass_time(e['end'])
-
-            # Strip BiDi directional control chars. Keep ZWNJ (\u200C) — Vazirmatn renders it
-            # as a true invisible zero-width glyph, needed for correct Persian letterform shaping.
-            for _cp in ('\u200f', '\u200e', '\u200d',
-                        '\u202b', '\u202a', '\u202c', '\u202e', '\u202d'):
-                final_text = final_text.replace(_cp, '')
-                if _bi_fa_text:
-                    _bi_fa_text = _bi_fa_text.replace(_cp, '')
-
-            # Use FaDefault style when primary lang is FA (RTL) and no secondary row.
-            # In bilingual mode, Default is used for the top row and FaDefault is applied
-            # inline (via {\rFaDefault}) for the bottom row.
-            event_style = "FaDefault" if (lang == 'fa' and not secondary_map) else "Default"
-            if _bi_fa_text:
-                # Two-event bilingual: Persian first → libass places it at bottom.
-                # English second → libass collision avoidance pushes it above Persian.
-                events.append(f"Dialogue: 0,{ass_start},{ass_end},FaDefault,,0,0,0,,{_bi_fa_text}")
-                events.append(f"Dialogue: 0,{ass_start},{ass_end},TopDefault,,0,0,0,,{final_text}")
-            else:
-                events.append(f"Dialogue: 0,{ass_start},{ass_end},{event_style},,0,0,0,,{final_text}")
-        
         with open(ass_path, 'w', encoding='utf-8') as f:
             # Add BOM for good measure
             f.write('\ufeff' + header + "\n".join(events))
-        
+
         self.logger.info(f"ASS asset generation complete: {Path(ass_path).name}")
 
     @staticmethod
