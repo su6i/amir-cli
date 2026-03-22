@@ -100,7 +100,10 @@ from subtitle.social import (
     telegram_sections_complete,
 )
 from subtitle.workflow import (
+    detect_subtitle_geometry,
+    migrate_legacy_resolution_srt,
     prepare_source_srt,
+    resolve_workflow_base,
     run_finalize_stage,
     run_rendering_stage,
     run_translation_stage,
@@ -3073,15 +3076,24 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 except Exception:
                     pass
 
-        # Resolve absolute path to properly handle inputs
-        video_path = os.path.abspath(video_path)
-        source_lang = (source_lang or 'auto').strip().lower()
-        target_langs = [str(l).strip().lower() for l in (target_langs or ['auto', 'fa']) if str(l).strip()]
+        ctx = resolve_workflow_base(
+            self,
+            video_path=video_path,
+            source_lang=source_lang,
+            target_langs=target_langs,
+            post_only=post_only,
+            render_resolution=render_resolution,
+        )
+        video_path = ctx["video_path"]
+        source_lang = ctx["source_lang"]
+        target_langs = ctx["target_langs"]
+        _source_auto_requested = ctx["source_auto_requested"]
+        _is_srt_input = ctx["is_srt_input"]
+        original_base = ctx["original_base"]
+        original_dir = ctx["original_dir"]
+        original_stem = ctx["original_stem"]
+        lock_key = ctx["lock_key"]
 
-        _source_auto_requested = source_lang in ('auto', 'detect', '')
-        # Normalize filename first so every downstream output uses a safe stem.
-        if os.path.exists(video_path) and not post_only:
-            video_path = self._ensure_safe_input_filename(video_path)
         self.logger.info(f"Processing sequence initiated: {Path(video_path).name}")
         
         result = {}
@@ -3089,192 +3101,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         workflow_lock_path = None
         global_slot_path = None
         
-        # ORIGINAL BASE: This is where ALL output files (SRT, ASS, Video) MUST go.
-        # It should be based on the user's input file, not any temp/safe copies.
-        original_dir = os.path.dirname(video_path)
-        original_stem = Path(video_path).stem
-        
-        # If input is already a temp/safe file (e.g. from a previous step), try to clean it
-        if "safe_input" in original_stem or "temp_" in original_stem:
-            original_stem = re.sub(r'^(temp_\d+_|safe_)', '', original_stem)
-
-        # Strip resolution suffix so all variants share one SRT/translation base.
-        # Handles both "_240p" and collision names like "_240p_2".
-        # e.g. "FooBar_480p", "FooBar_360p_2" -> original_base "FooBar"
-        original_stem = re.sub(r'_\d{3,4}p(?:_q\d+)?(?:_\d+)?$', '', original_stem)
-
-        # Detect SRT-as-input: user passed a pre-existing transcript file directly.
-        # Convention: file is named <base>_<lang>.srt — strip the `_<lang>` suffix so
-        # that original_base points at the real base name (same as if the video was given).
-        _is_srt_input = video_path.lower().endswith('.srt')
-        if _is_srt_input:
-            # Auto-detect language from SRT filename (e.g. video_fa.srt → source_lang='fa').
-            # This lets users pass `video_fa.srt` without needing `--source fa`.
-            _stem_lang_match = re.search(r'_([a-z]{2,3})$', original_stem)
-            if _stem_lang_match:
-                _detected_srt_lang = _stem_lang_match.group(1)
-                source_lang = _detected_srt_lang
-                _source_auto_requested = False
-                original_stem = original_stem[:-len(f'_{_detected_srt_lang}')]
-            elif original_stem.endswith(f'_{source_lang}'):
-                original_stem = original_stem[:-len(f'_{source_lang}')]
-
-        # Choose canonical base path by reusing an existing SRT set when present.
-        # This prevents re-transcription for variants like "..._360p_2.mp4" and
-        # also supports older/unsanitized project folders that may live in cwd.
-        _parent_dir = os.path.dirname(original_dir)
-        _cwd = os.getcwd()
-        self.logger.info(f"📁 Subtitle base resolution cwd: {_cwd}")
-        _normalized_target_stem = self._sanitize_stem_for_fs(original_stem)
-
-        def _stem_match_key(value: str) -> str:
-            return re.sub(r'[^a-z0-9]+', '', (value or '').lower())
-
-        _target_stem_key = _stem_match_key(_normalized_target_stem)
-
-        def _normalize_candidate_stem(value: str) -> str:
-            value = re.sub(r'_\d{3,4}p(?:_q\d+)?(?:_\d+)?$', '', value or '')
-            return self._sanitize_stem_for_fs(value)
-
-        _candidate_bases = [
-            os.path.join(_cwd, original_stem),
-            os.path.join(_cwd, _normalized_target_stem),
-            os.path.join(_cwd, original_stem, original_stem),
-            os.path.join(_cwd, _normalized_target_stem, _normalized_target_stem),
-            os.path.join(original_dir, original_stem),
-            os.path.join(_parent_dir, original_stem),
-            os.path.join(_parent_dir, original_stem, original_stem),
-        ]
-        _probe_langs = [
-            l for l in ([source_lang] + [t for t in (target_langs or []) if t != source_lang])
-            if re.fullmatch(r"[a-z]{2,3}", str(l or '').lower())
-        ]
-        if source_lang in ('auto', 'detect', ''):
-            # Auto-source mode: also probe common and locally discovered language codes
-            # so existing *_en.srt can be reused before transcription.
-            for _fallback_lang in ('en', 'fa', 'ar', 'fr', 'de', 'es', 'tr', 'it', 'ru', 'pt', 'zh', 'ja', 'ko'):
-                if _fallback_lang not in _probe_langs:
-                    _probe_langs.append(_fallback_lang)
-
-            _scan_dirs = []
-            for _d in (_cwd, os.path.join(_cwd, original_stem), original_dir, _parent_dir, os.path.join(_parent_dir, original_stem)):
-                if _d and os.path.isdir(_d) and _d not in _scan_dirs:
-                    _scan_dirs.append(_d)
-            for _scan_dir in _scan_dirs:
-                try:
-                    for _p in Path(_scan_dir).glob("*_*.srt"):
-                        _m = re.search(r"_([a-z]{2,3})\.srt$", _p.name.lower())
-                        if _m:
-                            _lang = _m.group(1)
-                            if _lang not in _probe_langs:
-                                _probe_langs.append(_lang)
-                except Exception:
-                    continue
-        _existing_base = None
-        for _b in _candidate_bases:
-            for _l in _probe_langs:
-                if os.path.exists(f"{_b}_{_l}.srt"):
-                    _existing_base = _b
-                    break
-            if _existing_base:
-                break
-
-        if not _existing_base:
-            _search_dirs = []
-            for _d in (_cwd, os.path.join(_cwd, original_stem), original_dir, _parent_dir, os.path.join(_parent_dir, original_stem)):
-                if _d and os.path.isdir(_d) and _d not in _search_dirs:
-                    _search_dirs.append(_d)
-
-            for _search_dir in _search_dirs:
-                for _l in _probe_langs:
-                    try:
-                        for _p in Path(_search_dir).glob(f"*_{_l}.srt"):
-                            if not _p.is_file():
-                                continue
-                            _cand_base = str(_p)[:-len(f"_{_l}.srt")]
-                            _cand_stem = os.path.basename(_cand_base)
-                            _cand_norm = _normalize_candidate_stem(_cand_stem)
-                            if _cand_norm == _normalized_target_stem or _stem_match_key(_cand_norm) == _target_stem_key:
-                                _existing_base = _cand_base
-                                break
-                    except Exception:
-                        continue
-                    if _existing_base:
-                        break
-                if _existing_base:
-                    break
-
-        original_base = _existing_base or os.path.join(original_dir, original_stem)
-        original_dir = os.path.dirname(original_base)
-        original_stem = os.path.basename(original_base)
-        lock_key = os.path.abspath(original_base).lower()
-        if render_resolution:
-            lock_key += f"_{render_resolution}"
-
-        if _existing_base:
-            self.logger.info(f"♻️ Canonical base resolved to existing assets: {original_base}")
-        else:
-            self.logger.info(f"🆕 Canonical base resolved to new assets: {original_base}")
-
         def _migrate_legacy_resolution_srt(lang_code: str, expected_path: str) -> bool:
-            """Promote legacy *_<res>p_<lang>.srt to shared base name if missing.
+            return migrate_legacy_resolution_srt(
+                self,
+                original_base=original_base,
+                original_dir=original_dir,
+                lang_code=lang_code,
+                expected_path=expected_path,
+            )
 
-            Returns True if expected_path exists after migration.
-            """
-            if os.path.exists(expected_path):
-                return True
-            try:
-                base_name = Path(original_base).name
-                parent_dir = Path(original_dir)
-                pattern = f"{base_name}_*p_{lang_code}.srt"
-                candidates = [p for p in parent_dir.glob(pattern) if p.is_file()]
-                if not candidates:
-                    return False
-                # Prefer richer files to maximize chance of full reuse.
-                candidates.sort(key=lambda p: (p.stat().st_size, p.stat().st_mtime), reverse=True)
-                best = candidates[0]
-                if best.stat().st_size < 50:
-                    return False
-                shutil.move(str(best), expected_path)
-                self.logger.info(f"📦 Reusing legacy SRT: {best.name} -> {Path(expected_path).name}")
-                return True
-            except Exception as e:
-                self.logger.warning(f"⚠️ Legacy SRT migration skipped for {lang_code}: {e}")
-                return os.path.exists(expected_path)
-
-        # ── Detect video orientation and compute subtitle geometry ───────────
-        # max_chars is derived from the 80% safe text area divided by the
-        # rendered character width, so long lines never overflow the frame.
-        #
-        # libass scales fonts from its default 480-line virtual space:
-        #   rendered_font_px = font_size × (video_height / 480)
-        # Glyph width ratio: Latin ≈ 0.55×, Arabic/Persian Naskh ≈ 0.40× (connected script).
-        #   max_chars = (video_width × 0.80) / (rendered_font_px × ratio)
-        _vw, _vh = 0, 0  # defaults for SRT-only input (no video dimensions available)
-        if not video_path.lower().endswith('.srt'):
-            _vw, _vh = self._detect_video_dimensions(video_path)
-            if _vw and _vh:
-                rendered_font_px = self.style_config.font_size * (_vh / 480.0)
-                text_area_px     = _vw * 0.80
-                # Glyph width ratio: Latin ≈ 0.55×, Arabic/Persian Naskh ≈ 0.64×.
-                # Vazirmatn and similar Naskh fonts have wider advance widths
-                # relative to cap-height (empirically ~0.62-0.66× font height).
-                # Using 0.64 gives max_chars ≈ 21 for 9:16 portrait with font 16,
-                # which correctly contains 4-word Persian lines without overflow.
-                _rtl_langs = {'fa', 'ar', 'ur', 'he'}
-                _is_rtl = target_langs and any(l in _rtl_langs for l in target_langs)
-                avg_glyph_w      = rendered_font_px * (0.64 if _is_rtl else 0.55)
-                max_chars_dyn    = max(10, int(text_area_px / avg_glyph_w))
-                # target ~4-8 words per line depending on how many chars fit
-                target_words_dyn = max(4, min(10, max_chars_dyn // 4))
-                self.style_config.max_chars   = max_chars_dyn
-                self.target_words_per_line    = target_words_dyn
-                orientation = "📱 Vertical" if _vh > _vw else "🖥️  Horizontal"
-                self.logger.info(
-                    f"{orientation} video ({_vw}×{_vh}): "
-                    f"font≈{rendered_font_px:.0f}px text_area={text_area_px:.0f}px "
-                    f"max_chars={max_chars_dyn} target_words={target_words_dyn}"
-                )
+        _vw, _vh = detect_subtitle_geometry(self, video_path=video_path, target_langs=target_langs)
         
         try:
             # Optional global throttling across all videos to avoid RAM spikes.
