@@ -99,7 +99,12 @@ from subtitle.social import (
     sanitize_post,
     telegram_sections_complete,
 )
-from subtitle.workflow import run_finalize_stage, run_rendering_stage, run_translation_stage
+from subtitle.workflow import (
+    prepare_source_srt,
+    run_finalize_stage,
+    run_rendering_stage,
+    run_translation_stage,
+)
 from subtitle.segmentation import (
     group_entries_into_paragraphs,
     take_n_words_with_punct_snap,
@@ -3326,99 +3331,23 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     resolved_targets.append(_resolved)
             target_langs = resolved_targets or [source_lang, 'fa']
             
-            # 1. Transcription
-            # Force SRT path to be at ORIGINAL location
-            src_srt = f"{original_base}_{source_lang}.srt"
-            _migrate_legacy_resolution_srt(source_lang, src_srt)
-            self.logger.info(f"🔎 Source transcription candidate: {src_srt}")
-            
-            # Use regex to recover SRT if only temp version exists (migration logic)
-            # (Skipped for now, assuming fresh run)
-            
-            if os.path.exists(src_srt) and not force:
-                # Validate existing file
-                try:
-                    if os.path.getsize(src_srt) < 50:
-                        self.logger.warning("Existing asset verification failed (undersized); initiating regeneration.")
-                        os.remove(src_srt)
-                    else:
-                        self.logger.info(f"Source asset validation successful: {Path(src_srt).name}")
-                except:
-                    pass
-            elif os.path.exists(src_srt) and force:
-                self.logger.info(f"🔄 Force mode enabled; overriding existing asset: {Path(src_srt).name}")
-                os.remove(src_srt)
-            
-            if not os.path.exists(src_srt):
-                self.logger.info("🎙️ Reusable source transcription not found after probe; Whisper transcription will run.")
-                # We pass the current_video_input (which might be temp/limited) to transcribe
-                # BUT we need to ensure the OUTPUT saved is 'src_srt' (original path)
-                # The transcribe_video method currently saves based on input name.
-                # Let's rename it after generation if needed.
-                
-                _actual_dur = (limit_end - _limit_start) if limit_end is not None else 0
-                _emit_progress(5, "🎙️ Transcription with Whisper...")
-                generated_srt = self.transcribe_video(current_video_input, source_lang, correct, detect_speakers, dur=_actual_dur)
-                
-                # CRITICAL: Unload model immediately after heavy transcription to free RAM for rendering/translation
-                self.cleanup()
-                
-                # If generated name != desired name, move it
-                if os.path.abspath(generated_srt) != os.path.abspath(src_srt):
-                    self.logger.info(f"📦 Moving temp SRT to final path: {Path(src_srt).name}")
-                    shutil.move(generated_srt, src_srt)
-                
-                _src_is_fresh = True
-            else:
-                self.logger.info(f"✅ Reusing source transcription without Whisper: {Path(src_srt).name}")
-                _src_is_fresh = False  # Already merged on a previous run; do not re-merge.
-            
-            # MASTER TIMELINE LOCK: Establish the structural anchor once.
-            # All downstream translations MUST follow this structure.
-            src_entries = self.parse_srt(src_srt)
-
-            # For SRT-as-input with --limit: filter entries to desired time window.
-            if _has_limit and _is_srt_input:
-                def _ts_to_sec(ts: str) -> float:
-                    """Parse SRT timestamp '00:04:09,430' → seconds as float."""
-                    ts = ts.replace(',', '.')
-                    parts = ts.split(':')
-                    return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
-                before = len(src_entries)
-                src_entries = [
-                    e for e in src_entries
-                    if _ts_to_sec(e['start']) >= _limit_start
-                    and (limit_end is None or _ts_to_sec(e['start']) < limit_end)
-                ]
-                self.logger.info(f"⏱️  Filtered {before} → {len(src_entries)} entries within [{_limit_start}s, {'end' if limit_end is None else str(limit_end) + 's'}]")
-
-            src_entries = self.sanitize_entries(src_entries)
-            
-            # Smart Merge: Fix split numbers (e.g. "1" + ",000") before saving
-            src_entries = self._merge_split_numbers(src_entries)
-            
-            # 📐 Merge short fragments into semantic clauses.
-            # Freshly transcribed SRTs always need this pass.
-            # For pre-existing SRTs (e.g., downloaded auto-subs), enable merge only when
-            # they are clearly over-fragmented (word-level chunks), to avoid word-by-word output.
-            _avg_words = (
-                sum(len((e.get('text') or '').split()) for e in src_entries) / max(1, len(src_entries))
+            # 1. Source SRT preparation (reuse/transcribe + sanitize/merge)
+            src_srt = prepare_source_srt(
+                self,
+                result=result,
+                original_base=original_base,
+                source_lang=source_lang,
+                force=force,
+                current_video_input=current_video_input,
+                limit_start=_limit_start,
+                limit_end=limit_end,
+                correct=correct,
+                detect_speakers=detect_speakers,
+                has_limit=_has_limit,
+                is_srt_input=_is_srt_input,
+                migrate_legacy_resolution_srt_fn=_migrate_legacy_resolution_srt,
+                emit_progress=_emit_progress,
             )
-            _src_is_fragmented = (len(src_entries) >= 60 and _avg_words < 2.3)
-
-            if _src_is_fresh or _src_is_fragmented:
-                if _src_is_fragmented and not _src_is_fresh:
-                    self.logger.info(
-                        f"📐 Detected fragmented source timeline (avg words/entry={_avg_words:.2f}); applying clause merge."
-                    )
-                src_entries = self.merge_to_clauses(src_entries)
-                # Merge step may create long entries again; enforce width/timing constraints.
-                src_entries = self.sanitize_entries(src_entries)
-                with open(src_srt, 'w', encoding='utf-8-sig') as f:
-                    for idx, entry in enumerate(src_entries, 1):
-                        f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
-            
-            result[source_lang] = src_srt
             
             # 2. Translation
             run_translation_stage(
