@@ -90,6 +90,7 @@ from subtitle.translation import (
 from subtitle.social import (
     call_llm_for_post,
     compose_post_file_header,
+    discover_video_metadata,
     format_publish_date,
     generate_posts as run_generate_posts,
     sanitize_post,
@@ -4251,114 +4252,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         return format_publish_date(value)
 
     def _discover_video_metadata(self, original_base: str, srt_path: Optional[str] = None) -> Dict[str, str]:
-        """Best-effort metadata lookup from yt-dlp sidecars near the current video/SRT."""
-        candidates = []
-        if srt_path:
-            srt_path = os.path.abspath(srt_path)
-            candidates.extend([
-                f"{srt_path}.info.json",
-                f"{os.path.splitext(srt_path)[0]}.info.json",
-            ])
-        original_base_abs = os.path.abspath(original_base)
-        base_dir = os.path.dirname(original_base_abs)
-        base_name = os.path.basename(original_base_abs)
-        candidates.extend([
-            f"{original_base_abs}.info.json",
-            f"{original_base_abs}.mp4.info.json",
-            f"{original_base_abs}.mov.info.json",
-            f"{original_base_abs}.m4v.info.json",
-        ])
-
-        # Fallback for resolution/collision sidecars:
-        # Also look in current working directory in case we are downloading to a fresh folder
-        # while original_base points to a canonical/existing one.
-        cwd = os.getcwd()
-        try:
-            dynamic_candidates = []
-            for d in set([base_dir, cwd]):
-                for pattern in (f"{base_name}_*.info.json", f"{base_name}*.info.json", "*.info.json"):
-                    for p in Path(d).glob(pattern):
-                        if p.is_file():
-                            dynamic_candidates.append(str(p.resolve()))
-            
-            # Additional check: if original_base was renamed/canonicalized, maybe the info file
-            # matches the current folder's video files
-            for p in Path(cwd).glob("*.info.json"):
-                dynamic_candidates.append(str(p.resolve()))
-
-            dynamic_candidates = sorted(set(dynamic_candidates), key=lambda p: os.path.getmtime(p), reverse=True)
-            candidates.extend(dynamic_candidates)
-        except Exception:
-            pass
-
-        seen = set()
-        for meta_path in candidates:
-            if not meta_path or meta_path in seen or not os.path.exists(meta_path):
-                continue
-            seen.add(meta_path)
-            try:
-                with open(meta_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                title = str(data.get('title') or data.get('fulltitle') or '').strip()
-                publish_date = self._format_publish_date(
-                    data.get('upload_date') or data.get('release_date') or data.get('timestamp') or ''
-                )
-                webpage_url = str(data.get('webpage_url') or data.get('original_url') or '').strip()
-                uploader = str(data.get('uploader') or data.get('channel') or '').strip()
-                if title or publish_date or webpage_url or uploader:
-                    # Also try to get duration from video file itself for accuracy
-                    duration_sec = data.get('duration') or 0.0
-                    if not duration_sec:
-                        # Try to find the actual media file based on original_base
-                        for ext in ('.mp4', '.mkv', '.mov', '.m4v', '.webm', '.ts'):
-                            v_p = original_base + ext
-                            if os.path.exists(v_p):
-                                duration_sec = self._get_video_duration(v_p)
-                                if duration_sec > 0: break
-
-                    return {
-                        'title': title,
-                        'publish_date': publish_date,
-                        'webpage_url': webpage_url,
-                        'uploader': uploader,
-                        'duration_sec': duration_sec,
-                    }
-            except Exception:
-                continue
-
-        # If no info.json or it lacked duration, try to find and probe the actual video file
-        # Check original_base + extensions AND check for quality suffixes (e.g. _720p.mp4)
-        duration_sec = duration_sec if 'duration_sec' in locals() and duration_sec > 0 else 0.0
-        if duration_sec <= 0:
-            base_dir = os.path.dirname(original_base_abs)
-            base_name = os.path.basename(original_base_abs)
-            exts = ('.mp4', '.mkv', '.mov', '.m4v', '.webm', '.ts')
-            
-            # 1. Try exact matches
-            for ext in exts:
-                v_p = original_base_abs + ext
-                if os.path.exists(v_p):
-                    duration_sec = self._get_video_duration(v_p)
-                    if duration_sec > 0: break
-            
-            # 2. Try glob for suffixes if still not found
-            if duration_sec <= 0:
-                try:
-                    for ext in exts:
-                        for p in Path(base_dir).glob(f"{base_name}*{ext}"):
-                            duration_sec = self._get_video_duration(str(p))
-                            if duration_sec > 0: break
-                        if duration_sec > 0: break
-                except Exception:
-                    pass
-
-        return {
-            'title': title if 'title' in locals() else '',
-            'publish_date': publish_date if 'publish_date' in locals() else '',
-            'webpage_url': webpage_url if 'webpage_url' in locals() else '',
-            'uploader': uploader if 'uploader' in locals() else '',
-            'duration_sec': duration_sec,
-        }
+        return discover_video_metadata(self, original_base, srt_path)
 
     @staticmethod
     def _compose_post_file_header(platform: str, metadata: Dict[str, str], fallback_title: str) -> str:
