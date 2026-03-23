@@ -8,6 +8,8 @@ from .deepseek_helpers import build_contextual_batch_text, write_partial_transla
 from .gemini_models import filter_gemini_generation_models, rank_gemini_model_name
 from .deepseek_pipeline import run_deepseek_translation_pipeline
 from .gemini_pipeline import run_gemini_translation_pipeline
+from .litellm_pipeline import run_litellm_translation_pipeline
+from .minimax_pipeline import run_minimax_translation_pipeline
 
 __all__ = [
 	"parse_translated_batch_output",
@@ -22,4 +24,6 @@ __all__ = [
 	"rank_gemini_model_name",
 	"run_deepseek_translation_pipeline",
 	"run_gemini_translation_pipeline",
+	"run_litellm_translation_pipeline",
+	"run_minimax_translation_pipeline",
 ]

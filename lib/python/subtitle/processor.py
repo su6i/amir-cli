@@ -100,6 +100,8 @@ from subtitle.translation import (
     write_partial_translation_srt,
     run_deepseek_translation_pipeline,
     run_gemini_translation_pipeline,
+    run_litellm_translation_pipeline,
+    run_minimax_translation_pipeline,
 )
 from subtitle.social import (
     call_llm_for_post,
@@ -1702,120 +1704,20 @@ class SubtitleProcessor:
 
     def translate_with_litellm(self, texts: List[str], target_lang: str, source_lang: str = 'en', batch_size: int = 20, original_entries: List[Dict] = None, output_srt: str = None, existing_translations: Dict[int, str] = None) -> List[str]:
         """Universal LLM bridge via LiteLLM for debugging and testing"""
-        if not HAS_LITELLM:
-            self.logger.error("LiteLLM not installed. Use 'uv pip install litellm'")
-            return self.translate_with_deepseek(texts, target_lang, source_lang, 30, original_entries, output_srt, existing_translations)
-
-        from litellm import completion
+        if not texts or target_lang == source_lang:
+            return texts
         
-        # Use provided custom_model or default to something reliable
-        model_name = self.custom_model or "gpt-4o-mini" 
-        
-        # SMART RESOLVER: Add provider prefix if missing for common models
-        if "/" not in model_name:
-            if "deepseek" in model_name.lower():
-                model_name = f"deepseek/{model_name}"
-            elif any(x in model_name.lower() for x in ["gpt-", "o1-", "o3-"]):
-                model_name = f"openai/{model_name}"
-            elif "claude" in model_name.lower():
-                model_name = f"anthropic/{model_name}"
-            elif "gemini" in model_name.lower():
-                model_name = f"google/{model_name}"
-        
-        self.logger.info(f"🌌 LiteLLM Bridge Active. Resolved Model: {model_name}")
-
-        indices = list(range(len(texts)))
-
-        final_result = [None] * len(texts)
-        # Prefill with any existing recovered translations to avoid re-translation costs
-        if existing_translations:
-            for idx, txt in existing_translations.items():
-                if 0 <= idx < len(final_result) and txt and txt.strip():
-                    final_result[idx] = txt
-        
-        # Remove indices that are already present in final_result
-        indices_to_translate = [i for i in indices if final_result[i] is None]
-        if not indices_to_translate:
-            # Nothing to translate; return final_result (with possible None replaced with source texts)
-            return [final_result[i] if final_result[i] is not None else texts[i] for i in range(len(texts))]
-
-        batch_indices_list = self._create_balanced_batches(indices_to_translate, texts, batch_size)
-        batch_count = len(batch_indices_list)
-        pbar = tqdm(total=len(indices_to_translate), unit="item", desc=f"  LiteLLM-Translating ({model_name})")
-        
-        for i, batch_indices in enumerate(batch_indices_list):
-            batch = [texts[idx] for idx in batch_indices]
-            # Use indexed list for LiteLLM bridge stability
-            batch_text = "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(batch)])
-            
-            pbar.set_postfix({"batch": f"{i + 1}/{batch_count}"})
-            
-            # NUCLEAR RETRY LOGIC for LiteLLM
-            attempt = 0
-            max_retries = 10 
-            success = False
-            
-            while attempt < max_retries and not success:
-                attempt += 1
-                try:
-                    # Variation: nudge temperature slightly on retries to break stuck loops
-                    current_temp = self.temperature + (attempt * 0.05 if attempt > 3 else 0)
-                    
-                    response = completion(
-                        model=model_name,
-                        messages=[
-                            {"role": "system", "content": self.get_translation_prompt(target_lang)},
-                            {"role": "user", "content": batch_text}
-                        ],
-                        temperature=min(1.0, current_temp), # Cap temperature
-                        timeout=90
-                    )
-                    
-                    output = response.choices[0].message.content.strip()
-                    trans_list = self._parse_translated_batch_output(output, len(batch))
-                    
-                    # Replace None with original text
-                    if None in trans_list:
-                        trans_list = [trans_list[j] if trans_list[j] is not None else batch[j] for j in range(len(trans_list))]
-                    
-                    if target_lang == 'fa':
-                        processed = []
-                        for idx, t in enumerate(trans_list):
-                            if t and has_target_language_chars(t, target_lang):
-                                processed.append(self.fix_persian_text(self.strip_english_echo(t)))
-                            else:
-                                # Keep original English if no Persian detected
-                                processed.append(batch[idx] if idx < len(batch) else t)
-                        trans_list = processed
-                    
-                    if len(trans_list) >= len(batch):
-                        for rel_idx, trans in enumerate(trans_list[:len(batch)]):
-                            abs_idx = batch_indices[rel_idx]
-                            final_result[abs_idx] = trans
-                        
-                        # Live saving
-                        if output_srt and original_entries:
-                            with open(output_srt, 'w', encoding='utf-8-sig') as f:
-                                for idx, entry in enumerate(original_entries, 1):
-                                    tr = final_result[idx-1]
-                                    t_text = tr if tr is not None else entry['text']
-                                    f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{t_text}\n\n")
-                        
-                        success = True
-                        pbar.update(len(batch))
-                    else:
-                        delay = min(5 + attempt, 12)
-                        self.logger.warning(f"⚠️ LiteLLM attempt {attempt}/{max_retries} incomplete: {len(trans_list)}/{len(batch)}. Retrying in {delay}s...")
-                        time.sleep(delay)
-
-                except Exception as e:
-                    self.logger.error(f"❌ LiteLLM attempt {attempt} failed: {e}")
-                    if attempt >= max_retries:
-                        raise RuntimeError(f"Halted: LiteLLM failed after {max_retries} attempts: {e}")
-                    time.sleep(5)
-
-        pbar.close()
-        return final_result
+        # Delegate to dedicated pipeline
+        return run_litellm_translation_pipeline(
+            processor=self,
+            texts=texts,
+            target_lang=target_lang,
+            source_lang=source_lang,
+            batch_size=batch_size,
+            original_entries=original_entries,
+            output_srt=output_srt,
+            existing_translations=existing_translations
+        )
 
     # ==================== MINIMAX TRANSLATION ====================
 
@@ -1823,95 +1725,20 @@ class SubtitleProcessor:
                                 batch_size: int = 15, original_entries: List[Dict] = None,
                                 output_srt: str = None, existing_translations: Dict[int, str] = None) -> List[str]:
         """Translate subtitle texts using MiniMax LLM (OpenAI-compatible API)."""
-        if not self.minimax_api_key:
-            raise RuntimeError("MINIMAX_API_KEY not set. Export it before running.")
-
-        from openai import OpenAI as _OAI
-        # platform.minimax.io (international) → api.minimax.io/v1
-        # platform.minimax.chat (China)        → api.minimax.chat/v1
-        client = _OAI(api_key=self.minimax_api_key, base_url="https://api.minimax.io/v1")
-
-        indices = list(range(len(texts)))
-        final_result: List[Optional[str]] = [None] * len(texts)
-
-        if existing_translations:
-            for idx, trans in existing_translations.items():
-                if 0 <= idx < len(texts):
-                    final_result[idx] = trans
-
-        indices_to_translate = [i for i in indices if final_result[i] is None]
-        if not indices_to_translate:
-            return [final_result[i] if final_result[i] is not None else texts[i] for i in range(len(texts))]
-
-        batch_indices_list = self._create_balanced_batches(indices_to_translate, texts, batch_size)
-        batch_count = len(batch_indices_list)
-        pbar = tqdm(total=len(indices_to_translate), unit="item", desc=f"  MiniMax-Translating ({target_lang.upper()})")
-
-        for i, batch_indices in enumerate(batch_indices_list):
-            batch = [texts[idx] for idx in batch_indices]
-            # Skip context lines for MiniMax (performance optimization)
-            batch_text = "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(batch)])
-            pbar.set_postfix({"batch": f"{i + 1}/{batch_count}"})
-
-            attempt = 0
-            max_retries = 6
-            success_batch = False
-            last_error_msg = ""
-            while attempt < max_retries:
-                try:
-                    attempt += 1
-                    response = client.chat.completions.create(
-                        model="MiniMax-M2.5",
-                        messages=[
-                            {"role": "system", "content": self.get_translation_prompt(target_lang)},
-                            {"role": "user", "content": batch_text}
-                        ],
-                        temperature=1.0,  # MiniMax default & optimal for translation
-                        max_tokens=1500
-                    )
-                    output = response.choices[0].message.content.strip()
-                    trans_list = self._parse_translated_batch_output(output, len(batch))
-                    if None in trans_list:
-                        trans_list = [trans_list[j] if trans_list[j] is not None else batch[j] for j in range(len(trans_list))]
-                    if target_lang == 'fa':
-                        trans_list = [self.fix_persian_text(self.strip_english_echo(t)) if t and has_target_language_chars(t, target_lang)
-                                      else batch[j] for j, t in enumerate(trans_list)]
-                    if len(trans_list) >= len(batch):
-                        for rel_idx, trans in enumerate(trans_list[:len(batch)]):
-                            final_result[batch_indices[rel_idx]] = trans
-                        if output_srt and original_entries:
-                            try:
-                                with open(output_srt, 'w', encoding='utf-8-sig') as f:
-                                    for _idx, _entry in enumerate(original_entries, 1):
-                                        _tr = final_result[_idx - 1]
-                                        f.write(f"{_idx}\n{_entry['start']} --> {_entry['end']}\n{_tr if _tr else _entry['text']}\n\n")
-                            except: pass
-                        pbar.update(len(batch))
-                        success_batch = True
-                        time.sleep(0.1)
-                        break
-                    else:
-                        delay = min(20 + attempt * 5, 120)
-                        self.logger.warning(f"⚠️ MiniMax batch {i+1} incomplete: got {len(trans_list)}/{len(batch)}. Retry {attempt}/{max_retries} in {delay}s...")
-                        time.sleep(delay)
-                        if attempt >= max_retries:
-                            last_error_msg = f"incomplete after {max_retries} attempts"
-                            break
-                except Exception as e:
-                    last_error_msg = f"{type(e).__name__}: {e}"
-                    if "401" in str(e) or "Invalid API Key" in str(e):
-                        raise
-                    if attempt >= max_retries:
-                        break
-                    time.sleep(min(60, (2 ** (attempt % 6)) * 5))
-
-            if not success_batch:
-                self.logger.error(f"❌ MiniMax batch {i+1} failed after {max_retries} attempts: {last_error_msg}")
-                pbar.close()
-                raise RuntimeError(f"MiniMax translation halted at batch {i+1}: {last_error_msg}")
-
-        pbar.close()
-        return final_result
+        if not texts or target_lang == source_lang:
+            return texts
+        
+        # Delegate to dedicated pipeline
+        return run_minimax_translation_pipeline(
+            processor=self,
+            texts=texts,
+            target_lang=target_lang,
+            source_lang=source_lang,
+            batch_size=batch_size,
+            original_entries=original_entries,
+            output_srt=output_srt,
+            existing_translations=existing_translations
+        )
 
     # ==================== GROK TRANSLATION ====================
 
