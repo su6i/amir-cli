@@ -98,6 +98,8 @@ from subtitle.translation import (
     translate_with_batch_fallback_chain as run_translate_with_batch_fallback_chain,
     validate_and_retry_translations,
     write_partial_translation_srt,
+    run_deepseek_translation_pipeline,
+    run_gemini_translation_pipeline,
 )
 from subtitle.social import (
     call_llm_for_post,
@@ -1635,171 +1637,17 @@ class SubtitleProcessor:
         if not texts or target_lang == source_lang:
             return texts
         
-        # Prepare translation
-        indices = list(range(len(texts)))
-        
-        # Translate
-        client = OpenAI(api_key=self.api_key, base_url="https://api.deepseek.com/v1")
-        
-        # Initialize result list
-        final_result = [None] * len(texts)
-        # Prefill with any existing recovered translations to avoid re-translation costs
-        if existing_translations:
-            for idx, txt in existing_translations.items():
-                if 0 <= idx < len(final_result) and txt and txt.strip():
-                    final_result[idx] = txt
-            
-        # Remove indices that are already present in final_result
-        indices_to_translate = [i for i in indices if final_result[i] is None]
-        if not indices_to_translate:
-            # Nothing to translate; return final_result (with possible None replaced with source texts)
-            return [final_result[i] if final_result[i] is not None else texts[i] for i in range(len(texts))]
-
-        batch_indices_list = self._create_balanced_batches(indices_to_translate, texts, batch_size)
-        batch_count = len(batch_indices_list)
-        pbar = tqdm(total=len(indices), unit="item", desc=f"  Translating ({target_lang.upper()})")
-        
-        for i, batch_indices in enumerate(batch_indices_list):
-            batch = [texts[idx] for idx in batch_indices]
-            pbar.set_postfix({"batch": f"{i + 1}/{batch_count}"})
-            
-            # The absolute indices we still need to translate in this batch
-            current_target_indices = list(batch_indices)
-            
-            # NUCLEAR PERSISTENCE: Retry until successful (Max 10 attempts)
-            attempt = 0
-            max_retries = 10
-            success_batch = False
-            last_error_msg = ""
-            
-            while attempt < max_retries and current_target_indices:
-                attempt += 1
-                batch_text = build_contextual_batch_text(texts, current_target_indices)
-                
-                try:
-                    response = client.chat.completions.create(
-                        model="deepseek-chat",
-                        messages=[
-                            {"role": "system", "content": self.get_translation_prompt(target_lang)},
-                            {"role": "user", "content": batch_text}
-                        ],
-                        temperature=self.temperature,
-                        max_tokens=4000
-                    )
-                    
-                    output = response.choices[0].message.content.strip()
-                    # Use a zero threshold to eagerly accept any validly extracted subsets for partial retries
-                    trans_list = self._parse_translated_batch_output(output, len(current_target_indices), threshold=0.0)
-                    
-                    if not trans_list:
-                        delay = min(20 + attempt * 5, 120)
-                        self.logger.warning(f"⚠️ Batch {i + 1} partial attempt returned empty. Retrying in {delay}s... (Attempt {attempt}/{max_retries})")
-                        time.sleep(delay)
-                        if attempt >= max_retries:
-                            last_error_msg = f"incomplete response after {max_retries} attempts"
-                            break
-                        continue
-                        
-                    # Process items and identify successes
-                    successful_indices = []
-                    for rel_idx, t in enumerate(trans_list):
-                        abs_idx = current_target_indices[rel_idx]
-                        if t is None or not str(t).strip():
-                            continue # Failed this specific line
-                        
-                        raw_t = str(t)
-                        if target_lang == 'fa':
-                            if not any('\u0600' <= c <= '\u06FF' for c in raw_t):
-                                continue # Failed (no Persian chars)
-                            val = self.fix_persian_text(self.strip_english_echo(raw_t))
-                        else:
-                            val = raw_t
-                            
-                        final_result[abs_idx] = val
-                        successful_indices.append(abs_idx)
-                        
-                    missing_indices = [idx for idx in current_target_indices if idx not in successful_indices]
-                    
-                    # Update progress bar only for newly translated items
-                    if successful_indices:
-                        pbar.update(len(successful_indices))
-                        
-                    # LIVE SAVING: Write progress to SRT file immediately
-                    if successful_indices and output_srt and original_entries:
-                        try:
-                            write_partial_translation_srt(
-                                output_srt=output_srt,
-                                original_entries=original_entries,
-                                final_result=final_result,
-                            )
-                        except: pass
-
-                    if not missing_indices:
-                        success_batch = True
-                        time.sleep(1)
-                        break
-                    else:
-                        current_target_indices = missing_indices
-                        delay = min(20 + attempt * 5, 120)
-                        self.logger.warning(f"⚠️ Batch {i + 1} partially incomplete ({len(missing_indices)} lines missing). Retrying missing lines in {delay}s... (Attempt {attempt}/{max_retries})")
-                        time.sleep(delay)
-
-                except Exception as e:
-                    error_msg = f"{type(e).__name__}: {str(e)}"
-                    last_error_msg = error_msg
-                    if "401" in error_msg or "Invalid API Key" in error_msg:
-                        raise
-                    if attempt >= max_retries:
-                        break
-                    wait_time = min(60, (2 ** (attempt % 6)) * 5)
-                    self.logger.warning(f"Batch {i+1} attempt {attempt}/{max_retries} failed: {error_msg}")
-                    time.sleep(wait_time)
-
-            # ── Per-batch Gemini fallback when DeepSeek fails ────────────────
-            if not success_batch:
-                gemini_ok = False
-                if HAS_GEMINI and self.google_api_key:
-                    self.logger.warning(f"⚠️ DeepSeek batch {i+1} failed ({last_error_msg}). Switching to Gemini for this batch...")
-                    try:
-                        from google import genai as _genai
-                        _gclient = _genai.Client(api_key=self.google_api_key)
-                        _models = self._get_available_gemini_models(_gclient)
-                        _prompt = f"{self.get_translation_prompt(target_lang)}\n\nLines to translate:\n{batch_text}"
-                        for _model in _models[:3]:
-                            try:
-                                _resp = _gclient.models.generate_content(model=_model, contents=_prompt)
-                                _tlist = self._parse_translated_batch_output(_resp.text.strip(), len(batch))
-                                if None in _tlist:
-                                    _tlist = [_tlist[j] if _tlist[j] is not None else batch[j] for j in range(len(_tlist))]
-                                if target_lang == 'fa':
-                                    _tlist = [self.fix_persian_text(self.strip_english_echo(t)) if t and has_target_language_chars(t, target_lang) else batch[j]
-                                              for j, t in enumerate(_tlist)]
-                                if len(_tlist) >= len(batch):
-                                    for rel_idx, trans in enumerate(_tlist[:len(batch)]):
-                                        final_result[batch_indices[rel_idx]] = trans
-                                    if output_srt and original_entries:
-                                        try:
-                                            write_partial_translation_srt(
-                                                output_srt=output_srt,
-                                                original_entries=original_entries,
-                                                final_result=final_result,
-                                            )
-                                        except: pass
-                                    pbar.update(len(batch))
-                                    gemini_ok = True
-                                    self.logger.info(f"✅ Gemini saved batch {i+1} via {_model}")
-                                    break
-                            except Exception as _ge:
-                                self.logger.debug(f"Gemini model {_model} failed: {_ge}")
-                    except Exception as ge:
-                        self.logger.warning(f"Gemini fallback init failed: {ge}")
-                if not gemini_ok:
-                    self.logger.error(f"❌ TERMINATING: Batch {i+1} failed on both DeepSeek and Gemini.")
-                    pbar.close()
-                    raise RuntimeError(f"Translation halted: batch {i+1} failed — DeepSeek: {last_error_msg}")
-        
-        pbar.close()
-        return final_result
+        # Delegate to dedicated pipeline
+        return run_deepseek_translation_pipeline(
+            processor=self,
+            texts=texts,
+            target_lang=target_lang,
+            source_lang=source_lang,
+            batch_size=batch_size,
+            original_entries=original_entries,
+            output_srt=output_srt,
+            existing_translations=existing_translations
+        )
 
     def _get_available_gemini_models(self, client) -> List[str]:
         """Fetch and rank available models from Google API with smart filtering"""
@@ -1835,137 +1683,20 @@ class SubtitleProcessor:
 
     def translate_with_gemini(self, texts: List[str], target_lang: str, source_lang: str = 'en', batch_size: int = 40, original_entries: List[Dict] = None, output_srt: str = None, existing_translations: Dict[int, str] = None) -> List[str]:
         """Batched translation with MODERN google-genai SDK and DYNAMIC model fallback"""
-        if not HAS_GEMINI:
-            self.logger.warning("google-genai SDK not installed. Falling back to DeepSeek.")
-            return self.translate_with_deepseek(texts, target_lang, source_lang, 30, original_entries, output_srt, existing_translations)
+        if not texts or target_lang == source_lang:
+            return texts
         
-        if not self.google_api_key:
-            self.logger.error("GOOGLE_API_KEY not found. Cannot use Gemini.")
-            return self.translate_with_deepseek(texts, target_lang, source_lang, 30, original_entries, output_srt, existing_translations)
-
-        # Initialize the modern Gemini Client
-        from google import genai
-        client = genai.Client(api_key=self.google_api_key)
-        
-        # Dynamic Fallback Chain
-        models = self._get_available_gemini_models(client)
-        self.logger.info(f"📡 Discovered {len(models)} Gemini models. Top pick: {models[0]}")
-        
-        indices = list(range(len(texts)))
-
-        final_result = [None] * len(texts)
-        # Prefill with any existing recovered translations to avoid re-translation costs
-        if existing_translations:
-            for idx, txt in existing_translations.items():
-                if 0 <= idx < len(final_result) and txt and txt.strip():
-                    final_result[idx] = txt
-        
-        # Remove indices that are already present in final_result
-        indices_to_translate = [i for i in indices if final_result[i] is None]
-        if not indices_to_translate:
-            # Nothing to translate; return final_result (with possible None replaced with source texts)
-            return [final_result[i] if final_result[i] is not None else texts[i] for i in range(len(texts))]
-
-        batch_indices_list = self._create_balanced_batches(indices_to_translate, texts, batch_size)
-        batch_count = len(batch_indices_list)
-        pbar = tqdm(total=len(indices_to_translate), unit="item", desc=f"  Gemini-Translating ({target_lang.upper()})")
-
-        for i, batch_indices in enumerate(batch_indices_list):
-            batch = [texts[idx] for idx in batch_indices]
-
-            # ── Context lines (3 before + 3 after, not translated) ──────────
-            first_abs = batch_indices[0]
-            last_abs  = batch_indices[-1]
-            ctx_before = texts[max(0, first_abs - 3): first_abs]
-            ctx_after  = texts[last_abs + 1: last_abs + 4]
-            ctx_section = ""
-            if ctx_before or ctx_after:
-                parts = []
-                if ctx_before:
-                    parts.append("Previous lines (context only, do NOT translate):\n" +
-                                 "\n".join(f"  • {t}" for t in ctx_before))
-                if ctx_after:
-                    parts.append("Following lines (context only, do NOT translate):\n" +
-                                 "\n".join(f"  • {t}" for t in ctx_after))
-                ctx_section = "\n".join(parts) + "\n\nLines to translate:\n"
-
-            # Use indexed list for perfect alignment across all models
-            batch_text = ctx_section + "\n".join([f"{idx+1}. {t}" for idx, t in enumerate(batch)])
-            
-            pbar.set_postfix({"batch": f"{i + 1}/{batch_count}"})
-            
-            success = False
-            # LIMIT SEARCH: Only try top 6 most capable models to avoid wasting time
-            for model_name in models[:6]:
-                if success: break
-                for attempt in range(2): 
-                    try:
-                        prompt = f"{self.get_translation_prompt(target_lang)}\n\nText to translate (numbered list):\n{batch_text}"
-                        
-                        response = client.models.generate_content(
-                            model=model_name,
-                            contents=prompt
-                        )
-                        output = response.text.strip()
-                        trans_list = self._parse_translated_batch_output(output, len(batch))
-                        
-                        # Replace None with original text
-                        if None in trans_list:
-                            trans_list = [trans_list[j] if trans_list[j] is not None else batch[j] for j in range(len(trans_list))]
-                        
-                        if target_lang == 'fa':
-                            processed = []
-                            for idx, t in enumerate(trans_list):
-                                if t and has_target_language_chars(t, target_lang):
-                                    processed.append(self.fix_persian_text(self.strip_english_echo(t)))
-                                else:
-                                    # Keep original English if no Persian detected
-                                    processed.append(batch[idx] if idx < len(batch) else t)
-                            trans_list = processed
-                        
-                        if len(trans_list) >= len(batch):
-                            result_batch = trans_list[:len(batch)]
-                            for rel_idx, trans in enumerate(result_batch):
-                                abs_idx = batch_indices[rel_idx]
-                                final_result[abs_idx] = trans
-                            
-                            # Live saving
-                            if output_srt and original_entries:
-                                with open(output_srt, 'w', encoding='utf-8-sig') as f:
-                                    for idx, entry in enumerate(original_entries, 1):
-                                        tr = final_result[idx-1]
-                                        t_text = tr if tr is not None else entry['text']
-                                        f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{t_text}\n\n")
-                            
-                            success = True
-                            pbar.update(len(batch))
-                            break
-                        else:
-                            delay = min(4 + attempt, 10)
-                            self.logger.warning(f"⚠️ {model_name} batch incomplete: got {len(trans_list)}/{len(batch)}. Retrying in {delay}s...")
-                            time.sleep(delay)
-                    except Exception as e:
-                        if "404" not in str(e) and "403" not in str(e):
-                            self.logger.warning(f"🛡️ {model_name} attempt {attempt} failed: {e}")
-                        time.sleep(1)
-                
-                if not success:
-                    self.logger.debug(f"🔄 Model {model_name} exhausted. Falling back downstream...")
-
-            if not success:
-                # ZERO-SKIP POLICY (GEMINI): Try emergency DeepSeek before halting
-                try:
-                    self.logger.info("🆘 EMERGENCY FALLBACK: Gemini failed. Switching to DeepSeek for this batch...")
-                    ds_result = self.translate_with_deepseek(batch, target_lang, source_lang, 30)
-                    for idx_in_batch, txt in zip(batch_indices, ds_result):
-                        final_result[idx_in_batch] = txt
-                except Exception as e:
-                    self.logger.error(f"❌ CRITICAL FAILURE: Both Gemini and DeepSeek failed for batch {i//batch_size + 1}")
-                    raise RuntimeError(f"Translation halted to prevent data loss: {e}")
-                pbar.update(len(batch))
-
-        pbar.close()
-        return final_result
+        # Delegate to dedicated pipeline
+        return run_gemini_translation_pipeline(
+            processor=self,
+            texts=texts,
+            target_lang=target_lang,
+            source_lang=source_lang,
+            batch_size=batch_size,
+            original_entries=original_entries,
+            output_srt=output_srt,
+            existing_translations=existing_translations
+        )
 
     # ==================== LITELLM TRANSLATION (DEBUG/TEST) ====================
 
