@@ -10,12 +10,19 @@ run_apply() {
     fi
 
     if [[ -z "$1" ]]; then
-        echo "Usage: amir apply <job-url> [--template altacv|lato]"
+        echo "Usage:"
+        echo "  amir apply <job-url> [--template <name>]"
+        echo "  amir apply preview   [--template <name>]"
         return 1
     fi
 
-    # The CV project requires commands to be run from its root
-    # We sub-shell into it and execute uv run
-    echo "🚀 Forwarding command to CV Generator at $CV_DIR..."
-    (cd "$CV_DIR" && uv run main.py apply "$@")
+    # Check if subcommand is preview
+    if [[ "$1" == "preview" ]]; then
+        shift
+        echo "🚀 Generating CV Preview at $CV_DIR..."
+        (cd "$CV_DIR" && uv run main.py preview "$@")
+    else
+        echo "🚀 Forwarding command to CV Generator at $CV_DIR..."
+        (cd "$CV_DIR" && uv run main.py apply "$@")
+    fi
 }

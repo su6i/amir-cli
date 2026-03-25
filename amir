@@ -193,10 +193,6 @@ case "$COMMAND" in
         shift
         if [[ -f "$LIB_DIR/commands/apply.sh" ]]; then source "$LIB_DIR/commands/apply.sh"; run_apply "$@"; exit $?; fi
         ;;
-    preview)
-        shift
-        if [[ -f "$LIB_DIR/commands/preview.sh" ]]; then source "$LIB_DIR/commands/preview.sh"; run_preview "$@"; exit $?; fi
-        ;;
     
     llm-lists)
         shift
