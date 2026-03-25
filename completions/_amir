@@ -28,6 +28,8 @@ _amir() {
             'clip:Copy text or file to clipboard'
             'chat:Ask Gemini/Gemma anything'
             'code:Generate code and save to file'
+            'apply:Tailor CV and Cover Letter for a job from a URL'
+            'preview:Generate a CV preview with full profile data'
             'watermark:Add logo or text watermark to images/videos'
             'subtitle:Generate multi-language subtitles using AI'
             'llm-lists:Fetch model lists from LLM providers'
@@ -673,6 +675,10 @@ _amir() {
         apply)
             _arguments -s \
                 '1:job url: ' \
+                '--template[Choose LaTeX template layout]:template:(altacv lato)'
+            ;;
+        preview)
+            _arguments -s \
                 '--template[Choose LaTeX template layout]:template:(altacv lato)'
             ;;
         llm-lists)
