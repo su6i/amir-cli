@@ -189,6 +189,10 @@ case "$COMMAND" in
         shift
         if [[ -f "$LIB_DIR/commands/subtitle.sh" ]]; then source "$LIB_DIR/commands/subtitle.sh"; run_subtitle "$@"; exit $?; fi
         ;;
+    apply)
+        shift
+        if [[ -f "$LIB_DIR/commands/apply.sh" ]]; then source "$LIB_DIR/commands/apply.sh"; run_apply "$@"; exit $?; fi
+        ;;
     
     llm-lists)
         shift
