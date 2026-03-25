@@ -32,7 +32,6 @@ _amir() {
             'watermark:Add logo or text watermark to images/videos'
             'subtitle:Generate multi-language subtitles using AI'
             'llm-lists:Fetch model lists from LLM providers'
-            'apply:Tailor CV (apply <url>) or Preview (apply preview)'
         )
         _describe -t commands 'amir commands' commands
         return
@@ -673,13 +672,9 @@ _amir() {
         
         apply)
             if (( CURRENT == 3 )); then
-                # Show 'preview' command and a hint for the URL
-                local -a apply_opts
-                apply_opts=(
-                    'preview:Generate a CV preview with full profile data'
-                )
-                _describe -t commands 'apply subcommand' apply_opts
-                _message "-- Enter URL --"
+                _message "Enter job URL or 'preview'"
+                # Adding a second option 'url' to prevent auto-completing 'preview'
+                _values 'apply command' 'preview[Generate CV preview]' 'url[Enter job URL]'
                 return
             fi
 
