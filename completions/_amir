@@ -31,6 +31,7 @@ _amir() {
             'watermark:Add logo or text watermark to images/videos'
             'subtitle:Generate multi-language subtitles using AI'
             'llm-lists:Fetch model lists from LLM providers'
+            'apply:Tailor CV and Cover Letter for a job from a URL'
         )
         _describe -t commands 'amir commands' commands
         return
@@ -669,6 +670,11 @@ _amir() {
             esac
             ;;
         
+        apply)
+            _arguments -s \
+                '1:job url: ' \
+                '--template[Choose LaTeX template layout]:template:(altacv lato)'
+            ;;
         llm-lists)
             case $((CURRENT)) in
                 3)
