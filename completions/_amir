@@ -682,7 +682,7 @@ _amir() {
                 '1:action_or_url:' \
                 '--template[Choose LaTeX template layout]:template:(altacv lato classic experimental)' \
                 '--role[Target role/variant]:role:(ai it phd python)' \
-                '--lang[Output language for CV/cover letter]:lang:(fr en)' \
+                '--lang[Output language for CV/cover letter]:lang:(auto fr en)' \
                 '--color[Sidebar background color highlight]:color:(blue green orange red purple gray)'
             ;;
         llm-lists)
