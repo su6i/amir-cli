@@ -12,7 +12,7 @@ run_apply() {
     if [[ -z "$1" ]]; then
         echo "Usage:"
         echo "  amir apply <job-url> [--template <name>] [--lang auto|fr|en] [--color <name>]"
-        echo "  amir apply preview   [--template <name>] [--role <ai|it|phd>] [--lang fr|en] [--color <name>]"
+        echo "  amir apply preview   [--template <name>] [--role <ai|it|phd>] [--lang fr|en] [--color <name>] [--no-localize-preview]"
         return 1
     fi
 

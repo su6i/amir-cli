@@ -683,6 +683,7 @@ _amir() {
                 '--template[Choose LaTeX template layout]:template:(altacv lato classic experimental)' \
                 '--role[Target role/variant]:role:(ai it phd python)' \
                 '--lang[Output language for CV/cover letter]:lang:(auto fr en)' \
+                '--no-localize-preview[Preview only: skip profile text localization for faster generation]' \
                 '--color[Sidebar background color highlight]:color:(blue green orange red purple gray)'
             ;;
         llm-lists)
