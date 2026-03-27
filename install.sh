@@ -324,6 +324,35 @@ else
     install_via_pip
 fi
 
+# ----------------------
+# 7. Setup CV Repository (Dependency)
+# ----------------------
+echo "-------------------------------------"
+echo "🎓 Setting up CV automation repository (dependency)..."
+
+CV_REPO_DIR="${AMIR_CLI_HOME:-.}/../CV"  # Assumed sibling directory
+if [[ -d "$CV_REPO_DIR" ]] && [[ -f "$CV_REPO_DIR/install.sh" ]]; then
+    echo "  📂 Found CV repo at: $CV_REPO_DIR"
+    print_status "Running CV install script..."
+    bash "$CV_REPO_DIR/install.sh" > /dev/null 2>&1
+    if [[ $? -eq 0 ]]; then
+        echo "  ✅ CV repository dependencies installed."
+    else
+        echo "  ⚠️  CV install.sh encountered an issue, but proceeding anyway."
+        echo "     You may need to run it manually: bash $CV_REPO_DIR/install.sh"
+    fi
+elif [[ -d "@-github/CV" ]] && [[ -f "@-github/CV/install.sh" ]]; then
+    echo "  📂 Found CV repo at: @-github/CV"
+    print_status "Running CV install script..."
+    bash "@-github/CV/install.sh" > /dev/null 2>&1
+    if [[ $? -eq 0 ]]; then
+        echo "  ✅ CV repository dependencies installed."
+    fi
+else
+    echo "  ℹ️  CV repository not found. If you use CV features, run manually:"
+    echo "     bash /path/to/CV/install.sh"
+fi
+
 echo "-------------------------------------"
 echo "🎉 Installation Complete! Run 'amir help' to start."
 if [[ $INSTALL_ML -eq 0 ]]; then
