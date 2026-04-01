@@ -403,7 +403,8 @@ split_video_by_size_strict() {
                 break
             fi
 
-            local tmp_path="${part_path}.tmp.${it}"
+            # Keep a valid media extension on temp files so ffmpeg can infer muxer.
+            local tmp_path="${part_path%.*}.tmp${it}.${ext}"
             ffmpeg -hide_banner -loglevel error -y -ss "$start_sec" -t "$mid" -i "$input_file" \
                 -map 0 -c copy -reset_timestamps 1 -movflags +faststart "$tmp_path" || {
                 rm -f "$tmp_path"
