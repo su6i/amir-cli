@@ -379,74 +379,26 @@ split_video_by_size_strict() {
         local part_path
         part_path=$(printf "%s%03d.%s" "$out_pattern" "$idx" "$ext")
 
-        # If remainder is likely the last part, write it directly.
-        local est_remain_bytes
-        est_remain_bytes=$(awk -v total_b="$total_bytes" -v total_t="$total_dur" -v rem="$remain" 'BEGIN {
-            if(total_t<=0){print total_b}else{printf "%.0f", (total_b*rem/total_t)}
-        }')
-        if [[ "$est_remain_bytes" =~ ^[0-9]+$ && "$est_remain_bytes" -le "$target_bytes" ]]; then
-            ffmpeg -hide_banner -loglevel error -y -ss "$start_sec" -i "$input_file" \
-                -map 0 -c copy -movflags +faststart "$part_path"
-            break
-        fi
-
-        local low="0.30"
-        local high="$remain"
-        local best_dur="0"
-        local best_tmp=""
-        local it
-
-        for it in {1..14}; do
-            local mid
-            mid=$(awk -v lo="$low" -v hi="$high" 'BEGIN {printf "%.6f", (lo+hi)/2.0}')
-            if [[ $(awk -v m="$mid" 'BEGIN {print (m <= 0.05) ? 1 : 0}') -eq 1 ]]; then
-                break
-            fi
-
-            # Keep a valid media extension on temp files so ffmpeg can infer muxer.
-            local tmp_path="${part_path%.*}.tmp${it}.${ext}"
-            ffmpeg -hide_banner -loglevel error -y -ss "$start_sec" -t "$mid" -i "$input_file" \
-                -map 0 -c copy -reset_timestamps 1 -movflags +faststart "$tmp_path" || {
-                rm -f "$tmp_path"
-                high="$mid"
-                continue
-            }
-
-            local sz
-            sz=$(stat -f%z "$tmp_path" 2>/dev/null || stat -c%s "$tmp_path" 2>/dev/null)
-            if [[ -z "$sz" || ! "$sz" =~ ^[0-9]+$ ]]; then
-                rm -f "$tmp_path"
-                high="$mid"
-                continue
-            fi
-
-            if [[ "$sz" -le "$target_bytes" ]]; then
-                [[ -n "$best_tmp" && -f "$best_tmp" ]] && rm -f "$best_tmp"
-                best_tmp="$tmp_path"
-                best_dur="$mid"
-                low="$mid"
-            else
-                rm -f "$tmp_path"
-                high="$mid"
-            fi
-        done
-
-        if [[ -z "$best_tmp" || ! -f "$best_tmp" ]]; then
-            # Fallback tiny cut to avoid stalling on pathological GOP layouts.
-            ffmpeg -hide_banner -loglevel error -y -ss "$start_sec" -t "1.00" -i "$input_file" \
-                -map 0 -c copy -reset_timestamps 1 -movflags +faststart "$part_path" || return 1
-            best_dur="1.00"
-        else
-            mv "$best_tmp" "$part_path"
-        fi
+        # Fast strict split: produce one chunk capped by size, then advance by the
+        # actual output duration. This avoids heavy temp-file churn.
+        ffmpeg -hide_banner -loglevel error -y -ss "$start_sec" -i "$input_file" \
+            -map 0 -c copy -fs "$target_bytes" -reset_timestamps 1 -movflags +faststart "$part_path" || return 1
 
         local part_size
         part_size=$(stat -f%z "$part_path" 2>/dev/null || stat -c%s "$part_path" 2>/dev/null)
         if [[ -z "$part_size" || ! "$part_size" =~ ^[0-9]+$ || "$part_size" -le 0 ]]; then
+            rm -f "$part_path"
             return 1
         fi
 
-        start_sec=$(awk -v s="$start_sec" -v d="$best_dur" 'BEGIN {printf "%.6f", s+d}')
+        local part_dur
+        part_dur=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$part_path" 2>/dev/null)
+        if [[ -z "$part_dur" || $(awk -v d="$part_dur" 'BEGIN {print (d <= 0.05) ? 1 : 0}') -eq 1 ]]; then
+            rm -f "$part_path"
+            return 1
+        fi
+
+        start_sec=$(awk -v s="$start_sec" -v d="$part_dur" 'BEGIN {printf "%.6f", s+d}')
         idx=$((idx + 1))
     done
 
