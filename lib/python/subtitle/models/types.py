@@ -7,6 +7,7 @@ class SubtitleStyle(Enum):
     PODCAST = "podcast"
     LECTURE = "lecture"
     VLOG = "vlog"
+    SHORT_FORM = "short_form"  # NEW: Optimized for vertical videos (TikTok, Reels, YouTube Shorts)
     MOVIE = "movie"
     NEWS = "news"
     CUSTOM = "custom"
@@ -88,5 +89,20 @@ STYLE_PRESETS = {
         max_lines=2,
         use_banner=False,
         animation="fade",
+    ),
+    SubtitleStyle.SHORT_FORM: StyleConfig(
+        name="ShortForm",
+        font_name="Arial",
+        font_size=24,
+        position="center",  # Center vertical positioning for short-form
+        alignment=5,  # Alignment: 5 = center (for better mobile view)
+        outline=2,
+        shadow=1,
+        border_style=3,  # Rounded border
+        back_color="&H80000000",  # Semi-transparent black background
+        primary_color="&H00FFFFFF",  # White text
+        max_chars=48,  # Optimized for 5 words in vertical format (52 chars for portrait bilingual)
+        max_lines=1,  # Single line primary for vertical videos with 5-word constraint
+        use_banner=True,  # Use banner for better mobile readability
     ),
 }

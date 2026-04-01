@@ -1998,7 +1998,7 @@ class SubtitleProcessor:
 
     # ==================== ASS CREATION ====================
 
-    def create_ass_with_font(self, srt_path: str, ass_path: str, lang: str, secondary_srt: Optional[str] = None, time_offset: float = 0.0, video_width: int = 0, video_height: int = 0):
+    def create_ass_with_font(self, srt_path: str, ass_path: str, lang: str, secondary_srt: Optional[str] = None, time_offset: float = 0.0, video_width: int = 0, video_height: int = 0, top_raise_px: int = 0, bottom_raise_px: int = 0):
         """Generate ASS file"""
         title = f"{get_language_config(lang).name} + {get_language_config('fa').name}" if secondary_srt else get_language_config(lang).name
         self.logger.info(f"Generating ASS asset ({title})...")
@@ -2014,6 +2014,8 @@ class SubtitleProcessor:
             en_font_scale=getattr(self, 'en_font_scale', 1.0),
             fa_font_scale=getattr(self, 'fa_font_scale', 1.0),
             fa_font_name=getattr(self, 'fa_font_name', 'Vazirmatn'),
+            top_raise_px=top_raise_px,
+            bottom_raise_px=bottom_raise_px,
         )
         styles_block = build_ass_styles(
             style=style,
@@ -2181,6 +2183,8 @@ class SubtitleProcessor:
         render_fps: Optional[int] = None,
         render_split_mb: Optional[int] = None,
         pad_bottom: int = 0,
+        subtitle_raise_top_px: int = 0,
+        subtitle_raise_bottom_px: int = 0,
         use_vad: bool = True,
         progress_callback=None,
     ) -> Dict[str, Any]:
@@ -2333,6 +2337,8 @@ class SubtitleProcessor:
                     render_fps=render_fps,
                     render_split_mb=render_split_mb,
                     pad_bottom=pad_bottom,
+                    subtitle_raise_top_px=subtitle_raise_top_px,
+                    subtitle_raise_bottom_px=subtitle_raise_bottom_px,
                     emit_progress=_emit_progress,
                     detect_best_hw_encoder_fn=detect_best_hw_encoder,
                     get_default_quality_fn=get_default_quality,
