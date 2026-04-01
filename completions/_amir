@@ -182,6 +182,8 @@ _amir() {
                         '*--post-only[Post only — skip processing (optional: telegram youtube linkedin)]:platform:(telegram youtube linkedin)' \
                         '--prompt-file[Custom prompt file for post generation]:file:_files' \
                         '--pad-bottom[Add black padding at bottom (percentage)]:pct' \
+                        '--raise-top[Move top subtitle upward by N pixels]:px' \
+                        '--raise-bottom[Move bottom subtitle upward by N pixels]:px' \
                         '--no-vad[Disable Voice Activity Detection]'
                     ;;
                 *)
@@ -665,6 +667,8 @@ _amir() {
                         '--prompt-file[Custom prompt file for post generation]:file:_files' \
                         '(-R --resolution)'{-R,--resolution}'[After URL download: compress to height]:height:(240 360 480 720 1080)' \
                         '--pad-bottom[Add black padding at bottom (percentage)]:pct' \
+                        '--raise-top[Move top subtitle upward by N pixels]:px' \
+                        '--raise-bottom[Move bottom subtitle upward by N pixels]:px' \
                         '--no-vad[Disable Voice Activity Detection]'
                     ;;
             esac
@@ -678,13 +682,7 @@ _amir() {
                 return
             fi
 
-            _arguments -s \
-                '1:action_or_url:' \
-                '--template[Choose LaTeX template layout]:template:(altacv lato classic experimental)' \
-                '--role[Target role/variant]:role:(ai it phd python)' \
-                '--lang[Output language for CV/cover letter]:lang:(auto fr en)' \
-                '--no-localize-preview[Preview only: skip profile text localization for faster generation]' \
-                '--color[Sidebar background color highlight]:color:(blue green orange red purple gray)'
+            _apply_arguments
             ;;
         llm-lists)
             case $((CURRENT)) in
@@ -810,6 +808,64 @@ _amir_bg_colors() {
         '#0000ff:Hex Blue'
     )
     _describe -t bg_colors 'Background Color' bg_colors
+}
+
+_amir_cv_roles() {
+    # Dynamically detect roles from data/resume_profile_*.json files in CV repo
+    local cv_repo="${HOME}/@-github/CV"
+    local -a roles=()
+    
+    if [[ -d "$cv_repo/data" ]]; then
+        # Extract role names from resume_profile_*.json format
+        for file in "$cv_repo/data"/resume_profile_*.json; do
+            if [[ -f "$file" ]]; then
+                # Extract role from filename: resume_profile_ROLE.json → ROLE
+                local role="${file##*/resume_profile_}"
+                role="${role%.json}"
+                if [[ -n "$role" ]]; then
+                    roles+=("$role")
+                fi
+            fi
+        done
+    fi
+    
+    # Fallback to hardcoded defaults if no files found
+    if (( ${#roles[@]} == 0 )); then
+        roles=('ai' 'it' 'phd' 'python')
+    fi
+    
+    # Remove duplicates and sort
+    roles=($(printf '%s\n' "${roles[@]}" | sort -u))
+    
+    # Return as completion values
+    _values 'role' "${roles[@]}"
+}
+
+_amir_cv_langs() {
+    # Support any language in completion since backend accepts arbitrary languages
+    # Show common options with descriptions
+    local -a langs=(
+        'auto:Auto-detect (default)'
+        'fr:Français (French)'
+        'en:English'
+        'es:Español (Spanish)'
+        'de:Deutsch (German)'
+        'it:Italiano (Italian)'
+        'fa:فارسی (Farsi/Persian)'
+    )
+    
+    _describe -t langs 'language' langs
+}
+
+_apply_arguments() {
+    # Custom arguments handler for apply command with dynamic role/lang completion
+    _arguments -s \
+        '1:action_or_url:' \
+        '--template[Choose LaTeX template layout]:template:(altacv lato classic experimental)' \
+        '--role[Target role/variant]:role:_amir_cv_roles' \
+        '--lang[Output language for CV/cover letter]:lang:_amir_cv_langs' \
+        '--no-localize-preview[Preview only: skip profile text localization for faster generation]' \
+        '--color[Sidebar background color highlight]:color:(blue green orange red purple gray)'
 }
 
 _amir "$@"

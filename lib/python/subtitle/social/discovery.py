@@ -1,11 +1,24 @@
 import json
 import os
+import re
 from pathlib import Path
 from typing import Dict, Optional
 
 
 def discover_video_metadata(processor, original_base: str, srt_path: Optional[str] = None) -> Dict[str, str]:
     """Best-effort metadata lookup from yt-dlp sidecars near the current video/SRT."""
+    def stem_key(value: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
+
+    def normalize_candidate_stem(value: str) -> str:
+        stem = value or ""
+        # Strip common sidecar suffixes and generated tails to compare base video identity.
+        stem = re.sub(r"\.info$", "", stem, flags=re.IGNORECASE)
+        stem = re.sub(r"_[a-z]{2,3}(?:_[a-z]{2,3})?$", "", stem, flags=re.IGNORECASE)
+        stem = re.sub(r"_[0-9]{3,4}p(?:_q[0-9]+)?(?:_[0-9]+)?$", "", stem, flags=re.IGNORECASE)
+        stem = re.sub(r"_(subbed|rendered)$", "", stem, flags=re.IGNORECASE)
+        return stem
+
     candidates = []
     if srt_path:
         srt_path = os.path.abspath(srt_path)
@@ -17,6 +30,20 @@ def discover_video_metadata(processor, original_base: str, srt_path: Optional[st
     original_base_abs = os.path.abspath(original_base)
     base_dir = os.path.dirname(original_base_abs)
     base_name = os.path.basename(original_base_abs)
+
+    target_keys = {stem_key(normalize_candidate_stem(base_name))}
+    if srt_path:
+        srt_stem = os.path.splitext(os.path.basename(srt_path))[0]
+        target_keys.add(stem_key(normalize_candidate_stem(srt_stem)))
+    target_keys = {k for k in target_keys if k}
+
+    def is_related_meta(meta_path: str) -> bool:
+        stem = Path(meta_path).stem
+        candidate_key = stem_key(normalize_candidate_stem(stem))
+        if not candidate_key or not target_keys:
+            return False
+        return any(candidate_key in tk or tk in candidate_key for tk in target_keys)
+
     candidates.extend([
         f"{original_base_abs}.info.json",
         f"{original_base_abs}.mp4.info.json",
@@ -30,11 +57,8 @@ def discover_video_metadata(processor, original_base: str, srt_path: Optional[st
         for d in set([base_dir, cwd]):
             for pattern in (f"{base_name}_*.info.json", f"{base_name}*.info.json", "*.info.json"):
                 for p in Path(d).glob(pattern):
-                    if p.is_file():
+                    if p.is_file() and is_related_meta(str(p.resolve())):
                         dynamic_candidates.append(str(p.resolve()))
-
-        for p in Path(cwd).glob("*.info.json"):
-            dynamic_candidates.append(str(p.resolve()))
 
         dynamic_candidates = sorted(set(dynamic_candidates), key=lambda p: os.path.getmtime(p), reverse=True)
         candidates.extend(dynamic_candidates)

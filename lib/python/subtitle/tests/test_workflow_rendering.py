@@ -57,6 +57,8 @@ class TestRunRenderingStage(unittest.TestCase):
             render_fps=None,
             render_split_mb=None,
             pad_bottom=0,
+            subtitle_raise_top_px=0,
+            subtitle_raise_bottom_px=0,
             emit_progress=Mock(),
             detect_best_hw_encoder_fn=Mock(return_value={'encoder': 'libx264', 'codec': 'h264', 'platform': 'cpu'}),
             get_default_quality_fn=Mock(return_value=65),
@@ -100,6 +102,8 @@ class TestRunRenderingStage(unittest.TestCase):
             render_fps=None,
             render_split_mb=None,
             pad_bottom=0,
+            subtitle_raise_top_px=0,
+            subtitle_raise_bottom_px=0,
             emit_progress=Mock(),
             detect_best_hw_encoder_fn=Mock(return_value={'encoder': 'libx264', 'codec': 'h264', 'platform': 'cpu'}),
             get_default_quality_fn=Mock(return_value=65),
@@ -157,6 +161,8 @@ class TestRenderingStageIntegration(unittest.TestCase):
             render_fps=30,          # Custom FPS
             render_split_mb=100,    # Custom split size
             pad_bottom=20,          # Custom padding
+            subtitle_raise_top_px=0,
+            subtitle_raise_bottom_px=0,
             emit_progress=Mock(),
             detect_best_hw_encoder_fn=Mock(return_value={'encoder': 'libx264', 'codec': 'h264', 'platform': 'cpu'}),
             get_default_quality_fn=Mock(return_value=65),

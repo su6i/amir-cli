@@ -309,7 +309,7 @@ process_video() {
             echo "⏩ Output exists: $(basename "$output")"
             echo "🔁 Reusing existing compressed file and running split only..."
             echo ""
-            split_media_approx_by_size "$output" "$split_mb"
+            split_video_by_size_strict "$output" "$split_mb"
             return
         fi
         echo "⏩ Skipping: $(basename "$input_file") (Output exists)"
@@ -466,10 +466,10 @@ process_video() {
     # ── Output Size Validation (via shared library) ──
     validate_output_size "$input_file" "$output" "$encoder"
 
-    # ── Split output into chunks if requested (--split N splits by ~N MB) ──
+    # ── Split output into chunks if requested (--split N; strict size mode) ──
     if [[ -n "$split_mb" && "$split_mb" -gt 0 && -f "$output" ]]; then
         echo ""
-        split_media_approx_by_size "$output" "$split_mb"
+        split_video_by_size_strict "$output" "$split_mb"
     fi
 }
 
@@ -488,7 +488,7 @@ run_video_split() {
         return 1
     fi
 
-    split_media_approx_by_size "$input_file" "$split_mb"
+    split_video_by_size_strict "$input_file" "$split_mb"
 }
 
 video() {
@@ -512,11 +512,14 @@ video() {
         echo "       amir video batch <dir> [Resolution]"
         echo ""
         echo "Example (Compress): amir video compress movie.mp4 1080 60"
+        echo "Example (Compress): amir video compress movie.mp4 --resolution 720 --quality 40"
         echo "Example (Trim):     amir video trim clip.mp4 -s 00:01:30 -t 00:03:00"
         echo ""
         echo "Options:"
         echo "  --gpu            Use hardware encoder (default on Apple Silicon)"
         echo "  --cpu            Use software encoder (better compression ratio)"
+        echo "  --quality N      Set quality (1-100, higher = better)"
+        echo "  --resolution N   Set resolution height (e.g. 720, 1080)"
         echo "  -s, --start      Start time (HH:MM:SS or seconds)"
         echo "  -e, --end        End time (HH:MM:SS or seconds)"
         echo "  -t, --to         End time (alias for --end)"
@@ -563,6 +566,14 @@ video() {
             --fps)
                 i=$(( i + 1 ))
                 custom_fps="${args[$i]:-0}"
+                ;;
+            --quality)
+                i=$(( i + 1 ))
+                quality="${args[$i]:-70}"
+                ;;
+            --resolution)
+                i=$(( i + 1 ))
+                target_h="${args[$i]:-720}"
                 ;;
             --split)
                 i=$(( i + 1 ))
@@ -671,7 +682,7 @@ run_video_cut() {
           && -z "$render_resolution" && -z "$render_quality" && -z "$render_fps" \
           && "$encode" -eq 0 && -z "$output_file" ]]; then
         echo "✂️  Split-only mode: reusing source file without creating *_cut output"
-        split_video_approx_by_size "$input_file" "$split_mb"
+        split_video_by_size_strict "$input_file" "$split_mb"
         return $?
     fi
 
@@ -955,10 +966,10 @@ run_video_cut() {
         echo ""
         echo "📍 Output: $(realpath "$output_file")"
 
-        # Optional post-render split (approximate MB chunks; keyframe-bound)
+        # Optional post-render split (strict size mode; keyframe-bound)
         if [[ -n "$split_mb" && "$split_mb" =~ ^[0-9]+$ && "$split_mb" -gt 0 ]]; then
             echo ""
-            split_media_approx_by_size "$output_file" "$split_mb"
+            split_video_by_size_strict "$output_file" "$split_mb"
         fi
     else
         # run_ffmpeg_with_progress automatically prints the ffmpeg error log if exit code is non-zero
@@ -1187,8 +1198,8 @@ video_download() {
     local YT_TRANSLATE=false       # translate downloaded YT subs via amir subtitle (skips Whisper)
     local BROWSER="${AMIR_DEFAULT_BROWSER:-chrome}"
     local COOKIES_FILE=""
-    local DL_RESOLUTION=$(get_config "video" "resolution" "720")
-    local DL_QUALITY=""
+    local DL_RESOLUTION=$(get_config "video" "resolution" "480")
+    local DL_QUALITY=$(get_config "video" "quality" "40")
     local DL_RESOLUTION_EXPLICIT=false
     local DL_QUALITY_EXPLICIT=false
     local KEEP_THUMB_FILE=true
@@ -1217,7 +1228,7 @@ video_download() {
             --keep-thumb)    KEEP_THUMB_FILE=true; shift ;;
             -y|--yes)        AUTO_YES=true; shift ;;
             --get-link|-l)   GET_LINK=true; shift ;;
-            --formats|-F)    LIST_FORMATS=true; shift ;;
+            --formats|-F|--list-formats|--list-format|--lists-format) LIST_FORMATS=true; shift ;;
             --extreme)       EXTREME_DL=true; shift ;;
             --resolution|-R)
                 DL_RESOLUTION="$2"
@@ -1281,6 +1292,24 @@ video_download() {
     # Strip shell-escaped backslashes (e.g. \? \= that zsh adds when URL is unquoted)
     URL="${URL//\\/}"
 
+    # Common shell mistake: passing a variable name literal instead of its value.
+    # Example: amir video download URL   (literal token)
+    # We auto-resolve from exported env var when available.
+    if [[ "$URL" =~ ^[A-Za-z_][A-Za-z0-9_]*$ && ! "$URL" =~ ^https?:// ]]; then
+        local _url_var_name="$URL"
+        local _url_from_env=""
+        _url_from_env="$(printenv "$_url_var_name" 2>/dev/null)"
+        if [[ "$_url_from_env" =~ ^https?:// ]]; then
+            URL="$_url_from_env"
+            log_info "ℹ️  Resolved URL from env var: ${_url_var_name}" >&2
+        else
+            log_error "URL looks like a variable name literal: '$URL'" >&2
+            echo "💡 Correct usage: amir video download \"\$$URL\"" >&2
+            echo "💡 If you want literal-name auto-resolution, export first: export $URL='https://...'; then run: amir video download $URL" >&2
+            return 1
+        fi
+    fi
+
     # When --translate is set, source and target must differ
     if $YT_TRANSLATE && [[ "$LANG_SRC" == "auto" ]]; then
         # YT built-in subtitle selection needs an explicit track code.
@@ -1314,10 +1343,11 @@ video_download() {
         echo "  --browser <name>      Browser for cookies (default: chrome)" >&2
         echo "  --cookies <file>      Path to Netscape cookies.txt file" >&2
         echo "  --keep-thumb          Keep the downloaded thumbnail sidecar file" >&2
-        echo "  --formats, -F         Show available resolutions and sizes before downloading" >&2
+        echo "  --formats, -F, --list-formats, --list-format  Show available resolutions and sizes before downloading" >&2
+        echo "  --lists-format        Compatibility alias (same as --list-formats)" >&2
         echo "  --resolution, -R <h> [q]  Download max height (e.g. 240/360/480/720/1080); optional quality after it" >&2
         echo "  --quality <q>         Download quality factor (1-100). Same as optional [q] after --resolution" >&2
-        echo "  --extreme                 Fast defaults for subtitle pipeline: 360p + q30" >&2
+        echo "  --extreme             Fast defaults for subtitle pipeline: 360p + q30" >&2
         return 1
     fi
 
@@ -1331,10 +1361,8 @@ video_download() {
     if [[ -n "$COOKIES_FILE" ]]; then
         COOKIE_ARGS=(--cookies "$COOKIES_FILE")
     elif [[ -f "cookies.txt" ]]; then
-        # Auto-detect cookies.txt in CWD
         COOKIE_ARGS=(--cookies "cookies.txt")
     elif [[ -f "$HOME/su6i-yar/cookies.txt" ]]; then
-        # Explicit fallback for su6i-yar on server
         COOKIE_ARGS=(--cookies "$HOME/su6i-yar/cookies.txt")
     elif [[ -n "$BROWSER" && "$BROWSER" != "none" ]]; then
         COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
@@ -1370,46 +1398,78 @@ video_download() {
     if $LIST_FORMATS; then
         log_info "📊 Fetching available formats for: $URL" >&2
         echo "" >&2
-        # Use yt-dlp -j to get JSON, then extract video+audio combos per height
-        yt-dlp \
+        local _fmt_json
+        _fmt_json=$(mktemp /tmp/amir_formats.XXXXXX)
+        if ! yt-dlp \
             "${COOKIE_ARGS[@]}" \
             "${IMPERSONATE_ARGS[@]}" \
             --no-playlist \
             -j \
-            "$URL" 2>/dev/null | \
-        python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-title = data.get('title','?')
-fmts  = data.get('formats', [])
-print(f'  📹 {title}')
+            "$URL" > "$_fmt_json" 2>/dev/null; then
+            rm -f "$_fmt_json"
+            log_error "Could not fetch format list from source (URL blocked/invalid/cookie required)." >&2
+            return 1
+        fi
+
+        if [[ ! -s "$_fmt_json" ]]; then
+            rm -f "$_fmt_json"
+            log_error "No format metadata returned by extractor." >&2
+            return 1
+        fi
+
+        python3 - "$_fmt_json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    print("❌ ERROR: Failed to parse source metadata.", file=sys.stderr)
+    raise SystemExit(1)
+
+title = data.get("title", "?")
+fmts = data.get("formats", [])
+print(f"  📹 {title}")
 print()
-print(f'  {\"Res\":<8} {\"Codec\":<8} {\"VBR kbps\":<12} {\"Size (est.)\":<14} {\"Note\"}')
-print('  ' + '-'*60)
+print(f"  {'Res':<8} {'Codec':<8} {'VBR kbps':<12} {'Size (est.)':<14} {'Note'}")
+print("  " + "-" * 60)
+
 seen = {}
 for f in fmts:
-    h  = f.get('height') or 0
-    vb = f.get('vbr') or f.get('tbr') or 0
-    ab = f.get('abr') or 0
-    fs = f.get('filesize') or f.get('filesize_approx') or 0
-    vc = (f.get('vcodec') or '').split('.')[0]
-    note = f.get('format_note','') or ''
-    if h < 144 or not vc or vc in ('none',''):
+    h = f.get("height") or 0
+    vb = f.get("vbr") or f.get("tbr") or 0
+    fs = f.get("filesize") or f.get("filesize_approx") or 0
+    vc = (f.get("vcodec") or "").split(".")[0]
+    fid = f.get("format_id") or ""
+    note = f.get("format_note", "") or ""
+    if h < 144:
         continue
-    key = h
-    cur = seen.get(key)
+    if not vc or vc in ("none", ""):
+        vc = "hls" if fid.startswith("hls-") else "unknown"
+    cur = seen.get(h)
     if cur is None or vb > (cur[1] or 0):
-        seen[key] = (vc, vb, ab, fs, note)
+        seen[h] = (vc, vb, fs, note)
+
+dur = data.get("duration") or 0
 for h in sorted(seen.keys(), reverse=True):
-    vc, vb, ab, fs, note = seen[h]
-    vb_s  = f'{int(vb)} kbps'   if vb  else '?'
-    dur   = data.get('duration') or 0
-    sz_s  = f'{fs/1024/1024:.1f} MB' if fs else (f'~{vb * 1000 * dur / 8 / 1024 / 1024:.0f} MB' if vb and dur else '?')
-    print(f'  {str(h)+\"p\":<8} {vc:<8} {str(int(vb)) + \" kbps\" if vb else \"?\":<12} {sz_s:<14} {note}')
+    vc, vb, fs, note = seen[h]
+    if fs:
+        size_s = f"{fs/1024/1024:.1f} MB"
+    elif vb and dur:
+        size_s = f"~{vb * 1000 * dur / 8 / 1024 / 1024:.0f} MB"
+    else:
+        size_s = "?"
+    vbr_s = f"{int(vb)} kbps" if vb else "?"
+    print(f"  {str(h)+'p':<8} {vc:<8} {vbr_s:<12} {size_s:<14} {note}")
+
 print()
-print('  💡 Tip: smaller kbps = smaller file. Run with --resolution <N> to download.')
-"
-        return $?
+print("  💡 Tip: smaller kbps = smaller file. Run with --resolution <N> to download.")
+PY
+        local _fmt_exit=$?
+        rm -f "$_fmt_json"
+        return $_fmt_exit
     fi
 
     # ── Get-link mode ──────────────────────────────────────────────────────
@@ -1477,7 +1537,7 @@ print('  💡 Tip: smaller kbps = smaller file. Run with --resolution <N> to dow
             --write-info-json \
             --write-thumbnail \
             --convert-thumbnails jpg \
-            -f "bestvideo[height<=${DL_RESOLUTION}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=${DL_RESOLUTION}]+bestaudio/best[height<=${DL_RESOLUTION}]" \
+            -f "best[height<=${DL_RESOLUTION}][format_id!*=timeline]/bestvideo[height<=${DL_RESOLUTION}][format_id!*=timeline]+bestaudio/best[height<=${DL_RESOLUTION}]" \
             --merge-output-format mp4 \
             --print "before_dl:%(title)s" \
             --print "after_move:filepath" \
@@ -1547,25 +1607,41 @@ print('  💡 Tip: smaller kbps = smaller file. Run with --resolution <N> to dow
         fi
     fi
 
-    # ── Add resolution suffix to filename (e.g. _480p) ──────────────────────
-    if [[ -n "$DL_RESOLUTION" && "$VIDEO_FILE" != *"_${DL_RESOLUTION}p"* ]]; then
-        local _res_new="${VIDEO_FILE%.*}_${DL_RESOLUTION}p.${VIDEO_FILE##*.}"
-        local _res_n=2
-        while [[ -e "$_res_new" ]]; do
-            _res_new="${VIDEO_FILE%.*}_${DL_RESOLUTION}p_${_res_n}.${VIDEO_FILE##*.}"
+    # ── Add/normalize resolution suffix from ACTUAL downloaded height ───────
+    local ACTUAL_HEIGHT
+    ACTUAL_HEIGHT=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=noprint_wrappers=1:nokey=1 "$VIDEO_FILE" 2>/dev/null | head -n1)
+    [[ "$ACTUAL_HEIGHT" =~ ^[0-9]+$ ]] || ACTUAL_HEIGHT="$DL_RESOLUTION"
+
+    if [[ "$DL_RESOLUTION" =~ ^[0-9]+$ && "$ACTUAL_HEIGHT" =~ ^[0-9]+$ && "$ACTUAL_HEIGHT" -lt "$DL_RESOLUTION" ]]; then
+        log_info "ℹ️  Requested ${DL_RESOLUTION}p but source provided ${ACTUAL_HEIGHT}p (best available)." >&2
+    fi
+
+    if [[ "$ACTUAL_HEIGHT" =~ ^[0-9]+$ ]]; then
+        local _res_dir _res_name _res_stem _res_ext _res_base _res_new _res_n
+        _res_dir="$(dirname "$VIDEO_FILE")"
+        _res_name="$(basename "$VIDEO_FILE")"
+        _res_stem="${_res_name%.*}"
+        _res_ext="${_res_name##*.}"
+        _res_base="$(printf '%s' "$_res_stem" | sed -E 's/_[0-9]+p(_[0-9]+)?$//')"
+        _res_new="${_res_dir}/${_res_base}_${ACTUAL_HEIGHT}p.${_res_ext}"
+        _res_n=2
+        while [[ -e "$_res_new" && "$_res_new" != "$VIDEO_FILE" ]]; do
+            _res_new="${_res_dir}/${_res_base}_${ACTUAL_HEIGHT}p_${_res_n}.${_res_ext}"
             ((_res_n++))
         done
-        mv "$VIDEO_FILE" "$_res_new"
-        if [[ -n "$THUMB_FILE" && -f "$THUMB_FILE" ]]; then
-            local _res_thumb="${_res_new%.*}.${THUMB_FILE##*.}"
-            mv "$THUMB_FILE" "$_res_thumb"
-            THUMB_FILE="$_res_thumb"
+        if [[ "$_res_new" != "$VIDEO_FILE" ]]; then
+            mv "$VIDEO_FILE" "$_res_new"
+            if [[ -n "$THUMB_FILE" && -f "$THUMB_FILE" ]]; then
+                local _res_thumb="${_res_new%.*}.${THUMB_FILE##*.}"
+                mv "$THUMB_FILE" "$_res_thumb"
+                THUMB_FILE="$_res_thumb"
+            fi
+            if [[ -n "$INFO_JSON_FILE" && -f "$INFO_JSON_FILE" ]]; then
+                mv "$INFO_JSON_FILE" "${_res_new}.info.json"
+                INFO_JSON_FILE="${_res_new}.info.json"
+            fi
+            VIDEO_FILE="$_res_new"
         fi
-        if [[ -n "$INFO_JSON_FILE" && -f "$INFO_JSON_FILE" ]]; then
-            mv "$INFO_JSON_FILE" "${_res_new}.info.json"
-            INFO_JSON_FILE="${_res_new}.info.json"
-        fi
-        VIDEO_FILE="$_res_new"
     fi
 
     # Keep every artifact in the current working directory.
@@ -1586,7 +1662,11 @@ print('  💡 Tip: smaller kbps = smaller file. Run with --resolution <N> to dow
     # Normalize codec/container profile for QuickTime/macOS if needed.
     ensure_mac_playable_video "$VIDEO_FILE"
 
-    log_success "Saved → $(basename "$VIDEO_FILE")" >&2
+    if [[ "$ACTUAL_HEIGHT" =~ ^[0-9]+$ ]]; then
+        log_success "Saved → $(basename "$VIDEO_FILE") (${ACTUAL_HEIGHT}p actual)" >&2
+    else
+        log_success "Saved → $(basename "$VIDEO_FILE")" >&2
+    fi
 
     # ── YouTube built-in subtitles ──────────────────────────────────────────
     if $YT_SUBS; then

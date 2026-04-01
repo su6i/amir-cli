@@ -60,6 +60,8 @@ def run_finalize_stage(
             processor.logger.warning(f"⚠️ Document export failed: {exp_e}")
 
     output_files = processor._collect_existing_output_files(result)
+    if not isinstance(output_files, list):
+        output_files = []
     bundle_path = processor._bundle_outputs_zip(original_base, output_files)
     if bundle_path and os.path.exists(bundle_path):
         result["bundle_zip"] = bundle_path

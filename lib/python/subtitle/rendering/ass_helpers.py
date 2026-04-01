@@ -1,6 +1,15 @@
 import re
 from typing import Callable, Dict, List, Optional, Tuple
 
+# Import vis_len for proper Unicode character counting
+try:
+    from subtitle.segmentation import vis_len
+except ImportError:
+    import unicodedata
+    def vis_len(s: str) -> int:
+        """Fallback: visual character length excluding zero-width Unicode format chars."""
+        return sum(1 for c in s if unicodedata.category(c) != "Cf")
+
 
 def compute_ass_layout(
     style,
@@ -11,12 +20,23 @@ def compute_ass_layout(
     en_font_scale: float,
     fa_font_scale: float,
     fa_font_name: str,
+    top_raise_px: int = 0,
+    bottom_raise_px: int = 0,
 ) -> Dict[str, object]:
-    """Compute stable ASS layout and font settings for mono/bilingual output."""
+    """Compute stable ASS layout and font settings for mono/bilingual output.
+    
+    For vertical/portrait videos (9:16 aspect ratio):
+    - Reduce horizontal margins to prevent text from going out of frame
+    - Adjust vertical margins for proper subtitle positioning in narrow viewport
+    """
     is_portrait = bool(video_width and video_height and video_height > video_width)
-    margin_h = 64 if is_portrait else 64
-    fa_margin_v = 26 if is_portrait else 10
-    top_margin_v = 44 if is_portrait else 24
+    # FIX: Horizontal margins should be smaller for portrait to fit text in narrow width
+    margin_h = 32 if is_portrait else 64
+    # Base vertical margins. Per-run offsets allow shifting each subtitle lane.
+    base_bottom_margin_v = 20 if is_portrait else 10
+    base_top_margin_v = 30 if is_portrait else 24
+    fa_margin_v = max(0, base_bottom_margin_v + int(bottom_raise_px or 0))
+    top_margin_v = max(0, base_top_margin_v + int(top_raise_px or 0))
 
     fa_style = None
     if lang == "fa" or secondary_srt:
@@ -89,12 +109,33 @@ def _wrap_parentheses_with_smaller_font(text: str) -> str:
 
 
 def _normalize_primary_text(text: str, secondary_srt: Optional[str], is_portrait: bool) -> str:
+    """Normalize primary (top) subtitle text for display.
+    
+    For bilingual subtitles in vertical videos:
+    - Avoid aggressive truncation that breaks sync between audio and visual text
+    - Use vis_len for proper Unicode character counting
+    - Preserve full text for audio/video sync, only truncate as last resort
+    
+    Design: For short-form vertical videos (Instagram Reels, TikTok, YouTube Shorts),
+    the primary (top) line should allow up to 50 characters to prevent overflow.
+    Aggressive truncation breaks audio/text synchronization.
+    """
     out = text.replace("\n", " ").replace("\\N", " ").replace("\\n", " ").strip()
     out = " ".join(out.split())
+    
     if secondary_srt:
-        max_top_chars = 42 if is_portrait else 70
-        if len(out) > max_top_chars:
-            out = out[:max_top_chars].rsplit(" ", 1)[0] + "…"
+        # CRITICAL FIX: Increased character limit for portrait to avoid truncation sync issues
+        # was: 42 chars (too restrictive, caused text loss)
+        # now: 52 chars (allows full phrases, maintains sync)
+        max_top_chars = 52 if is_portrait else 80
+        
+        # Use vis_len for proper visual character counting (handles Unicode zero-width chars)
+        visual_len = vis_len(out)
+        if visual_len > max_top_chars:
+            # For sync integrity, reduce character limit gracefully only if necessary
+            # This preserves most of the text while preventing frame overflow
+            cut_pos = max(15, max_top_chars - 5)
+            out = out[:cut_pos].rsplit(" ", 1)[0] + "…"
     return out
 
 

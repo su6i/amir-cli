@@ -323,6 +323,137 @@ split_media_approx_by_size() {
     return 1
 }
 
+# Split VIDEO into near-fixed-size chunks (<= target MB) without re-encoding.
+# Uses iterative duration search per chunk to keep sizes consistent.
+# Note: stream-copy is still keyframe-bound, so exact byte matching is impossible.
+split_video_by_size_strict() {
+    local input_file="$1"
+    local split_mb="$2"
+
+    if [[ -z "$input_file" || ! -f "$input_file" || -z "$split_mb" || ! "$split_mb" =~ ^[0-9]+$ || "$split_mb" -le 0 ]]; then
+        return 1
+    fi
+
+    local ext="${input_file##*.}"
+    ext="$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')"
+    case "$ext" in
+        mp4|mkv|mov|m4v|webm|ts) ;;
+        *)
+            # Fallback for non-video containers.
+            split_media_approx_by_size "$input_file" "$split_mb"
+            return $?
+            ;;
+    esac
+
+    local total_dur
+    local total_bytes
+    total_dur=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
+    total_bytes=$(stat -f%z "$input_file" 2>/dev/null || stat -c%s "$input_file" 2>/dev/null)
+    if [[ -z "$total_dur" || -z "$total_bytes" || ! "$total_bytes" =~ ^[0-9]+$ || "$total_bytes" -le 0 ]]; then
+        return 1
+    fi
+
+    local target_bytes=$(( split_mb * 1024 * 1024 ))
+    if [[ "$total_bytes" -le "$target_bytes" ]]; then
+        echo "ℹ️  Split skipped: file is already <= ${split_mb}MB."
+        return 0
+    fi
+
+    local base="${input_file%.*}"
+    local out_pattern="${base}_part"
+    local idx=1
+    local start_sec="0"
+    local safety=0
+
+    echo "✂️  Splitting video into <=${split_mb}MB chunks (strict mode)..."
+
+    while [[ $safety -lt 10000 ]]; do
+        safety=$((safety + 1))
+
+        local remain
+        remain=$(awk -v t="$total_dur" -v s="$start_sec" 'BEGIN {r=t-s; if(r<0) r=0; printf "%.6f", r}')
+        if [[ $(awk -v r="$remain" 'BEGIN {print (r <= 0.20) ? 1 : 0}') -eq 1 ]]; then
+            break
+        fi
+
+        local part_path
+        part_path=$(printf "%s%03d.%s" "$out_pattern" "$idx" "$ext")
+
+        # If remainder is likely the last part, write it directly.
+        local est_remain_bytes
+        est_remain_bytes=$(awk -v total_b="$total_bytes" -v total_t="$total_dur" -v rem="$remain" 'BEGIN {
+            if(total_t<=0){print total_b}else{printf "%.0f", (total_b*rem/total_t)}
+        }')
+        if [[ "$est_remain_bytes" =~ ^[0-9]+$ && "$est_remain_bytes" -le "$target_bytes" ]]; then
+            ffmpeg -hide_banner -loglevel error -y -ss "$start_sec" -i "$input_file" \
+                -map 0 -c copy -movflags +faststart "$part_path"
+            break
+        fi
+
+        local low="0.30"
+        local high="$remain"
+        local best_dur="0"
+        local best_tmp=""
+        local it
+
+        for it in {1..14}; do
+            local mid
+            mid=$(awk -v lo="$low" -v hi="$high" 'BEGIN {printf "%.6f", (lo+hi)/2.0}')
+            if [[ $(awk -v m="$mid" 'BEGIN {print (m <= 0.05) ? 1 : 0}') -eq 1 ]]; then
+                break
+            fi
+
+            local tmp_path="${part_path}.tmp.${it}"
+            ffmpeg -hide_banner -loglevel error -y -ss "$start_sec" -t "$mid" -i "$input_file" \
+                -map 0 -c copy -reset_timestamps 1 -movflags +faststart "$tmp_path" || {
+                rm -f "$tmp_path"
+                high="$mid"
+                continue
+            }
+
+            local sz
+            sz=$(stat -f%z "$tmp_path" 2>/dev/null || stat -c%s "$tmp_path" 2>/dev/null)
+            if [[ -z "$sz" || ! "$sz" =~ ^[0-9]+$ ]]; then
+                rm -f "$tmp_path"
+                high="$mid"
+                continue
+            fi
+
+            if [[ "$sz" -le "$target_bytes" ]]; then
+                [[ -n "$best_tmp" && -f "$best_tmp" ]] && rm -f "$best_tmp"
+                best_tmp="$tmp_path"
+                best_dur="$mid"
+                low="$mid"
+            else
+                rm -f "$tmp_path"
+                high="$mid"
+            fi
+        done
+
+        if [[ -z "$best_tmp" || ! -f "$best_tmp" ]]; then
+            # Fallback tiny cut to avoid stalling on pathological GOP layouts.
+            ffmpeg -hide_banner -loglevel error -y -ss "$start_sec" -t "1.00" -i "$input_file" \
+                -map 0 -c copy -reset_timestamps 1 -movflags +faststart "$part_path" || return 1
+            best_dur="1.00"
+        else
+            mv "$best_tmp" "$part_path"
+        fi
+
+        local part_size
+        part_size=$(stat -f%z "$part_path" 2>/dev/null || stat -c%s "$part_path" 2>/dev/null)
+        if [[ -z "$part_size" || ! "$part_size" =~ ^[0-9]+$ || "$part_size" -le 0 ]]; then
+            return 1
+        fi
+
+        start_sec=$(awk -v s="$start_sec" -v d="$best_dur" 'BEGIN {printf "%.6f", s+d}')
+        idx=$((idx + 1))
+    done
+
+    echo "✅ Split complete (strict size mode, last part may be smaller):"
+    ls -lh "${base}_part"*."${ext}" 2>/dev/null | awk '{printf "   %s  %s\n", $5, $NF}'
+    return 0
+}
+
 # ==============================================================================
 # 6. HARDWARE DETECTION
 # ==============================================================================

@@ -65,18 +65,32 @@ def sanitize_post(text: str, platform: str) -> str:
 def telegram_sections_complete(text: str) -> Tuple[bool, list]:
     """Return (ok, missing) for required Telegram post sections."""
     missing = []
+
+    short_mode = ("🧾 خلاصه کوتاه" in text) or ("🧾 Short Summary" in text)
+    if short_mode:
+        if "📽️" not in text:
+            missing.append("📽️ title icon")
+        if "⏱" not in text:
+            missing.append("⏱️ duration")
+        if "🧾" not in text:
+            missing.append("🧾 short summary section")
+        if "#" not in text:
+            missing.append("hashtags (#)")
+        return (len(missing) == 0, missing)
+
     for marker, label in [
         ("\U0001f4fd", "📽️ title icon"),
         ("\U0001f534", "🔴 pull-quote"),
         ("\U0001f6a8", "🚨 key-points header"),
         ("\u2728", "✨ summary paragraph"),
+        ("\U0001f4cc", "📌 audience line"),
         ("\u23f1", "⏱️ duration"),
     ]:
         if marker not in text:
             missing.append(label)
     bullet_count = text.count("\U0001f539")
-    if bullet_count < 4:
-        missing.append(f"🔹 bullet points (found {bullet_count}, need 4)")
+    if bullet_count < 5:
+        missing.append(f"🔹 bullet points (found {bullet_count}, need 5)")
     if "#" not in text:
         missing.append("hashtags (#)")
     return (len(missing) == 0, missing)

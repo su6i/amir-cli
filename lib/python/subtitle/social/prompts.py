@@ -1,7 +1,44 @@
 import os
+import re
 from typing import List, Optional, Tuple
 
 from subtitle.config import get_language_config
+
+
+def _to_ascii_digits(text: str) -> str:
+    persian_digits = "۰۱۲۳۴۵۶۷۸۹"
+    arabic_digits = "٠١٢٣٤٥٦٧٨٩"
+    out = text
+    for i, d in enumerate(persian_digits):
+        out = out.replace(d, str(i))
+    for i, d in enumerate(arabic_digits):
+        out = out.replace(d, str(i))
+    return out
+
+
+def _is_short_video(duration: str, threshold_minutes: int = 15) -> bool:
+    if not duration:
+        return False
+    txt = _to_ascii_digits(str(duration)).lower()
+
+    hhmmss = re.findall(r"\b(\d{1,2}):(\d{2})(?::(\d{2}))?\b", txt)
+    if hhmmss:
+        h, m, s = hhmmss[0]
+        hours = int(h) if len(h) > 1 and int(h) >= 1 else 0
+        mins = int(m)
+        secs = int(s or 0)
+        total_min = (hours * 60) + mins + (secs / 60.0)
+        return total_min < threshold_minutes
+
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:min|mins|minute|minutes|minute\(s\)|دقیقه)", txt)
+    if m:
+        return float(m.group(1)) < threshold_minutes
+
+    h = re.search(r"(\d+(?:\.\d+)?)\s*(?:hour|hours|hr|hrs|ساعت)", txt)
+    if h:
+        return (float(h.group(1)) * 60.0) < threshold_minutes
+
+    return False
 
 
 def get_post_prompt(
@@ -70,6 +107,9 @@ def get_post_prompt(
     src_lang_fa = lang_name_fa(source_lang) if source_lang else ""
     src_info_fa = f"زبان ویدیو: {src_lang_fa}" if src_lang_fa else ""
     src_info_en = f"Video language: {get_language_config(source_lang).name}" if source_lang else ""
+    short_video = _is_short_video(duration)
+    hashtags_lang_fa = src_lang_fa if src_lang_fa else "زبان اصلی ویدیو"
+    hashtags_lang_en = get_language_config(source_lang).name if source_lang else "the original video language"
 
     if platform == "telegram":
         if srt_lang == "fa":
@@ -81,13 +121,29 @@ def get_post_prompt(
                 "STRICTLY follow the exact format template provided. "
                 "NEVER use markdown syntax like ** or __ — Telegram does not render them."
             )
-            user = file_user_prompt or (
-                f"یک پست تلگرام بنویس دقیقاً بر اساس این قالب:\n\n"
-                f"📽️ [عنوان کامل ویدیو به فارسی — ترجمه طبیعی، نه تحت‌اللفظی]\n"
-                f"{subs_line_fa}\n\n"
-                f"🔴 «[یک نقل‌قول مستقیم یا گزاره‌ی کلیدی از ویدیو — بدون تعریف و تمجید]»\n\n"
-                f"[یک پاراگراف ۲ جمله‌ای توصیفی — چه کسی، درباره چه چیزی، در چه زمینه‌ای — بدون ارزش‌گذاری]\n\n"
-                f"🚨 نکات مهم:\n\n"
+            if short_video:
+                user = file_user_prompt or (
+                    f"برای ویدیوی کوتاه (کمتر از ۱۵ دقیقه) فقط یک خلاصه کوتاه بنویس. هیچ بخش bullet یا قالب بلند ننویس.\n\n"
+                    f"📽️ [عنوان]\n"
+                    f"⏱️ مدت: {dur}\n"
+                    f"🧾 خلاصه کوتاه: [یک پاراگراف ۳ تا ۵ جمله‌ای از محتوای ویدیو]\n\n"
+                    f"#[هشتگ۱] #[هشتگ۲] #[هشتگ۳] #[هشتگ۴] #[هشتگ۵]\n\n"
+                    f"قانون مهم: همه هشتگ‌ها باید به زبان اصلی ویدیو باشند ({hashtags_lang_fa}).\n\n"
+                    f"اطلاعات ویدیو:\n"
+                    f"عنوان اصلی: {title}\n"
+                    f"مدت: {dur}\n"
+                    + (f"{src_info_fa}\n" if src_info_fa else "")
+                    + f"زبان‌های زیرنویس: {', '.join(lang_name_fa(l) for l in all_langs)}\n\n"
+                    f"محتوای زیرنویس:\n{full_text}"
+                )
+            else:
+                user = file_user_prompt or (
+                    f"یک پست تلگرام بنویس دقیقاً بر اساس این قالب:\n\n"
+                    f"📽️ [عنوان کامل ویدیو به فارسی — ترجمه طبیعی، نه تحت‌اللفظی]\n"
+                    f"{subs_line_fa}\n\n"
+                    f"🔴 «[یک نقل‌قول مستقیم یا گزاره‌ی کلیدی از ویدیو — بدون تعریف و تمجید]»\n\n"
+                    f"[یک پاراگراف ۲ جمله‌ای توصیفی — چه کسی، درباره چه چیزی، در چه زمینه‌ای — بدون ارزش‌گذاری]\n\n"
+                    f"🚨 نکات مهم:\n\n"
                 f"🔹 [موضوع اول]: [یک جمله توصیفی ≤۱۲ کلمه]\n\n"
                 f"🔹 [موضوع دوم]: [یک جمله توصیفی ≤۱۲ کلمه]\n\n"
                 f"🔹 [موضوع سوم]: [یک جمله توصیفی ≤۱۲ کلمه]\n\n"
@@ -110,9 +166,9 @@ def get_post_prompt(
                 f"⑥ نقل‌قول داخل « »\n"
                 f"⑦ بین هر بخش یک خط خالی\n"
                 f"⑧ بدون markdown (نه ** نه __ نه *)\n"
-                f"⑨ کل پست فارسی (هشتگ‌ها می‌توانند انگلیسی باشند)\n"
+                f"⑨ کل پست فارسی؛ اما هشتگ‌ها حتماً باید به زبان اصلی ویدیو باشند ({hashtags_lang_fa})\n"
                 f"⑩ هر 🔹 باید کوتاه باشد — حداکثر ۱۲ کلمه\n"
-                f"⑪ هدف ۷۰۰–۸۵۰ کاراکتر — با کوتاه کردن هر بخش به این محدوده برس. فراتر رفتن از ۱۰۲۴ کاراکتر ممنوع است."
+                f"⑪ هدف ۸۵۰–۹۵۰ کاراکتر — با کوتاه کردن هر بخش به این محدوده برس. فراتر رفتن از ۱۰۲۴ کاراکتر ممنوع است."
             )
         else:
             lang_en = get_language_config(srt_lang).name
@@ -125,13 +181,29 @@ def get_post_prompt(
                 "NEVER use markdown syntax like ** or __ — Telegram does not render them."
             )
             duration_line = f"⏱️ Duration: {duration}" if duration else "⏱️ Duration: [read from SRT timestamps]"
-            user = file_user_prompt or (
-                f"Write a Telegram post following this EXACT format:\n\n"
-                f"📽️ [Full video title in {lang_en} — natural translation, not literal]\n"
-                f"{subs_line_en}\n\n"
-                f"🔴 «[A direct quote or key factual statement from the video — no praise or hype]»\n\n"
-                f"[1–2 sentences: who, about what, in what context — descriptive, no value judgements]\n\n"
-                f"🚨 Key points:\n\n"
+            if short_video:
+                user = file_user_prompt or (
+                    f"For short videos (under 15 minutes), write only a concise summary post. Do NOT use the long multi-section template.\n\n"
+                    f"📽️ [Title in {lang_en}]\n"
+                    f"⏱️ Duration: {dur_en}\n"
+                    f"🧾 Short Summary: [one concise paragraph, 3-5 sentences]\n\n"
+                    f"#[hashtag1] #[hashtag2] #[hashtag3] #[hashtag4] #[hashtag5]\n\n"
+                    f"Important rule: all hashtags MUST be in the original video language ({hashtags_lang_en}).\n\n"
+                    f"Video info:\n"
+                    f"Original title: {title}\n"
+                    f"Duration: {dur_en}\n"
+                    + (f"{src_info_en}\n" if src_info_en else "")
+                    + f"Subtitle languages: {', '.join(all_langs)}\n\n"
+                    f"Subtitle content:\n{full_text}"
+                )
+            else:
+                user = file_user_prompt or (
+                    f"Write a Telegram post following this EXACT format:\n\n"
+                    f"📽️ [Full video title in {lang_en} — natural translation, not literal]\n"
+                    f"{subs_line_en}\n\n"
+                    f"🔴 «[A direct quote or key factual statement from the video — no praise or hype]»\n\n"
+                    f"[1–2 sentences: who, about what, in what context — descriptive, no value judgements]\n\n"
+                    f"🚨 Key points:\n\n"
                 f"🔹 [Topic 1]: [one descriptive sentence ≤12 words]\n\n"
                 f"🔹 [Topic 2]: [one descriptive sentence ≤12 words]\n\n"
                 f"🔹 [Topic 3]: [one descriptive sentence ≤12 words]\n\n"
@@ -154,9 +226,9 @@ def get_post_prompt(
                 f"⑥ Quote inside « » — not inside \" \"\n"
                 f"⑦ One blank line between every section\n"
                 f"⑧ NO markdown — no ** no __ no * — Telegram renders them as literal characters\n"
-                f"⑨ Entire post in {lang_en}\n"
+                f"⑨ Entire post in {lang_en}; hashtags must be in the original video language ({hashtags_lang_en})\n"
                 f"⑩ Each 🔹 must be brief — max 12 words\n"
-                f"⑪ Target 700–850 characters — shorten each section to fit. NEVER exceed 1024 characters."
+                f"⑪ Target 850–950 characters — shorten each section to fit. NEVER exceed 1024 characters."
             )
         return system, user
 

@@ -197,6 +197,10 @@ Note:
                         help="Split final rendered video into ~N MB chunks")
     parser.add_argument("--pad-bottom", type=int, default=0,
                         help="Add black padding at the bottom (percentage of height, e.g., 15)")
+    parser.add_argument("--raise-top", type=int, default=0,
+                        help="Move top subtitle upward by N pixels (positive moves up)")
+    parser.add_argument("--raise-bottom", type=int, default=0,
+                        help="Move bottom subtitle upward by N pixels (positive moves up)")
     parser.add_argument("--no-vad", action="store_false", dest="use_vad", default=True,
                         help="Disable Voice Activity Detection (VAD) in Faster-Whisper")
 
@@ -284,6 +288,8 @@ Note:
         render_fps=args.fps,
         render_split_mb=args.split,
         pad_bottom=args.pad_bottom,
+        subtitle_raise_top_px=args.raise_top,
+        subtitle_raise_bottom_px=args.raise_bottom,
         use_vad=args.use_vad,
     )
 
