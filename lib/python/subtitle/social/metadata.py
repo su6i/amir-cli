@@ -28,7 +28,6 @@ def format_publish_date(value: str) -> str:
 def compose_post_file_header(platform: str, metadata: Dict[str, str], fallback_title: str) -> str:
     """Human-readable header added above saved post text files."""
     title = (metadata.get("title") or fallback_title or "").strip()
-    quality_label = (metadata.get("quality_label") or "360p").strip()
     publish_date = (metadata.get("publish_date") or "").strip()
     webpage_url = (metadata.get("webpage_url") or "").strip()
     uploader = (metadata.get("uploader") or "").strip()
@@ -36,8 +35,6 @@ def compose_post_file_header(platform: str, metadata: Dict[str, str], fallback_t
     lines = []
     if title:
         lines.append(title)
-    if quality_label:
-        lines.append(f"\nکیفیت: {quality_label}")
     if publish_date:
         if platform == "telegram":
             clean_date = publish_date.split(" ")[0]

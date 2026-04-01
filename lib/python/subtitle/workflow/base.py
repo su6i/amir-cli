@@ -14,13 +14,17 @@ def resolve_workflow_base(
     render_resolution: Optional[int],
 ) -> Dict[str, object]:
     """Resolve canonical base paths and normalized input context for workflow."""
-    video_path = os.path.abspath(video_path)
+    if not isinstance(video_path, (str, os.PathLike)):
+        video_path = str(video_path)
+    video_path = os.path.abspath(os.fspath(video_path))
     source_lang = (source_lang or "auto").strip().lower()
     target_langs = [str(l).strip().lower() for l in (target_langs or ["auto", "fa"]) if str(l).strip()]
 
     source_auto_requested = source_lang in ("auto", "detect", "")
     if os.path.exists(video_path) and not post_only:
-        video_path = processor._ensure_safe_input_filename(video_path)
+        safe_path = processor._ensure_safe_input_filename(video_path)
+        if isinstance(safe_path, (str, os.PathLike)):
+            video_path = os.path.abspath(os.fspath(safe_path))
 
     original_dir = os.path.dirname(video_path)
     original_stem = Path(video_path).stem
@@ -45,15 +49,18 @@ def resolve_workflow_base(
     cwd = os.getcwd()
     processor.logger.info(f"📁 Subtitle base resolution cwd: {cwd}")
     normalized_target_stem = processor._sanitize_stem_for_fs(original_stem)
+    if not isinstance(normalized_target_stem, str):
+        normalized_target_stem = str(original_stem or "")
 
     def stem_match_key(value: str) -> str:
-        return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
+        return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
 
     target_stem_key = stem_match_key(normalized_target_stem)
 
     def normalize_candidate_stem(value: str) -> str:
         value = re.sub(r"_\d{3,4}p(?:_q\d+)?(?:_\d+)?$", "", value or "")
-        return processor._sanitize_stem_for_fs(value)
+        normalized = processor._sanitize_stem_for_fs(value)
+        return normalized if isinstance(normalized, str) else str(value or "")
 
     candidate_bases = [
         os.path.join(cwd, original_stem),
@@ -206,7 +213,13 @@ def migrate_legacy_resolution_srt(
 
 
 def detect_subtitle_geometry(processor, video_path: str, target_langs: List[str]) -> Tuple[int, int]:
-    """Detect video dimensions and update dynamic subtitle geometry settings."""
+    """Detect video dimensions and update dynamic subtitle geometry settings.
+    
+    CRITICAL FIX FOR VERTICAL VIDEOS:
+    - Portrait videos (9:16): use HEIGHT for text area calculation (was: width)
+    - Ensures sufficient character budget for short-form video subtitles
+    - Enforces 5-word-per-line maximum for mobile-optimized short-form content
+    """
     vw, vh = 0, 0
     if video_path.lower().endswith(".srt"):
         return vw, vh
@@ -215,14 +228,34 @@ def detect_subtitle_geometry(processor, video_path: str, target_langs: List[str]
     if not (vw and vh):
         return vw, vh
 
-    rendered_font_px = processor.style_config.font_size * (vh / 480.0)
-    text_area_px = vw * 0.80
+    try:
+        font_size = float(getattr(getattr(processor, "style_config", None), "font_size", 16) or 16)
+    except Exception:
+        font_size = 16.0
+    rendered_font_px = font_size * (vh / 480.0)
+    
+    # FIX: For vertical (portrait) videos, use HEIGHT for text area, not WIDTH
+    # This gives vertical videos more character budget and prevents aggressive truncation
+    if vh > vw:  # Portrait mode
+        text_area_px = vh * 0.60  # Use HEIGHT for vertical videos: more generous
+    else:
+        text_area_px = vw * 0.80  # Keep WIDTH for horizontal videos
+    
     rtl_langs = {"fa", "ar", "ur", "he"}
     is_rtl = target_langs and any(l in rtl_langs for l in target_langs)
     avg_glyph_w = rendered_font_px * (0.64 if is_rtl else 0.55)
     max_chars_dyn = max(10, int(text_area_px / avg_glyph_w))
-    target_words_dyn = max(4, min(10, max_chars_dyn // 4))
-    processor.style_config.max_chars = max_chars_dyn
+    
+    # FIX: For vertical short-form videos, enforce exactly 5 words per line
+    # was: max(4, min(10, max_chars_dyn // 4)) → variable 4-10 words (inconsistent)
+    # now: 5 words for portrait (short-form), flexible for landscape
+    if vh > vw:  # Portrait mode: short-form videos need consistent 5-word lines
+        target_words_dyn = 5  # FIRMLY enforce 5 words for mobile short-form
+    else:
+        target_words_dyn = max(4, min(10, max_chars_dyn // 4))  # Keep flexible for desktop
+    
+    if getattr(processor, "style_config", None) is not None:
+        processor.style_config.max_chars = max_chars_dyn
     processor.target_words_per_line = target_words_dyn
     orientation = "📱 Vertical" if vh > vw else "🖥️  Horizontal"
     processor.logger.info(

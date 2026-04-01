@@ -61,15 +61,22 @@ def prepare_runtime_execution(
             if limit_end is not None:
                 cmd += ["-t", str(limit_end - limit_start_val)]
             cmd += ["-c", "copy", temp_vid]
-            subprocess.run(cmd, check=True)
-            current_video_input = temp_vid
+            try:
+                subprocess.run(cmd, check=True)
+                current_video_input = temp_vid
+            except Exception as clip_err:
+                processor.logger.warning(
+                    f"⚠️ Time-range clipping failed, continuing with original input: {clip_err}"
+                )
+                temp_vid = None
+                current_video_input = video_path
 
     final_source_lang = source_lang
     if source_auto_requested and not is_srt_input:
         final_source_lang = processor.detect_source_language(current_video_input)
 
     resolved_targets: List[str] = []
-    for t in target_langs:
+    for t in (target_langs or []):
         resolved = final_source_lang if t in ("auto", "detect", "source") else t
         if resolved and resolved not in resolved_targets:
             resolved_targets.append(resolved)
@@ -80,6 +87,7 @@ def prepare_runtime_execution(
         "current_video_input": current_video_input,
         "temp_vid": temp_vid,
         "limit_start": limit_start_val,
+        "limit_end": limit_end,
         "has_limit": has_limit,
         "source_lang": final_source_lang,
         "target_langs": final_target_langs,

@@ -144,16 +144,15 @@ run_subtitle() {
             esac
         done
 
-        # Default to extreme download profile for `amir video subtitle <URL>`.
-        if ! $_has_extreme; then
-            _has_extreme=true
-            _dl_flags+=("--extreme")
-        fi
-
-        # Keep subtitle render profile aligned with video_download extreme defaults.
+        # Default profile for `amir video subtitle <URL>` when user does not specify values.
         if $_has_extreme; then
             $_has_resolution || _sub_flags+=("--resolution" "360")
             $_has_quality || _sub_flags+=("--quality" "30")
+        else
+            $_has_resolution || _dl_flags+=("--resolution" "480")
+            $_has_quality || _dl_flags+=("--quality" "40")
+            $_has_resolution || _sub_flags+=("--resolution" "480")
+            $_has_quality || _sub_flags+=("--quality" "40")
         fi
 
         # Download only (no --subtitle: all subtitle processing happens below via _subtitle_run)

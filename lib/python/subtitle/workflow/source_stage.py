@@ -56,9 +56,22 @@ def prepare_source_srt(
 
         processor.cleanup()
 
-        if os.path.abspath(generated_srt) != os.path.abspath(src_srt):
-            processor.logger.info(f"📦 Moving temp SRT to final path: {Path(src_srt).name}")
-            shutil.move(generated_srt, src_srt)
+        generated_is_path = isinstance(generated_srt, (str, os.PathLike)) and os.path.exists(str(generated_srt))
+        generated_is_raw_srt = isinstance(generated_srt, str) and "-->" in generated_srt and "\n" in generated_srt
+
+        if generated_is_path:
+            generated_srt_path = os.path.abspath(os.fspath(generated_srt))
+            if generated_srt_path != os.path.abspath(src_srt):
+                processor.logger.info(f"📦 Moving temp SRT to final path: {Path(src_srt).name}")
+                shutil.move(generated_srt_path, src_srt)
+        elif generated_is_raw_srt:
+            processor.logger.info(f"📝 Writing transcription content to: {Path(src_srt).name}")
+            with open(src_srt, "w", encoding="utf-8-sig") as f:
+                f.write(generated_srt)
+        else:
+            raise FileNotFoundError(
+                "transcribe_video did not return a valid SRT path or raw SRT content"
+            )
 
         src_is_fresh = True
     else:
@@ -66,6 +79,8 @@ def prepare_source_srt(
         src_is_fresh = False
 
     src_entries = processor.parse_srt(src_srt)
+    if not isinstance(src_entries, list):
+        src_entries = []
 
     if has_limit and is_srt_input:
         def ts_to_sec(ts: str) -> float:
@@ -85,8 +100,13 @@ def prepare_source_srt(
             f"[{limit_start}s, {'end' if limit_end is None else str(limit_end) + 's'}]"
         )
 
-    src_entries = processor.sanitize_entries(src_entries)
-    src_entries = processor._merge_split_numbers(src_entries)
+    sanitized = processor.sanitize_entries(src_entries)
+    if isinstance(sanitized, list):
+        src_entries = sanitized
+
+    merged = processor._merge_split_numbers(src_entries)
+    if isinstance(merged, list):
+        src_entries = merged
 
     avg_words = sum(len((e.get("text") or "").split()) for e in src_entries) / max(1, len(src_entries))
     src_is_fragmented = len(src_entries) >= 60 and avg_words < 2.3
@@ -97,8 +117,13 @@ def prepare_source_srt(
                 f"📐 Detected fragmented source timeline (avg words/entry={avg_words:.2f}); "
                 "applying clause merge."
             )
-        src_entries = processor.merge_to_clauses(src_entries)
-        src_entries = processor.sanitize_entries(src_entries)
+        merged_clauses = processor.merge_to_clauses(src_entries)
+        if isinstance(merged_clauses, list):
+            src_entries = merged_clauses
+
+        re_sanitized = processor.sanitize_entries(src_entries)
+        if isinstance(re_sanitized, list):
+            src_entries = re_sanitized
         with open(src_srt, "w", encoding="utf-8-sig") as f:
             for idx, entry in enumerate(src_entries, 1):
                 f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
