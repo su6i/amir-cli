@@ -1256,6 +1256,10 @@ video_download() {
                 # are treated as language hints, not as URL overwrite.
                 if [[ -z "$URL" ]]; then
                     URL="$1"
+                elif [[ "$1" =~ ^[0-9]+p?$ && "$DO_SUBTITLE" == false && "$YT_SUBS" == false && "$YT_TRANSLATE" == false && "$DL_RESOLUTION_EXPLICIT" == false ]]; then
+                    # Convenience: allow `amir video download <url> 360` or `... 360p`.
+                    DL_RESOLUTION="$1"
+                    DL_RESOLUTION_EXPLICIT=true
                 elif [[ "$1" != -* && ! "$1" =~ ^https?:// && ${#1} -le 10 && ( "$DO_SUBTITLE" == true || "$YT_SUBS" == true || "$YT_TRANSLATE" == true ) ]]; then
                     _LANG_POSITIONALS+=("$1")
                 fi
@@ -1291,6 +1295,15 @@ video_download() {
 
     # Strip shell-escaped backslashes (e.g. \? \= that zsh adds when URL is unquoted)
     URL="${URL//\\/}"
+
+    # Normalize resolution forms like `180p` -> `180` and validate numeric value.
+    if [[ "$DL_RESOLUTION" =~ ^([0-9]+)[pP]$ ]]; then
+        DL_RESOLUTION="${BASH_REMATCH[1]}"
+    fi
+    if [[ ! "$DL_RESOLUTION" =~ ^[0-9]+$ || "$DL_RESOLUTION" -le 0 ]]; then
+        log_error "Invalid resolution: '$DL_RESOLUTION' (use a positive number like 360 or 480)." >&2
+        return 1
+    fi
 
     # Common shell mistake: passing a variable name literal instead of its value.
     # Example: amir video download URL   (literal token)
