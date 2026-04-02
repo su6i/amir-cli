@@ -1550,7 +1550,7 @@ PY
             --write-info-json \
             --write-thumbnail \
             --convert-thumbnails jpg \
-            -f "best[height<=${DL_RESOLUTION}][format_id!*=timeline]/bestvideo[height<=${DL_RESOLUTION}][format_id!*=timeline]+bestaudio/best[height<=${DL_RESOLUTION}]" \
+            -f "best[height<=${DL_RESOLUTION}][format_id!*=timeline]/bestvideo[height<=${DL_RESOLUTION}][format_id!*=timeline]+bestaudio/best[height<=${DL_RESOLUTION}]/best" \
             --merge-output-format mp4 \
             --print "before_dl:%(title)s" \
             --print "after_move:filepath" \
