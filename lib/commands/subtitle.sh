@@ -109,11 +109,16 @@ run_subtitle() {
         local _has_extreme=false
         local _has_resolution=false
         local _has_quality=false
+        local _list_formats_requested=false
         local _i=0
         while (( _i < ${#_orig[@]} )); do
             local _cur="${_orig[_i]}"
             if [[ "$_cur" == "$_url" ]]; then (( _i++ )); continue; fi
             case "$_cur" in
+                --formats|-F|--list-formats|--list-format|--lists-format)
+                    _list_formats_requested=true
+                    _dl_flags+=("$_cur")
+                    (( _i++ )) ;;
                 --resolution|-R)
                     _has_resolution=true
                     _dl_flags+=("$_cur" "${_orig[_i+1]}"); (( _i += 2 ))
@@ -143,6 +148,12 @@ run_subtitle() {
                     _sub_flags+=("$_cur"); (( _i++ )) ;;
             esac
         done
+
+        # In list-formats mode, only query formats via video_download and exit.
+        if $_list_formats_requested; then
+            video_download "$_url" "${_dl_flags[@]}"
+            return $?
+        fi
 
         # Default profile for `amir video subtitle <URL>` when user does not specify values.
         if $_has_extreme; then
