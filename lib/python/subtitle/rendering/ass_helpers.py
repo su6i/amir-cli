@@ -176,12 +176,17 @@ def build_ass_events(
     time_offset: float,
     clean_bidi_fn: Callable[[str], str],
     fix_persian_text_fn: Callable[[str], str],
+    max_lines: int = 1,
 ) -> List[str]:
     """Build ASS dialogue events for mono/bilingual subtitle rendering."""
     events: List[str] = []
 
     for entry in entries:
         text = _normalize_primary_text(entry["text"], secondary_srt, is_portrait)
+        # If single-line mode is requested, enforce it at event text level.
+        if max_lines <= 1:
+            text = text.replace("\\N", " ").replace("\\n", " ").replace("\n", " ")
+            text = " ".join(text.split())
         final_text = text
         bi_fa_text = None
 
@@ -190,12 +195,17 @@ def build_ass_events(
             if sec_text:
                 sec_text = clean_bidi_fn(sec_text)
                 sec_text_fixed = fix_persian_text_fn(sec_text)
+                if max_lines <= 1:
+                    sec_text_fixed = sec_text_fixed.replace("\\N", " ").replace("\\n", " ").replace("\n", " ")
+                    sec_text_fixed = " ".join(sec_text_fixed.split())
                 sec_text_formatted = _wrap_parentheses_with_smaller_font(sec_text_fixed)
                 top_scale = 0.90 if is_portrait else 0.82
                 top_fs = max(13, int(style.font_size * top_scale))
                 bot_fs = style.font_size
-                final_text = f"{{\\q2}}{{\\fs{top_fs}}}{{\\c&H808080}}{text}"
-                bi_fa_text = f"{{\\b1}}{{\\fs{bot_fs}}}{sec_text_formatted}"
+                top_wrap = "{\\q2}" if max_lines <= 1 else ""
+                fa_wrap = "{\\q2}" if max_lines <= 1 else ""
+                final_text = f"{top_wrap}{{\\fs{top_fs}}}{{\\c&H808080}}{text}"
+                bi_fa_text = f"{fa_wrap}{{\\b1}}{{\\fs{bot_fs}}}{sec_text_formatted}"
 
         ass_start = _srt_to_ass_time(entry["start"], time_offset)
         ass_end = _srt_to_ass_time(entry["end"], time_offset)
@@ -203,6 +213,10 @@ def build_ass_events(
         final_text = _strip_bidi_controls(final_text)
         if bi_fa_text:
             bi_fa_text = _strip_bidi_controls(bi_fa_text)
+
+        # Monolingual path also needs no-wrap in single-line mode.
+        if not bi_fa_text and max_lines <= 1 and not final_text.startswith("{\\q2}"):
+            final_text = "{\\q2}" + final_text
 
         event_style = "FaDefault" if (lang == "fa" and not secondary_map) else "Default"
         if bi_fa_text:

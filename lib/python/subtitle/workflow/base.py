@@ -218,7 +218,7 @@ def detect_subtitle_geometry(processor, video_path: str, target_langs: List[str]
     CRITICAL FIX FOR VERTICAL VIDEOS:
     - Portrait videos (9:16): use HEIGHT for text area calculation (was: width)
     - Ensures sufficient character budget for short-form video subtitles
-    - Enforces 5-word-per-line maximum for mobile-optimized short-form content
+    - Enforces 4-word-per-line default for mobile-optimized short-form content
     """
     vw, vh = 0, 0
     if video_path.lower().endswith(".srt"):
@@ -246,11 +246,11 @@ def detect_subtitle_geometry(processor, video_path: str, target_langs: List[str]
     avg_glyph_w = rendered_font_px * (0.64 if is_rtl else 0.55)
     max_chars_dyn = max(10, int(text_area_px / avg_glyph_w))
     
-    # FIX: For vertical short-form videos, enforce exactly 5 words per line
+    # FIX: For vertical short-form videos, enforce exactly 4 words per line
     # was: max(4, min(10, max_chars_dyn // 4)) → variable 4-10 words (inconsistent)
-    # now: 5 words for portrait (short-form), flexible for landscape
-    if vh > vw:  # Portrait mode: short-form videos need consistent 5-word lines
-        target_words_dyn = 5  # FIRMLY enforce 5 words for mobile short-form
+    # now: 4 words for portrait (short-form), flexible for landscape
+    if vh > vw:  # Portrait mode: short-form videos need consistent 4-word lines
+        target_words_dyn = 4
     else:
         target_words_dyn = max(4, min(10, max_chars_dyn // 4))  # Keep flexible for desktop
     
