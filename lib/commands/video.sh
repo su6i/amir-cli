@@ -1294,7 +1294,14 @@ video_download() {
     fi
 
     # Strip shell-escaped backslashes (e.g. \? \= that zsh adds when URL is unquoted)
-    URL="${URL//\\/}"
+    # Handles both: unquoted URLs where shell strips escapes, and quoted URLs with literal backslashes
+    URL="${URL//\\/}"  # Remove all backslashes, treating them as escape characters
+    
+    # Additional cleanup: ensure URL is a valid https?:// format
+    if [[ ! "$URL" =~ ^https?:// ]]; then
+        log_error "Invalid URL format: '$URL'. Must start with http:// or https://" >&2
+        return 1
+    fi
 
     # Normalize resolution forms like `180p` -> `180` and validate numeric value.
     if [[ "$DL_RESOLUTION" =~ ^([0-9]+)[pP]$ ]]; then
