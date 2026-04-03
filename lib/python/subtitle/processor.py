@@ -1244,9 +1244,9 @@ class SubtitleProcessor:
         # ── tunables ─────────────────────────────────────────────────────────
         limit      = getattr(self.style_config, 'max_chars', 42)   # soft char target
         hard_limit = limit + 12          # absolute ceiling before forced break
-        MIN_WORDS  = 4                   # minimum words before a soft break fires
+        MIN_WORDS  = max(3, int(getattr(self, 'target_words_per_line', 4) or 4))
         MAX_SEG_SEC = 6.0                # time ceiling (no punctuation safety net)
-        MIN_NEXT_CLAUSE = 4              # lookahead: next clause must be this long (words)
+        MIN_NEXT_CLAUSE = MIN_WORDS      # lookahead: next clause must be this long (words)
         # ─────────────────────────────────────────────────────────────────────
 
         _ABBREVS = frozenset({
@@ -2056,6 +2056,7 @@ class SubtitleProcessor:
             time_offset=time_offset,
             clean_bidi_fn=SubtitleProcessor._clean_bidi,
             fix_persian_text_fn=self.fix_persian_text,
+            max_lines=getattr(self.style_config, 'max_lines', 1),
         )
 
         with open(ass_path, 'w', encoding='utf-8') as f:
