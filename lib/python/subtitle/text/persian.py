@@ -15,8 +15,13 @@ def fix_persian_text(text: str) -> str:
         text = re.sub(p, r, text)
 
     zwnj_patterns = [
-        (r"(\w)(ها)(\s|$)", "\\1\u200c\\2\\3"),
-        (r"می(\s)", "می\u200c\\1"),
+        # Plural suffix
+        (r"([\u0600-\u06FF]+)(ها)(\s|$)", "\\1\u200c\\2\\3"),
+        # Verb prefix joins: "می رود" -> "می\u200cرود", "نمی دانم" -> "نمی\u200cدانم"
+        (r"\b(ن?می)\s+([\u0600-\u06FF])", "\\1\u200c\\2"),
+        # Common Persian compounds that should use نیم‌فاصله
+        (r"([\u0600-\u06FF]+)\s+(کننده|کنندگان|کنندگی)\b", "\\1\u200c\\2"),
+        (r"([\u0600-\u06FF]+)\s+(آمیز)\b", "\\1\u200c\\2"),
     ]
     for pat, repl in zwnj_patterns:
         text = re.sub(pat, repl, text)

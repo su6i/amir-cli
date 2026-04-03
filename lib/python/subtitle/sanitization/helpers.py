@@ -69,6 +69,7 @@ def postprocess_orphans_and_collocations(
     load_collocations_fn: Callable[[], Set[str]],
     remove_whisper_artifacts_fn: Callable[[str], str],
     clean_bidi_fn: Callable[[str], str],
+    fix_persian_text_fn: Callable[[str], str],
 ) -> List[Dict]:
     """Apply orphan merge policy and NBSP insertion for known collocations."""
     collocations = load_collocations_fn()
@@ -84,9 +85,37 @@ def postprocess_orphans_and_collocations(
         ctext = clean_bidi_fn(text)
         words = ctext.split()
 
+        # Persian verb-prefix repair across subtitle boundaries:
+        # if current ends with standalone "می"/"نمی" and next starts with a word,
+        # move next first token to current as a joined verb (e.g., "می" + "بره" -> "می\u200cبره").
+        nxt = cleaned[i + 1] if i + 1 < len(cleaned) else None
+        if nxt:
+            ccur = clean_bidi_fn(cur.get("text", "")).strip()
+            cnxt = clean_bidi_fn(nxt.get("text", "")).strip()
+
+            parts = ccur.split()
+            nxt_parts = cnxt.split()
+            if parts and nxt_parts and parts[-1] in ("می", "نمی"):
+                prefix = parts[-1]
+                first_next = nxt_parts[0]
+                joined = f"{prefix}\u200c{first_next}"
+
+                new_cur_parts = parts[:-1] + [joined]
+                cur["text"] = " ".join(new_cur_parts).strip()
+
+                remaining_next = " ".join(nxt_parts[1:]).strip()
+                if remaining_next:
+                    nxt["text"] = remaining_next
+                    ctext = clean_bidi_fn(cur["text"])
+                    words = ctext.split()
+                else:
+                    cur["end"] = nxt["end"]
+                    i += 1
+                    ctext = clean_bidi_fn(cur["text"])
+                    words = ctext.split()
+
         if len(words) <= 2 or len(ctext) < 12:
             prev = final[-1] if final else None
-            nxt = cleaned[i + 1] if i + 1 < len(cleaned) else None
             merged_with_next = False
             orphan_max = 60
 
@@ -127,6 +156,11 @@ def postprocess_orphans_and_collocations(
                             flags=re.IGNORECASE,
                         )
                 cur["text"] = rebuilt
+
+        # Final Persian normalization pass for ZWNJ compounds.
+        # Applies only when Persian/Arabic script is present.
+        if re.search(r"[\u0600-\u06FF]", cur.get("text", "")):
+            cur["text"] = fix_persian_text_fn(cur["text"])
 
         final.append(cur)
         i += 1

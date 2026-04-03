@@ -1418,6 +1418,7 @@ class SubtitleProcessor:
             load_collocations_fn=self._load_collocations,
             remove_whisper_artifacts_fn=self._remove_whisper_artifacts,
             clean_bidi_fn=self._clean_bidi,
+            fix_persian_text_fn=self.fix_persian_text,
         )
 
 
@@ -1538,9 +1539,20 @@ class SubtitleProcessor:
             
         split_pos = self._find_best_split_point(text, max_chars)
         if split_pos == -1:
-            # Fallback to mid-word split if no better option
-            split_pos = text.rfind(' ', 0, max_chars)
-            if split_pos == -1: split_pos = len(text) // 2
+            # Word-boundary-only fallback: never split inside a word.
+            # Try nearest spaces around the center, then nearest before max_chars.
+            center = len(text) // 2
+            left_space = text.rfind(' ', 0, center)
+            right_space = text.find(' ', center)
+
+            candidates = [p for p in (left_space, right_space) if p > 0]
+            if not candidates:
+                split_pos = text.rfind(' ', 0, max_chars)
+                if split_pos <= 0:
+                    # Single-token text: keep it unsplit rather than breaking characters.
+                    return [entry]
+            else:
+                split_pos = min(candidates, key=lambda p: abs(p - center))
             
         # Time interpolation
         s_sec = self.parse_to_sec(entry['start'])
