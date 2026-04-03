@@ -1570,7 +1570,7 @@ PY
             --write-info-json \
             --write-thumbnail \
             --convert-thumbnails jpg \
-            -f "best[height<=${DL_RESOLUTION}][format_id!*=timeline]/bestvideo[height<=${DL_RESOLUTION}][format_id!*=timeline]+bestaudio/best[height<=${DL_RESOLUTION}]/best[vcodec!=none]/best" \
+            -f "bestvideo[height<=${DL_RESOLUTION}][format_id!*=timeline]+bestaudio/best[height<=${DL_RESOLUTION}][format_id!*=timeline]/best[height<=${DL_RESOLUTION}][vcodec!=none]/best[vcodec!=none]/best" \
             --merge-output-format mp4 \
             --print "before_dl:%(title)s" \
             --print "after_move:filepath" \
@@ -1578,6 +1578,33 @@ PY
             "$URL" > "$_PATHFILE" \
             2> >(awk '/\[download\]|^ERROR|^WARNING:/{print; fflush()}' >&2)
         local _DL_EXIT=$?
+
+        # Resilient YouTube fallback:
+        # In some environments, auth/browser/session flags can trigger transient 403.
+        # If user did not explicitly request cookies/browser, retry once with bare yt-dlp args.
+        if [[ $_DL_EXIT -ne 0 && "$IS_YOUTUBE_URL" == true && "$BROWSER_EXPLICIT" == false && "$COOKIES_EXPLICIT" == false ]]; then
+            log_info "↻ Retry without browser auth/session hints for YouTube..." >&2
+            : > "$_PATHFILE"
+            yt-dlp \
+                --remote-components "ejs:github" \
+                --newline \
+                --continue \
+                --no-overwrites \
+                --restrict-filenames \
+                --windows-filenames \
+                --keep-video \
+                --write-info-json \
+                --write-thumbnail \
+                --convert-thumbnails jpg \
+                -f "bestvideo[height<=${DL_RESOLUTION}][format_id!*=timeline]+bestaudio/best[height<=${DL_RESOLUTION}][format_id!*=timeline]/best[height<=${DL_RESOLUTION}][vcodec!=none]/best[vcodec!=none]/best" \
+                --merge-output-format mp4 \
+                --print "before_dl:%(title)s" \
+                --print "after_move:filepath" \
+                -o "$OUT_TEMPLATE" \
+                "$URL" > "$_PATHFILE" \
+                2> >(awk '/\[download\]|^ERROR|^WARNING:/{print; fflush()}' >&2)
+            _DL_EXIT=$?
+        fi
 
         _VID_TITLE=$(sed -n '1p' "$_PATHFILE" 2>/dev/null | tr -d '\r')
         VIDEO_FILE=$(sed -n '2p' "$_PATHFILE" 2>/dev/null | tr -d '\r')
