@@ -164,14 +164,32 @@ def peek_next_clause_words(words: List, idx: int, max_lookahead: int = 20) -> in
 def merge_orphan_segments(entries: List[Dict], hard_limit: int) -> List[Dict]:
     """Merge tiny tail segments into previous when safe for readability."""
     merged: List[Dict] = []
-    for entry in entries:
+    i = 0
+    while i < len(entries):
+        entry = entries[i]
         word_count = len(entry["text"].split())
-        if word_count <= 2 and merged:
-            prev = merged[-1]
-            combined = prev["text"] + " " + entry["text"]
-            if len(combined) <= hard_limit + 10:
-                prev["end"] = entry["end"]
-                prev["text"] = " ".join(combined.split())
-                continue
+
+        if word_count <= 2:
+            # Prefer merge to previous when possible.
+            if merged:
+                prev = merged[-1]
+                combined_prev = (prev["text"] + " " + entry["text"]).strip()
+                if len(combined_prev) <= hard_limit + 20:
+                    prev["end"] = entry["end"]
+                    prev["text"] = " ".join(combined_prev.split())
+                    i += 1
+                    continue
+
+            # If there is no previous (or previous merge is unsafe), merge into next.
+            if i + 1 < len(entries):
+                nxt = entries[i + 1]
+                combined_next = (entry["text"] + " " + nxt["text"]).strip()
+                if len(combined_next) <= hard_limit + 20:
+                    nxt["start"] = entry["start"]
+                    nxt["text"] = " ".join(combined_next.split())
+                    i += 1
+                    continue
+
         merged.append(entry)
+        i += 1
     return merged
