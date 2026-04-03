@@ -15,13 +15,20 @@ def fix_persian_text(text: str) -> str:
         text = re.sub(p, r, text)
 
     zwnj_patterns = [
-        # Plural suffix
-        (r"([\u0600-\u06FF]+)(ها)(\s|$)", "\\1\u200c\\2\\3"),
-        # Verb prefix joins: "می رود" -> "می\u200cرود", "نمی دانم" -> "نمی\u200cدانم"
+        # Plural suffix with space: "کتاب ها" -> "کتاب‌ها"
+        (r"([\u0600-\u06FF]+)(\s+)(ها)(\s|$)", "\\1\u200c\\3\\4"),
+
+        # Verb prefix joins (spaced): "می رود" / "نمی دانم"
         (r"\b(ن?می)\s+([\u0600-\u06FF])", "\\1\u200c\\2"),
-        # Common Persian compounds that should use نیم‌فاصله
+        # Verb prefix joins (stuck): "میکند" / "نمیدانم"
+        (r"\b(ن?می)([\u0600-\u06FF]{2,})\b", "\\1\u200c\\2"),
+
+        # Compounds with space: "کوچک کننده" / "تبعیض آمیز"
         (r"([\u0600-\u06FF]+)\s+(کننده|کنندگان|کنندگی)\b", "\\1\u200c\\2"),
         (r"([\u0600-\u06FF]+)\s+(آمیز)\b", "\\1\u200c\\2"),
+        # Compounds stuck without space: "کوچککننده" / "تبعیضآمیز"
+        (r"([\u0600-\u06FF]{2,})(کننده|کنندگان|کنندگی)\b", "\\1\u200c\\2"),
+        (r"([\u0600-\u06FF]{2,})(آمیز)\b", "\\1\u200c\\2"),
     ]
     for pat, repl in zwnj_patterns:
         text = re.sub(pat, repl, text)
