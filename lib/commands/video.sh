@@ -1198,6 +1198,8 @@ video_download() {
     local YT_TRANSLATE=false       # translate downloaded YT subs via amir subtitle (skips Whisper)
     local BROWSER="${AMIR_DEFAULT_BROWSER:-chrome}"
     local COOKIES_FILE=""
+    local BROWSER_EXPLICIT=false
+    local COOKIES_EXPLICIT=false
     local DL_RESOLUTION=$(get_config "video" "resolution" "480")
     local DL_QUALITY=$(get_config "video" "quality" "40")
     local DL_RESOLUTION_EXPLICIT=false
@@ -1223,8 +1225,8 @@ video_download() {
                 else
                     LANG="$2"; shift 2
                 fi ;;
-            --browser|-b)    BROWSER="$2"; shift 2 ;;
-            --cookies)       COOKIES_FILE="$2"; shift 2 ;;
+            --browser|-b)    BROWSER="$2"; BROWSER_EXPLICIT=true; shift 2 ;;
+            --cookies)       COOKIES_FILE="$2"; COOKIES_EXPLICIT=true; shift 2 ;;
             --keep-thumb)    KEEP_THUMB_FILE=true; shift ;;
             -y|--yes)        AUTO_YES=true; shift ;;
             --get-link|-l)   GET_LINK=true; shift ;;
@@ -1377,13 +1379,24 @@ video_download() {
     fi
 
     # Build cookie arguments
+    # YouTube can return HTTP 403 when browser cookies are auto-injected.
+    # Keep explicit user choice, but avoid implicit browser cookies for YouTube links.
     local -a COOKIE_ARGS=()
+    local IS_YOUTUBE_URL=false
+    if [[ "$URL" =~ ^https?://([^/]+\.)?(youtube\.com|youtu\.be|youtube-nocookie\.com)(/|$) ]]; then
+        IS_YOUTUBE_URL=true
+    fi
+
     if [[ -n "$COOKIES_FILE" ]]; then
         COOKIE_ARGS=(--cookies "$COOKIES_FILE")
     elif [[ -f "cookies.txt" ]]; then
         COOKIE_ARGS=(--cookies "cookies.txt")
     elif [[ -f "$HOME/su6i-yar/cookies.txt" ]]; then
         COOKIE_ARGS=(--cookies "$HOME/su6i-yar/cookies.txt")
+    elif $BROWSER_EXPLICIT && [[ -n "$BROWSER" && "$BROWSER" != "none" ]]; then
+        COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
+    elif $IS_YOUTUBE_URL; then
+        COOKIE_ARGS=()
     elif [[ -n "$BROWSER" && "$BROWSER" != "none" ]]; then
         COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
     fi
