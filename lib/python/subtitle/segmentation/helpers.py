@@ -161,7 +161,7 @@ def peek_next_clause_words(words: List, idx: int, max_lookahead: int = 20) -> in
     return count
 
 
-def merge_orphan_segments(entries: List[Dict], hard_limit: int) -> List[Dict]:
+def merge_orphan_segments(entries: List[Dict], hard_limit: int, min_words: int = 4) -> List[Dict]:
     """Merge tiny tail segments into previous when safe for readability."""
     merged: List[Dict] = []
     i = 0
@@ -169,7 +169,7 @@ def merge_orphan_segments(entries: List[Dict], hard_limit: int) -> List[Dict]:
         entry = entries[i]
         word_count = len(entry["text"].split())
 
-        if word_count <= 2:
+        if word_count < max(2, int(min_words)):
             # Prefer merge to previous when possible.
             if merged:
                 prev = merged[-1]
