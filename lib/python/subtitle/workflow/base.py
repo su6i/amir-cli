@@ -216,8 +216,8 @@ def detect_subtitle_geometry(processor, video_path: str, target_langs: List[str]
     """Detect video dimensions and update dynamic subtitle geometry settings.
     
     CRITICAL FIX FOR VERTICAL VIDEOS:
-    - Portrait videos (9:16): use HEIGHT for text area calculation (was: width)
-    - Ensures sufficient character budget for short-form video subtitles
+    - Portrait videos (9:16): compute line budget from WIDTH (actual subtitle lane)
+    - Clamp max chars to a safe range so single-line cues stay on screen
     - Enforces 4-word-per-line default for mobile-optimized short-form content
     """
     vw, vh = 0, 0
@@ -234,10 +234,10 @@ def detect_subtitle_geometry(processor, video_path: str, target_langs: List[str]
         font_size = 16.0
     rendered_font_px = font_size * (vh / 480.0)
     
-    # FIX: For vertical (portrait) videos, use HEIGHT for text area, not WIDTH
-    # This gives vertical videos more character budget and prevents aggressive truncation
+    # For portrait videos, subtitle lane width is constrained by frame WIDTH.
+    # Using HEIGHT here overestimates capacity and causes single-line overflow/cropping.
     if vh > vw:  # Portrait mode
-        text_area_px = vh * 0.60  # Use HEIGHT for vertical videos: more generous
+        text_area_px = vw * 0.82
     else:
         text_area_px = vw * 0.80  # Keep WIDTH for horizontal videos
     
@@ -245,6 +245,9 @@ def detect_subtitle_geometry(processor, video_path: str, target_langs: List[str]
     is_rtl = target_langs and any(l in rtl_langs for l in target_langs)
     avg_glyph_w = rendered_font_px * (0.64 if is_rtl else 0.55)
     max_chars_dyn = max(10, int(text_area_px / avg_glyph_w))
+    if vh > vw:
+        # Keep portrait single-line subtitles within visible bounds.
+        max_chars_dyn = max(18, min(34, max_chars_dyn))
     
     # FIX: For vertical short-form videos, enforce exactly 4 words per line
     # was: max(4, min(10, max_chars_dyn // 4)) → variable 4-10 words (inconsistent)
