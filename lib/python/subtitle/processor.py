@@ -1375,7 +1375,11 @@ class SubtitleProcessor:
                     continue
 
         # ── post-pass: orphan prevention ─────────────────────────────────────
-        entries = merge_orphan_segments(entries, hard_limit)
+        entries = merge_orphan_segments(
+            entries,
+            hard_limit,
+            min_words=max(3, int(getattr(self, 'target_words_per_line', 4) or 4)),
+        )
 
         # ── hallucination suppression + timing fix ───────────────────────────
         entries = self.suppress_hallucinations(entries)
