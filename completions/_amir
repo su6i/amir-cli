@@ -171,7 +171,9 @@ _amir() {
                         '(-l --limit)'{-l,--limit}'[Time range — N seconds, or start end (use begin/start/end keywords)]:time:(begin end start)' \
                         '--llm[LLM bridge for translation]:llm:(deepseek gemini litellm minimax grok)' \
                         '--model[Specific LLM model code (for LiteLLM)]:model' \
+                        '--native-lines[For mixed speech, keep or hide source lines already in target script]:mode:(keep hide on off)' \
                         '--whisper-model[Whisper model size/name]:model:((turbo\:Fastest\ reliable\ model large-v3\:Highest\ accuracy large-v2\:Legacy\ heavy\ model medium\:Balance\ of\ speed\ and\ accuracy small\:Fast\ but\ less\ accurate base\:Basic\ fallback tiny\:Ultra\ fast\ but\ inaccurate))' \
+                        '--whisper-timing[Preserve Whisper timings and bypass internal timing normalization]' \
                         '--style[Subtitle style template]:style:(lecture vlog game cinematic minimalist)' \
                         '--resolution[Final burn resolution height]:height:(240 360 480 720 1080)' \
                         '--quality[Final burn quality 0-100]:quality:(40 50 60 70 80)' \
@@ -648,7 +650,9 @@ _amir() {
                         '--style[Subtitle style template]:style:(lecture vlog game cinematic minimalist)' \
                         '--max-lines[Maximum lines per subtitle]:lines:(1 2)' \
                         '--speaker[Enable Speaker Diarization]' \
+                        '--native-lines[For mixed speech, keep or hide source lines already in target script]:mode:(keep hide on off)' \
                         '--whisper-model[Whisper model size/name]:model:((turbo\:Fastest\ reliable\ model large-v3\:Highest\ accuracy large-v2\:Legacy\ heavy\ model medium\:Balance\ of\ speed\ and\ accuracy small\:Fast\ but\ less\ accurate base\:Basic\ fallback tiny\:Ultra\ fast\ but\ inaccurate))' \
+                        '--whisper-timing[Preserve Whisper timings and bypass internal timing normalization]' \
                         '--llm[LLM bridge for translation]:llm:(deepseek gemini litellm minimax grok)' \
                         '--model[Specific LLM model code (for LiteLLM)]:model' \
                         '--initial-prompt[Whisper initial prompt (context)]:prompt' \

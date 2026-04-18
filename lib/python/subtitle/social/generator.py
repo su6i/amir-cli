@@ -88,6 +88,7 @@ def generate_posts(
                         duration=duration,
                         all_srt_langs=srt_langs,
                         source_lang=source_lang,
+                        metadata=video_metadata,
                     )
                 except ValueError as ve:
                     processor.logger.warning(str(ve))

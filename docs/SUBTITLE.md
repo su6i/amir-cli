@@ -169,6 +169,9 @@ amir subtitle video.mp4 --alignment 8 --font-size 28 --shadow 3
 # Keep English terms in ParenthesES (technical terms)
 amir subtitle video.mp4 --sub fa            # (CapEx) stays as-is
 
+# Mixed EN/FA speech: hide lines that are already Persian in final FA subtitles
+amir subtitle video.mp4 -s en --sub fa --native-lines hide
+
 # Enable speaker diarization
 amir subtitle video.mp4 --speaker
 
@@ -273,6 +276,7 @@ amir video download "https://youtube.com/watch?v=XYZ" --subtitle -t fa
 |------|-------|------|---------|-------------|
 | `--source` | `-s` | code | `auto` | Source language (audio language for Whisper). Auto-detect by default. |
 | `--sub` | `-t` | codes | `auto fa` | Display languages (repeatable, first=top row, second=bottom) |
+| `--native-lines` | — | `keep \| hide \| on \| off` | `keep` | In mixed-language speech, keep or hide lines already in target script (aliases: `on=keep`, `off=hide`) |
 | `--render` | `-r` | bool | `true` | Burn subtitles into video |
 | `--no-render` | — | bool | — | Generate SRT/ASS files only, skip video rendering |
 | `--force` | `-f` | bool | — | Always re-transcribe (ignore cache) |
@@ -323,7 +327,8 @@ amir video download "https://youtube.com/watch?v=XYZ" --subtitle -t fa
 
 | Flag | Type | Options | Default | Description |
 |------|------|---------|---------|-------------|
-| `--whisper-model` | choice | `turbo`, `large-v3`, `medium`, `base`, `tiny` | `turbo` | Whisper model (turbo=fastest, large=accurate) |
+| `--whisper-model` | choice | `large-v3`, `turbo`, `medium`, `base`, `tiny` | `large-v3` | Whisper model (default prioritizes quality and stays fixed for the run) |
+| `--allow-model-downgrade` | bool | — | disabled | Explicitly allow auto-downshift under low-resource pressure |
 | `--llm` | choice | `deepseek`, `gemini`, `litellm`, `minimax`, `grok` | `deepseek` | LLM provider for translation |
 | `--model` | string | — | — | Custom model (e.g. `gpt-4o` for LiteLLM) |
 | `--initial-prompt` | string | — | — | Whisper context injection (e.g. "This is about AI") |
@@ -493,6 +498,19 @@ Choose based on your needs:
 | `small` | Medium | Better | ~2 GB |
 | `medium` | Slow | Great | ~5 GB |
 | `large` | Slowest | Best | ~10 GB |
+
+Runtime guardrails (to prevent system freeze):
+
+- `large-v3` is now the default.
+- By default, Whisper model remains fixed for the full run (no automatic downshift).
+- If you explicitly want adaptive downshift, enable `--allow-model-downgrade` (or set `AMIR_ALLOW_MODEL_DOWNGRADE=1`).
+- `AMIR_LARGE_V3_MIN_RAM_GB` (default: `8.0`) controls when `large-v3` is softened.
+- `AMIR_LARGE_V3_FALLBACK_MODEL` (default: `medium`) selects the fallback model.
+- `AMIR_CRITICAL_RAM_THRESHOLD_GB` still applies an emergency downshift at very low RAM.
+
+Tip for external drives (avoid false low-disk profile on system partition):
+
+- Set `AMIR_CACHE_DIR` to a location on a larger disk, e.g. `export AMIR_CACHE_DIR=/Volumes/SanDisk/subtitle/.amir_cache`.
 
 ### API Configuration
 

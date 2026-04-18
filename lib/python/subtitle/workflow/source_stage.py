@@ -111,12 +111,13 @@ def prepare_source_srt(
     avg_words = sum(len((e.get("text") or "").split()) for e in src_entries) / max(1, len(src_entries))
     src_is_fragmented = len(src_entries) >= 60 and avg_words < 2.3
 
+    if src_is_fragmented and not src_is_fresh:
+        processor.logger.info(
+            f"📐 Detected fragmented source timeline (avg words/entry={avg_words:.2f}); "
+            "applying clause merge."
+        )
+    
     if src_is_fresh or src_is_fragmented:
-        if src_is_fragmented and not src_is_fresh:
-            processor.logger.info(
-                f"📐 Detected fragmented source timeline (avg words/entry={avg_words:.2f}); "
-                "applying clause merge."
-            )
         merged_clauses = processor.merge_to_clauses(src_entries)
         if isinstance(merged_clauses, list):
             src_entries = merged_clauses
@@ -124,9 +125,11 @@ def prepare_source_srt(
         re_sanitized = processor.sanitize_entries(src_entries)
         if isinstance(re_sanitized, list):
             src_entries = re_sanitized
-        with open(src_srt, "w", encoding="utf-8-sig") as f:
-            for idx, entry in enumerate(src_entries, 1):
-                f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
+            
+    # Always commit the sanitized output back to disk to enforce geometry bounds
+    with open(src_srt, "w", encoding="utf-8-sig") as f:
+        for idx, entry in enumerate(src_entries, 1):
+            f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
 
     result[source_lang] = src_srt
     return src_srt
