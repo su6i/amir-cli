@@ -70,6 +70,13 @@ def discover_video_metadata(processor, original_base: str, srt_path: Optional[st
     publish_date = ""
     webpage_url = ""
     uploader = ""
+    channel = ""
+    channel_id = ""
+    channel_url = ""
+    uploader_id = ""
+    uploader_url = ""
+    description = ""
+    channel_follower_count = 0
     duration_sec = 0.0
 
     for meta_path in candidates:
@@ -85,7 +92,15 @@ def discover_video_metadata(processor, original_base: str, srt_path: Optional[st
             )
             webpage_url = str(data.get("webpage_url") or data.get("original_url") or "").strip()
             uploader = str(data.get("uploader") or data.get("channel") or "").strip()
-            if title or publish_date or webpage_url or uploader:
+            channel = str(data.get("channel") or uploader or "").strip()
+            channel_id = str(data.get("channel_id") or "").strip()
+            channel_url = str(data.get("channel_url") or "").strip()
+            uploader_id = str(data.get("uploader_id") or "").strip()
+            uploader_url = str(data.get("uploader_url") or "").strip()
+            description = str(data.get("description") or "").strip()
+            channel_follower_count = data.get("channel_follower_count") or data.get("subscriber_count") or 0
+
+            if title or publish_date or webpage_url or uploader or channel or description:
                 duration_sec = data.get("duration") or 0.0
                 if not duration_sec:
                     for ext in (".mp4", ".mkv", ".mov", ".m4v", ".webm", ".ts"):
@@ -100,6 +115,13 @@ def discover_video_metadata(processor, original_base: str, srt_path: Optional[st
                     "publish_date": publish_date,
                     "webpage_url": webpage_url,
                     "uploader": uploader,
+                    "channel": channel,
+                    "channel_id": channel_id,
+                    "channel_url": channel_url,
+                    "uploader_id": uploader_id,
+                    "uploader_url": uploader_url,
+                    "description": description,
+                    "channel_follower_count": channel_follower_count,
                     "duration_sec": duration_sec,
                 }
         except Exception:
@@ -132,5 +154,12 @@ def discover_video_metadata(processor, original_base: str, srt_path: Optional[st
         "publish_date": publish_date,
         "webpage_url": webpage_url,
         "uploader": uploader,
+        "channel": channel,
+        "channel_id": channel_id,
+        "channel_url": channel_url,
+        "uploader_id": uploader_id,
+        "uploader_url": uploader_url,
+        "description": description,
+        "channel_follower_count": channel_follower_count,
         "duration_sec": duration_sec,
     }

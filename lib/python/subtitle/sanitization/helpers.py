@@ -20,9 +20,21 @@ def normalize_and_fix_timing(
     parse_to_sec_fn: Callable[[str], float],
     format_time_fn: Callable[[float], str],
 ) -> List[Dict]:
-    """Enforce minimum duration, pad silent gaps, and resolve overlaps."""
+    """Enforce minimum duration, pad silent gaps, and resolve overlaps.
+
+    Overlap policy (critical for sync accuracy):
+    - Minor overlap (<= 0.15s): trim the PREVIOUS entry's end backward to the
+      current entry's start. Never shift current start forward unless timing
+      order is pathological.
+    - Large overlap (> 0.15s): still prefer trimming previous end first to keep
+      current cue start anchored to speech; shift current start only as a last
+      resort when overlap cannot be removed by trimming previous end.
+    """
+    small_overlap_sec = 0.15
+    min_prev_visible_duration = 0.06
+    sync_epsilon = 0.01
+
     cleaned: List[Dict] = []
-    last_end = 0.0
 
     for i, entry in enumerate(entries):
         start = parse_to_sec_fn(entry["start"])
@@ -33,21 +45,52 @@ def normalize_and_fix_timing(
 
         next_start_time = parse_to_sec_fn(entries[i + 1]["start"]) if i + 1 < len(entries) else 1e9
         gap = next_start_time - end
-        if gap > 0.3:
-            padding = min(0.5, gap - 0.05)
-            end += padding
 
-        if start < last_end:
-            overlap = last_end - start
-            if overlap > 0:
-                start = last_end
-                if end - start < min_duration:
-                    end = start + min_duration
+        # Tiny gap padding: only a 50ms nudge to prevent subtitle flicker,
+        # capped so we never overshoot the next entry's start.
+        if 0.1 < gap <= 2.0:
+            end = min(end + 0.05, next_start_time - 0.03)
+
+        # Overlap resolution: prefer trimming previous end rather than
+        # advancing this start (advancing start causes audio/subtitle drift).
+        if cleaned:
+            prev = cleaned[-1]
+            prev_start = parse_to_sec_fn(prev["start"])
+            prev_end = parse_to_sec_fn(prev["end"])
+            if start < prev_end:
+                overlap = prev_end - start
+                if overlap <= small_overlap_sec:
+                    # Small overlap: preserve CURRENT start sync and trim previous
+                    # cue end aggressively (min-duration on previous cue is soft).
+                    desired_prev_end = start - sync_epsilon
+                    min_prev_end = prev_start + min_prev_visible_duration
+                    new_prev_end = max(min_prev_end, desired_prev_end)
+                    prev["end"] = format_time_fn(new_prev_end)
+
+                    # Pathological ordering fallback: previous starts at/after
+                    # current start, so trimming cannot fully remove overlap.
+                    if start < new_prev_end:
+                        start = new_prev_end + sync_epsilon
+                        if end - start < min_duration:
+                            end = start + min_duration
+                else:
+                    # Large overlap: still prioritize current-start sync by
+                    # trimming previous end first.
+                    desired_prev_end = start - sync_epsilon
+                    min_prev_end = prev_start + min_prev_visible_duration
+                    new_prev_end = max(min_prev_end, desired_prev_end)
+                    prev["end"] = format_time_fn(new_prev_end)
+
+                    # Last resort when overlap cannot be resolved by trimming
+                    # previous end (pathological timestamp order).
+                    if start < new_prev_end:
+                        start = new_prev_end + sync_epsilon
+                        if end - start < min_duration:
+                            end = start + min_duration
 
         entry["start"] = format_time_fn(start)
         entry["end"] = format_time_fn(end)
         cleaned.append(entry)
-        last_end = end
 
     return cleaned
 
@@ -70,6 +113,7 @@ def postprocess_orphans_and_collocations(
     remove_whisper_artifacts_fn: Callable[[str], str],
     clean_bidi_fn: Callable[[str], str],
     fix_persian_text_fn: Callable[[str], str],
+    preserve_timing: bool = False,
 ) -> List[Dict]:
     """Apply orphan merge policy and NBSP insertion for known collocations."""
     collocations = load_collocations_fn()
@@ -96,28 +140,38 @@ def postprocess_orphans_and_collocations(
             parts = ccur.split()
             nxt_parts = cnxt.split()
             if parts and nxt_parts and parts[-1] in ("می", "نمی"):
-                prefix = parts[-1]
-                first_next = nxt_parts[0]
-                joined = f"{prefix}\u200c{first_next}"
+                # In whisper-timing passthrough mode, avoid consuming an entire
+                # next cue because it would require timing merge.
+                if not (preserve_timing and len(nxt_parts) == 1):
+                    prefix = parts[-1]
+                    first_next = nxt_parts[0]
+                    joined = f"{prefix}\u200c{first_next}"
 
-                new_cur_parts = parts[:-1] + [joined]
-                cur["text"] = " ".join(new_cur_parts).strip()
+                    new_cur_parts = parts[:-1] + [joined]
+                    cur["text"] = " ".join(new_cur_parts).strip()
 
-                remaining_next = " ".join(nxt_parts[1:]).strip()
-                if remaining_next:
-                    nxt["text"] = remaining_next
-                    ctext = clean_bidi_fn(cur["text"])
-                    words = ctext.split()
-                else:
-                    cur["end"] = nxt["end"]
-                    i += 1
-                    ctext = clean_bidi_fn(cur["text"])
-                    words = ctext.split()
+                    remaining_next = " ".join(nxt_parts[1:]).strip()
+                    if remaining_next:
+                        nxt["text"] = remaining_next
+                        ctext = clean_bidi_fn(cur["text"])
+                        words = ctext.split()
+                    else:
+                        if not preserve_timing:
+                            cur["end"] = nxt["end"]
+                            i += 1
+                        ctext = clean_bidi_fn(cur["text"])
+                        words = ctext.split()
 
-        if len(words) <= 2 or len(ctext) < 12:
+        if not preserve_timing and (len(words) <= 2 or len(ctext) < 12):
             prev = final[-1] if final else None
             merged_with_next = False
-            orphan_max = 60
+            # Adaptive orphan limit:
+            # - For landscape (max_chars >= 30): use standard 60 chars to preserve segmentation parity.
+            # - For portrait (max_chars < 30): use strict geometric bounds to prevent overflow.
+            if max_chars >= 30:
+                orphan_max = 60
+            else:
+                orphan_max = int(max(max_chars * 1.2, max_chars + 4))
 
             if nxt:
                 cnxt_text = clean_bidi_fn(nxt["text"])
@@ -142,10 +196,11 @@ def postprocess_orphans_and_collocations(
                     i += 1
                     continue
 
-        if text:
-            words_only = [w for w in re.findall(r"[\w\u0600-\u06FF'-]+", text)]
+        cur_text = cur.get("text", "").strip()
+        if cur_text:
+            words_only = [w for w in re.findall(r"[\w\u0600-\u06FF'-]+", cur_text)]
             if words_only:
-                rebuilt = text
+                rebuilt = cur_text
                 for left, right in zip(words_only, words_only[1:]):
                     pair = f"{left.lower()} {right.lower()}"
                     if pair in collocations:

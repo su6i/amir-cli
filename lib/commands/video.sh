@@ -1184,6 +1184,209 @@ ensure_mac_playable_video() {
     return 1
 }
 
+# Internal state for subtitle prefetch (Bash 3.2 compatible)
+YT_PREFETCH_LANGS=()
+YT_PREFETCH_FILES=()
+YT_PREFETCH_KINDS=()
+YT_PREFETCH_SOURCE_LANG=""
+YT_PREFETCH_SOURCE_FILE=""
+
+_reset_yt_prefetch_state() {
+    YT_PREFETCH_LANGS=()
+    YT_PREFETCH_FILES=()
+    YT_PREFETCH_KINDS=()
+    YT_PREFETCH_SOURCE_LANG=""
+    YT_PREFETCH_SOURCE_FILE=""
+}
+
+_pick_best_sub_file_for_lang() {
+    local _base="$1"
+    local _lang="$2"
+    local _mode="${3:-any}"   # any | manual
+
+    local _had_nullglob=0
+    shopt -q nullglob && _had_nullglob=1
+    shopt -s nullglob
+
+    local -a _cands=()
+    local _f _seen _e
+    for _f in \
+        "${_base}.${_lang}.srt" \
+        "${_base}.${_lang}"*.srt \
+        "${_base}"*".${_lang}.srt" \
+        "${_base}"*".${_lang}"*.srt; do
+        [[ -f "$_f" ]] || continue
+        _seen=false
+        for _e in "${_cands[@]}"; do
+            [[ "$_e" == "$_f" ]] && _seen=true && break
+        done
+        [[ "$_seen" == false ]] && _cands+=("$_f")
+    done
+
+    [[ $_had_nullglob -eq 0 ]] && shopt -u nullglob
+
+    local _manual=""
+    for _f in "${_cands[@]}"; do
+        if [[ "$_f" != *"-orig.srt" && "$_f" != *".orig.srt" ]]; then
+            _manual="$_f"
+            break
+        fi
+    done
+
+    if [[ -n "$_manual" ]]; then
+        printf "%s" "$_manual"
+        return 0
+    fi
+
+    [[ "$_mode" == "manual" ]] && return 1
+
+    if [[ ${#_cands[@]} -gt 0 ]]; then
+        printf "%s" "${_cands[0]}"
+        return 0
+    fi
+
+    return 1
+}
+
+prefetch_youtube_subtitles_with_fallback() {
+    local _url="$1"
+    local _base="$2"
+    local _source_pref="$3"
+    shift 3
+
+    _reset_yt_prefetch_state
+
+    local -a _langs=()
+    local _tok _norm _seen _e
+    for _tok in "$@"; do
+        _norm="$(printf '%s' "$_tok" | tr '[:upper:]' '[:lower:]')"
+        [[ -z "$_norm" || "$_norm" == "auto" ]] && continue
+        [[ "$_norm" =~ ^[a-z]{2,3}$ ]] || continue
+        _seen=false
+        for _e in "${_langs[@]}"; do
+            [[ "$_e" == "$_norm" ]] && _seen=true && break
+        done
+        [[ "$_seen" == false ]] && _langs+=("$_norm")
+    done
+
+    [[ ${#_langs[@]} -eq 0 ]] && return 0
+
+    local _langs_csv
+    _langs_csv="$(IFS=,; echo "${_langs[*]}")"
+
+    log_info "📥 Trying YouTube manual subtitles for: ${_langs_csv}" >&2
+    yt-dlp \
+        "${COOKIE_ARGS[@]}" \
+        "${IMPERSONATE_ARGS[@]}" \
+        --remote-components "ejs:github" \
+        --quiet \
+        --skip-download \
+        --write-subs \
+        --no-write-auto-subs \
+        --sub-langs "${_langs_csv}" \
+        --convert-subs srt \
+        --sleep-subtitles 2 \
+        -o "${_base}.%(ext)s" \
+        "$_url" >/dev/null 2>&1 || true
+
+    local -a _missing=()
+    local _lang _best
+    for _lang in "${_langs[@]}"; do
+        _best="$(_pick_best_sub_file_for_lang "$_base" "$_lang" "manual")"
+        if [[ -n "$_best" ]]; then
+            YT_PREFETCH_LANGS+=("$_lang")
+            YT_PREFETCH_FILES+=("$_best")
+            YT_PREFETCH_KINDS+=("manual")
+        else
+            _missing+=("$_lang")
+        fi
+    done
+
+    if [[ ${#_missing[@]} -gt 0 ]]; then
+        local _missing_csv
+        _missing_csv="$(IFS=,; echo "${_missing[*]}")"
+        log_info "📥 Manual missing; trying auto subtitles for: ${_missing_csv}" >&2
+        yt-dlp \
+            "${COOKIE_ARGS[@]}" \
+            "${IMPERSONATE_ARGS[@]}" \
+            --remote-components "ejs:github" \
+            --quiet \
+            --skip-download \
+            --write-auto-subs \
+            --no-write-subs \
+            --sub-langs "${_missing_csv}" \
+            --convert-subs srt \
+            --sleep-subtitles 2 \
+            -o "${_base}.%(ext)s" \
+            "$_url" >/dev/null 2>&1 || true
+
+        for _lang in "${_missing[@]}"; do
+            _best="$(_pick_best_sub_file_for_lang "$_base" "$_lang" "any")"
+            if [[ -n "$_best" ]]; then
+                YT_PREFETCH_LANGS+=("$_lang")
+                YT_PREFETCH_FILES+=("$_best")
+                YT_PREFETCH_KINDS+=("auto")
+            fi
+        done
+    fi
+
+    # Canonicalize selected tracks to <base>_<lang>.srt for deterministic reuse.
+    local -a _canon_langs=()
+    local -a _canon_files=()
+    local -a _canon_kinds=()
+    local _i _raw _canon _kind
+    for (( _i=0; _i<${#YT_PREFETCH_FILES[@]}; _i++ )); do
+        _lang="${YT_PREFETCH_LANGS[_i]}"
+        _raw="${YT_PREFETCH_FILES[_i]}"
+        _kind="${YT_PREFETCH_KINDS[_i]}"
+        _canon="${_base}_${_lang}.srt"
+        if [[ "$_raw" != "$_canon" ]]; then
+            cp -f "$_raw" "$_canon" >/dev/null 2>&1 || continue
+        else
+            [[ -f "$_canon" ]] || continue
+        fi
+        _canon_langs+=("$_lang")
+        _canon_files+=("$_canon")
+        _canon_kinds+=("$_kind")
+    done
+    YT_PREFETCH_LANGS=("${_canon_langs[@]}")
+    YT_PREFETCH_FILES=("${_canon_files[@]}")
+    YT_PREFETCH_KINDS=("${_canon_kinds[@]}")
+
+    local _src_norm
+    _src_norm="$(printf '%s' "$_source_pref" | tr '[:upper:]' '[:lower:]')"
+
+    if [[ "$_src_norm" != "auto" && "$_src_norm" =~ ^[a-z]{2,3}$ ]]; then
+        for (( _i=0; _i<${#YT_PREFETCH_LANGS[@]}; _i++ )); do
+            if [[ "${YT_PREFETCH_LANGS[_i]}" == "$_src_norm" ]]; then
+                YT_PREFETCH_SOURCE_LANG="$_src_norm"
+                YT_PREFETCH_SOURCE_FILE="${YT_PREFETCH_FILES[_i]}"
+                break
+            fi
+        done
+    fi
+
+    if [[ -z "$YT_PREFETCH_SOURCE_FILE" && ${#YT_PREFETCH_FILES[@]} -gt 0 ]]; then
+        YT_PREFETCH_SOURCE_LANG="${YT_PREFETCH_LANGS[0]}"
+        YT_PREFETCH_SOURCE_FILE="${YT_PREFETCH_FILES[0]}"
+    fi
+
+    # If source is auto, expose selected source as <base>_auto.srt so subtitle
+    # workflow reuses it and skips Whisper unless no downloaded subtitles exist.
+    if [[ "$_src_norm" == "auto" && -n "$YT_PREFETCH_SOURCE_FILE" && -f "$YT_PREFETCH_SOURCE_FILE" ]]; then
+        local _auto_alias="${_base}_auto.srt"
+        cp -f "$YT_PREFETCH_SOURCE_FILE" "$_auto_alias" >/dev/null 2>&1 || true
+        if [[ -f "$_auto_alias" ]]; then
+            YT_PREFETCH_SOURCE_LANG="auto"
+            YT_PREFETCH_SOURCE_FILE="$_auto_alias"
+        fi
+    fi
+
+    for (( _i=0; _i<${#YT_PREFETCH_FILES[@]}; _i++ )); do
+        log_success "📄 ${YT_PREFETCH_KINDS[_i]} subtitle: $(basename "${YT_PREFETCH_FILES[_i]}")" >&2
+    done
+}
+
 video_download() {
     local URL=""
     local LANG="fa"
@@ -1196,6 +1399,7 @@ video_download() {
     local AUTO_YES=false
     local GET_LINK=false
     local YT_TRANSLATE=false       # translate downloaded YT subs via amir subtitle (skips Whisper)
+    local PREFETCH_YT_SUBS=false   # internal: prefetch yt subtitles before subtitle pipeline
     local BROWSER="${AMIR_DEFAULT_BROWSER:-chrome}"
     local COOKIES_FILE=""
     local BROWSER_EXPLICIT=false
@@ -1214,6 +1418,7 @@ video_download() {
             --subtitle|-s)   DO_SUBTITLE=true; DO_RENDER=true; shift ;;  # whisper+burn
             --yt-subs)       YT_SUBS=true; shift ;;              # youtube built-in subs
             --translate)     YT_TRANSLATE=true; YT_SUBS=true; shift ;; # download YT subs + translate
+            --prefetch-yt-subs) PREFETCH_YT_SUBS=true; shift ;;
             --render|-r)     DO_RENDER=true; shift ;;
             --sub-only|--no-render) DO_RENDER=false; shift ;;
             --only-subs)     ONLY_SUBS=true; shift ;;
@@ -1262,7 +1467,7 @@ video_download() {
                     # Convenience: allow `amir video download <url> 360` or `... 360p`.
                     DL_RESOLUTION="$1"
                     DL_RESOLUTION_EXPLICIT=true
-                elif [[ "$1" != -* && ! "$1" =~ ^https?:// && ${#1} -le 10 && ( "$DO_SUBTITLE" == true || "$YT_SUBS" == true || "$YT_TRANSLATE" == true ) ]]; then
+                elif [[ "$1" != -* && ! "$1" =~ ^https?:// && ${#1} -le 10 && ( "$DO_SUBTITLE" == true || "$YT_SUBS" == true || "$YT_TRANSLATE" == true || "$PREFETCH_YT_SUBS" == true ) ]]; then
                     _LANG_POSITIONALS+=("$1")
                 fi
                 shift
@@ -1353,8 +1558,8 @@ video_download() {
         echo "Usage: amir video download <url> [options]" >&2
         echo "" >&2
         echo "Options:" >&2
-        echo "  --subtitle, -s        Transcribe + burn subtitles via Whisper AI (e.g. --subtitle fa | --subtitle en fa | --subtitle en 18 fa 20)" >&2
-        echo "  --yt-subs             Download YouTube's own subtitles (human first, auto-gen fallback)" >&2
+        echo "  --subtitle, -s        Subtitle pipeline: YouTube manual -> YouTube auto -> Whisper large-v3 (e.g. --subtitle fa | --subtitle en fa | --subtitle en 18 fa 20)" >&2
+        echo "  --yt-subs             Download YouTube subtitles only (manual first, auto fallback)" >&2
         echo "  --target, -t [src] <target>  Subtitle language; optionally specify source then target (e.g. -t en fa)" >&2
         echo "  --render, -r          Burn subtitle into video (use with --yt-subs)" >&2
         echo "  --sub-only            Generate subtitle files only, no burning (use with --subtitle)" >&2
@@ -1728,31 +1933,41 @@ PY
         log_success "Saved → $(basename "$VIDEO_FILE")" >&2
     fi
 
+    local BASE_YT="${VIDEO_FILE%.*}"
+    if [[ "$IS_YOUTUBE_URL" == true && ( "$DO_SUBTITLE" == true || "$YT_SUBS" == true || "$PREFETCH_YT_SUBS" == true ) ]]; then
+        local -a _prefetch_tokens=("${SUB_LANG_TOKENS[@]}")
+        _prefetch_tokens+=("$LANG_SRC" "$LANG")
+        prefetch_youtube_subtitles_with_fallback "$URL" "$BASE_YT" "$LANG_SRC" "${_prefetch_tokens[@]}"
+    else
+        _reset_yt_prefetch_state
+    fi
+
     # ── YouTube built-in subtitles ──────────────────────────────────────────
     if $YT_SUBS; then
-        local BASE_YT="${VIDEO_FILE%.*}"
-        log_info "📥 Fetching subtitles  ${LANG_SRC} → ${LANG}..." >&2
-        # --write-subs      : human-curated subs (preferred)
-        # --write-auto-subs : auto-generated, only downloaded when human subs absent for the lang
-        yt-dlp \
-            "${COOKIE_ARGS[@]}" \
-            "${IMPERSONATE_ARGS[@]}" \
-            --remote-components "ejs:github" \
-            --quiet \
-            --skip-download \
-            --write-subs \
-            --write-auto-subs \
-            --sub-langs "${LANG_SRC},${LANG_SRC}-orig,${LANG},${LANG}-orig" \
-            --convert-subs srt \
-            --sleep-subtitles 3 \
-            -o "${BASE_YT}.%(ext)s" \
-            "$URL" >&2
-
         # Collect downloaded SRT files
         local -a YT_SUB_FILES=()
-        for f in "${BASE_YT}"*.srt; do
-            [[ -f "$f" ]] && YT_SUB_FILES+=("$f")
-        done
+        if [[ ${#YT_PREFETCH_FILES[@]} -gt 0 ]]; then
+            YT_SUB_FILES=("${YT_PREFETCH_FILES[@]}")
+        else
+            log_info "📥 Fetching subtitles  ${LANG_SRC} → ${LANG}..." >&2
+            yt-dlp \
+                "${COOKIE_ARGS[@]}" \
+                "${IMPERSONATE_ARGS[@]}" \
+                --remote-components "ejs:github" \
+                --quiet \
+                --skip-download \
+                --write-subs \
+                --write-auto-subs \
+                --sub-langs "${LANG_SRC},${LANG_SRC}-orig,${LANG},${LANG}-orig" \
+                --convert-subs srt \
+                --sleep-subtitles 3 \
+                -o "${BASE_YT}.%(ext)s" \
+                "$URL" >&2
+
+            for f in "${BASE_YT}"*.srt; do
+                [[ -f "$f" ]] && YT_SUB_FILES+=("$f")
+            done
+        fi
 
         if [[ ${#YT_SUB_FILES[@]} -eq 0 ]]; then
             log_error "No subtitles found on YouTube for lang: $LANG" >&2
@@ -1766,9 +1981,14 @@ PY
         if $YT_TRANSLATE && [[ ${#YT_SUB_FILES[@]} -gt 0 ]]; then
             # Pick human-curated source SRT (e.g. title.en.srt) over auto-generated (-orig)
             local SRC_SRT=""
-            for f in "${YT_SUB_FILES[@]}"; do
-                [[ "$f" == *".${LANG_SRC}.srt" && "$f" != *"-orig.srt" ]] && SRC_SRT="$f" && break
-            done
+            if [[ -n "$YT_PREFETCH_SOURCE_FILE" && -f "$YT_PREFETCH_SOURCE_FILE" ]]; then
+                SRC_SRT="$YT_PREFETCH_SOURCE_FILE"
+            fi
+            if [[ -z "$SRC_SRT" ]]; then
+                for f in "${YT_SUB_FILES[@]}"; do
+                    [[ "$f" == *".${LANG_SRC}.srt" && "$f" != *"-orig.srt" ]] && SRC_SRT="$f" && break
+                done
+            fi
             # fallback: any -orig variant of source lang
             if [[ -z "$SRC_SRT" ]]; then
                 for f in "${YT_SUB_FILES[@]}"; do
@@ -1814,7 +2034,7 @@ PY
             for f in "${YT_SUB_FILES[@]}"; do
                 [[ "$f" == *"${LANG}"* ]] && SRT_TO_BURN="$f" && break
             done
-            [[ -z "$SRT_TO_BURN" ]] && SRT_TO_BURN="${YT_SUB_FILES[1]}"
+            [[ -z "$SRT_TO_BURN" && ${#YT_SUB_FILES[@]} -gt 0 ]] && SRT_TO_BURN="${YT_SUB_FILES[0]}"
 
             log_info "🎬 Burning subtitle: $(basename "$SRT_TO_BURN")" >&2
             local AMIR_BIN
@@ -1865,12 +2085,16 @@ PY
     if $DO_SUBTITLE; then
         local AMIR_BIN
         AMIR_BIN="$(dirname "$LIB_DIR")/amir"
+        if [[ "$IS_YOUTUBE_URL" == true && ${#YT_PREFETCH_FILES[@]} -eq 0 ]]; then
+            log_info "ℹ️  No YouTube subtitle track matched requested languages; falling back to Whisper large-v3." >&2
+        fi
         local -a SUB_FLAGS=("-s" "$LANG_SRC" "--max-lines" "1")
         if [[ ${#SUB_LANG_TOKENS[@]} -gt 0 ]]; then
             SUB_FLAGS+=("-t" "${SUB_LANG_TOKENS[@]}")
         else
             SUB_FLAGS+=("-t" "$LANG")
         fi
+        SUB_FLAGS+=("--whisper-model" "large-v3")
         [[ "$DL_RESOLUTION" =~ ^[0-9]+$ ]] && SUB_FLAGS+=("--resolution" "$DL_RESOLUTION")
         [[ "$DL_QUALITY" =~ ^[0-9]+$ ]] && SUB_FLAGS+=("--quality" "$DL_QUALITY")
         # Never burn when --only-subs is set (no point burning a video we're about to delete)
@@ -1973,7 +2197,7 @@ video_tiktok() {
         echo "  amir video tiktok 'https://vt.tiktok.com/ZSu8LxsHC' --sub-only" >&2
         echo "" >&2
         echo "Options (same as 'amir video download'):" >&2
-        echo "  --subtitle, -s         Transcribe + burn subtitles via Whisper AI" >&2
+        echo "  --subtitle, -s         Subtitle pipeline: YouTube manual -> YouTube auto -> Whisper large-v3" >&2
         echo "  --translate            Download YT-style subs + translate via LLM" >&2
         echo "  --target, -t [s] <t>   Subtitle language (e.g. -t fa  or  -t en fa)" >&2
         echo "  --sub-only             Generate SRT only, do not burn into video" >&2
