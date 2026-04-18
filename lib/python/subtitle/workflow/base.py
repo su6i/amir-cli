@@ -229,15 +229,20 @@ def detect_subtitle_geometry(processor, video_path: str, target_langs: List[str]
         return vw, vh
 
     try:
-        font_size = float(getattr(getattr(processor, "style_config", None), "font_size", 16) or 16)
+        # Use original_font_size if stored to prevent cumulative scaling errors
+        base_fs = getattr(processor, "original_font_size", None)
+        if base_fs is None:
+            base_fs = float(getattr(getattr(processor, "style_config", None), "font_size", 16) or 16)
+        font_size = float(base_fs)
     except Exception:
         font_size = 16.0
+    
     rendered_font_px = font_size * (vh / 480.0)
     
     # For portrait videos, subtitle lane width is constrained by frame WIDTH.
     # Using HEIGHT here overestimates capacity and causes single-line overflow/cropping.
     if vh > vw:  # Portrait mode
-        text_area_px = vw * 0.82
+        text_area_px = vw * 0.78  # tight safe zone to prevent overflow
     else:
         text_area_px = vw * 0.80  # Keep WIDTH for horizontal videos
     
@@ -246,19 +251,22 @@ def detect_subtitle_geometry(processor, video_path: str, target_langs: List[str]
     avg_glyph_w = rendered_font_px * (0.64 if is_rtl else 0.55)
     max_chars_dyn = max(10, int(text_area_px / avg_glyph_w))
     if vh > vw:
-        # Keep portrait single-line subtitles within visible bounds.
-        max_chars_dyn = max(18, min(34, max_chars_dyn))
+        # Keep portrait single-line subtitles strictly within the narrow visible bounds.
+        max_chars_dyn = max(15, min(22, max_chars_dyn))
     
-    # FIX: For vertical short-form videos, enforce exactly 4 words per line
-    # was: max(4, min(10, max_chars_dyn // 4)) → variable 4-10 words (inconsistent)
-    # now: 4 words for portrait (short-form), flexible for landscape
+    # Portrait stays strict short-form; landscape should remain longer/readable.
     if vh > vw:  # Portrait mode: short-form videos need consistent 4-word lines
         target_words_dyn = 4
     else:
-        target_words_dyn = max(4, min(10, max_chars_dyn // 4))  # Keep flexible for desktop
+        # IMPORTANT: do not inherit portrait-like short segmentation on horizontal videos.
+        # Keep cues longer for wide screens.
+        target_words_dyn = max(7, min(12, max_chars_dyn // 3))
     
     if getattr(processor, "style_config", None) is not None:
         processor.style_config.max_chars = max_chars_dyn
+        # APPLY FIX: Update the actual font size used for rendering
+        processor.style_config.font_size = int(rendered_font_px)
+
     processor.target_words_per_line = target_words_dyn
     orientation = "📱 Vertical" if vh > vw else "🖥️  Horizontal"
     processor.logger.info(

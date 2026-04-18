@@ -115,6 +115,15 @@ Note:
              "Each language is translated from --source if needed. "
              "Default: auto fa. "
              "Examples: --sub fa | --sub auto fa | --sub fr fa en")
+    parser.add_argument(
+        "--native-lines",
+        choices=["keep", "hide", "on", "off"],
+        default="keep",
+        help=(
+            "For mixed-language speech, decide whether lines already in target script "
+            "remain visible or hidden (default: keep; aliases: on=keep, off=hide)"
+        ),
+    )
     parser.add_argument("-r", "--render", action="store_true", default=True, help="Burn subtitles into video (default: enabled)")
     parser.add_argument("--no-render", action="store_false", dest="render", help="Skip burning — generate subtitle files only")
     
@@ -149,13 +158,29 @@ Note:
     # AI Tuning (Pro)
     parser.add_argument("--llm", type=str, default="deepseek", choices=["deepseek", "gemini", "litellm", "minimax", "grok"], help="LLM bridge for translation (default: deepseek)")
     parser.add_argument("--model", type=str, help="Specific model name (required for LiteLLM, e.g., gpt-4o)")
-    parser.add_argument("--whisper-model", type=str, default="turbo", help="Whisper model size (e.g., large-v3, turbo)")
+    parser.add_argument("--whisper-model", type=str, default="large-v3", help="Whisper model size (e.g., large-v3, turbo)")
     parser.add_argument("--initial-prompt", type=str, help="Whisper initial prompt (context)")
     parser.add_argument("--temperature", type=float, default=0.0, help="Model temperature (0.0-1.0)")
     parser.add_argument("--openai-fallback", action="store_true", help="Use OpenAI if DeepSeek fails")
+    parser.add_argument(
+        "--allow-model-downgrade",
+        action="store_true",
+        help=(
+            "Allow automatic Whisper model downshift under severe resource pressure "
+            "(default: disabled; selected model stays fixed for the whole run)"
+        ),
+    )
     
     # Logic Overrides (Pro)
     parser.add_argument("--min-duration", type=float, default=1.0, help="Minimum subtitle duration (seconds)")
+    parser.add_argument(
+        "--whisper-timing",
+        action="store_true",
+        help=(
+            "Bypass internal timing normalization rules and keep Whisper timing as-is "
+            "(does not disable non-timing subtitle rules)"
+        ),
+    )
 
     # Social media post generation
     _post_platforms = ['telegram', 'youtube', 'linkedin']
@@ -214,6 +239,12 @@ Note:
 
     args.sub_langs = parsed_sub_langs
 
+    # Aliases for convenience: on=keep, off=hide
+    if args.native_lines == "on":
+        args.native_lines = "keep"
+    elif args.native_lines == "off":
+        args.native_lines = "hide"
+
     # Map inline per-language sizes to existing primary/secondary font knobs.
     # Explicit --font-size / --sec-font-size still have priority.
     if per_lang_sizes:
@@ -265,7 +296,10 @@ Note:
         custom_model=args.model,
         use_bert=args.use_bert,
         bert_model=args.bert_model,
-        use_vad=args.use_vad
+        use_vad=args.use_vad,
+        whisper_timing=args.whisper_timing,
+        native_target_lines=args.native_lines,
+        allow_model_downgrade=args.allow_model_downgrade,
     )
     limit_start, limit_end = _parse_limit_args(args.limit)
     result = processor.run_workflow(
