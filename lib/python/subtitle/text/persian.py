@@ -14,27 +14,12 @@ def fix_persian_text(text: str) -> str:
     for p, r in informal.items():
         text = re.sub(p, r, text)
 
-    # Common lexical corrections for ASR/LLM subtitle noise.
-    lexical_fixes = [
-        # "billionaire" is often mistrendered as plain "میلیارد" in noun position.
-        (r"(?<![\d۰-۹]\s)\bمیلیارد(?=،)", "میلیاردر"),
-        # Miriam name tail artifact: "میریام ا" -> "میریام"
-        (r"\bمیریام\s+ا\b", "میریام"),
-        # Common misspellings of "میلیون"
-        (r"\b(میلون|ملیون|میلیوم)\b", "میلیون"),
-    ]
-    for pat, repl in lexical_fixes:
-        text = re.sub(pat, repl, text)
-
     zwnj_patterns = [
         # Plural suffix with space: "کتاب ها" -> "کتاب‌ها"
         (r"([\u0600-\u06FF]+)(\s+)(ها)(\s|$)", "\\1\u200c\\3\\4"),
 
         # Verb prefix joins (spaced): "می رود" / "نمی دانم"
         (r"\b(ن?می)\s+([\u0600-\u06FF])", "\\1\u200c\\2"),
-        # Verb prefix joins (stuck): limited whitelist to avoid corrupting nouns
-        # مثل "میلیون"، "میریام"، "میلیارد".
-        (r"\b(ن?می)(رود|روند|کنم|کنی|کند|کنیم|کنید|کنند|شود|شوم|شوی|شویم|شوید|شوند|دانم|دانی|داند|دانیم|دانید|دانند|گم|گی|گه|گیم|گید|گن|ره|رن|شه|شن)\b", "\\1\u200c\\2"),
 
         # Compounds with space: "کوچک کننده" / "تبعیض آمیز"
         (r"([\u0600-\u06FF]+)\s+(کننده|کنندگان|کنندگی)\b", "\\1\u200c\\2"),

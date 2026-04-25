@@ -166,10 +166,42 @@ run_subtitle() {
             $_has_quality || _sub_flags+=("--quality" "40")
         fi
 
+        # Extract language hints from subtitle flags so download path can prefetch
+        # YouTube tracks with priority: manual -> auto.
+        local -a _prefetch_lang_tokens=()
+        local _k=0
+        while (( _k < ${#_sub_flags[@]} )); do
+            local _tok="${_sub_flags[_k]}"
+            case "$_tok" in
+                -s|--source)
+                    if [[ -n "${_sub_flags[_k+1]:-}" && "${_sub_flags[_k+1]:-}" != -* ]]; then
+                        _prefetch_lang_tokens+=("${_sub_flags[_k+1]}")
+                    fi
+                    (( _k += 2 ))
+                    ;;
+                -t|--sub|--target)
+                    (( _k++ ))
+                    while (( _k < ${#_sub_flags[@]} )); do
+                        local _v="${_sub_flags[_k]}"
+                        [[ "$_v" == -* ]] && break
+                        _prefetch_lang_tokens+=("$_v")
+                        (( _k++ ))
+                    done
+                    ;;
+                *)
+                    (( _k++ ))
+                    ;;
+            esac
+        done
+
+        if [[ ${#_prefetch_lang_tokens[@]} -eq 0 ]]; then
+            _prefetch_lang_tokens+=("fa")
+        fi
+
         # Download only (no --subtitle: all subtitle processing happens below via _subtitle_run)
         # stdout = final file path; stderr (progress bars, info) goes straight to terminal
         local _VIDEO_FILE
-        _VIDEO_FILE=$(video_download "$_url" "${_dl_flags[@]}")
+        _VIDEO_FILE=$(video_download "$_url" "${_dl_flags[@]}" --prefetch-yt-subs "${_prefetch_lang_tokens[@]}")
         if [[ -z "$_VIDEO_FILE" || ! -f "$_VIDEO_FILE" ]]; then
             echo "❌ Download failed or file not found." >&2
             return 1

@@ -17,15 +17,34 @@ from faster_whisper import WhisperModel
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Shared Whisper socket server")
-    p.add_argument("--socket", default="/tmp/amir_whisper_turbo.sock", help="Unix socket path")
-    p.add_argument("--model", default="turbo", help="Whisper model size/name")
+    p.add_argument("--socket", default="/tmp/amir_whisper_large-v3.sock", help="Unix socket path")
+    p.add_argument("--model", default="large-v3", help="Whisper model size/name")
     p.add_argument("--device", default=os.environ.get("AMIR_WHISPER_SERVER_DEVICE", "cpu"), help="cpu/cuda")
     p.add_argument("--compute-type", default=os.environ.get("AMIR_WHISPER_SERVER_COMPUTE", "int8"), help="faster-whisper compute_type")
     return p
 
 
 async def _serve(args: argparse.Namespace) -> None:
+    print(f"Loading model '{args.model}' (device={args.device}, compute_type={args.compute_type})...", flush=True)
+
+    # Memory guard: warn if available RAM is very low
+    try:
+        import shutil
+        total, used, free = shutil.disk_usage("/")
+        # Use psutil if available for RAM; otherwise skip
+        try:
+            import psutil
+            mem = psutil.virtual_memory()
+            free_gb = mem.available / (1024 ** 3)
+            if free_gb < 3.0:
+                print(f"⚠️ WARNING: Only {free_gb:.1f} GB RAM available. Model may crash.", flush=True)
+        except ImportError:
+            pass
+    except Exception:
+        pass
+
     model = WhisperModel(args.model, device=args.device, compute_type=args.compute_type)
+    print(f"Model loaded successfully.", flush=True)
     lock = asyncio.Lock()
     socket_path = Path(args.socket)
 
@@ -76,6 +95,21 @@ async def _serve(args: argparse.Namespace) -> None:
                                 "end": float(w.end),
                                 "word": str(w.word),
                             })
+
+                # Server-side word-loop detection: remove runs of >3 identical words
+                if len(words) > 3:
+                    cleaned_words = []
+                    run_count = 1
+                    for i, w in enumerate(words):
+                        if i > 0 and w["word"].strip().lower() == words[i-1]["word"].strip().lower():
+                            run_count += 1
+                        else:
+                            run_count = 1
+                        if run_count <= 3:
+                            cleaned_words.append(w)
+                    if len(cleaned_words) < len(words):
+                        print(f"  ⚠️ Server: removed {len(words) - len(cleaned_words)} looped words", flush=True)
+                    words = cleaned_words
 
                 result = {
                     "words": words,

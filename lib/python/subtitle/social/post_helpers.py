@@ -66,6 +66,15 @@ def telegram_sections_complete(text: str) -> Tuple[bool, list]:
     """Return (ok, missing) for required Telegram post sections."""
     missing = []
 
+    for marker, label in [
+        ("🎙", "🎙️ host/channel intro line"),
+        ("📊", "📊 host follower/background line"),
+        ("👤", "👤 main guest line"),
+        ("🏅", "🏅 guest background line"),
+    ]:
+        if marker not in text:
+            missing.append(label)
+
     short_mode = ("🧾 خلاصه کوتاه" in text) or ("🧾 Short Summary" in text)
     if short_mode:
         if "📽️" not in text:

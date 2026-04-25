@@ -246,6 +246,18 @@ def run_translation_stage(
         if os.path.exists(tgt_srt) and not force:
             src_entries_count = len(processor.parse_srt(src_srt))
             if processor.validate_srt(tgt_srt, src_entries_count, tgt):
+                resegment_existing_target = _env_flag("AMIR_RESEGMENT_EXISTING_TARGET", False)
+                if resegment_existing_target:
+                    try:
+                        processor.resegment_existing_srt_file(tgt_srt)
+                    except Exception as reseg_err:
+                        processor.logger.warning(
+                            f"⚠️ Existing target re-segmentation skipped for {Path(tgt_srt).name}: {reseg_err}"
+                        )
+                else:
+                    processor.logger.info(
+                        "ℹ️ Existing target re-segmentation skipped (set AMIR_RESEGMENT_EXISTING_TARGET=1 to enable)."
+                    )
                 processor.logger.info(f"✓ Target asset verification successful: {Path(tgt_srt).name}")
                 result[tgt] = tgt_srt
                 continue

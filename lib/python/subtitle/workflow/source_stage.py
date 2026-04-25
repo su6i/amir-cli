@@ -82,6 +82,25 @@ def prepare_source_srt(
     if not isinstance(src_entries, list):
         src_entries = []
 
+    # Re-segment reused source subtitles only when explicitly requested.
+    # Re-applying segmentation on every run can progressively alter cue cadence.
+    resegment_reused = str(os.environ.get("AMIR_RESEGMENT_REUSED_SOURCE", "0")).strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+    if not src_is_fresh and src_entries:
+        if resegment_reused:
+            resegged_src = processor.resegment_existing_entries(src_entries)
+            if isinstance(resegged_src, list) and resegged_src:
+                src_entries = resegged_src
+                processor.logger.info(
+                    f"♻️ Re-segmented reused source subtitles: {Path(src_srt).name}"
+                )
+        else:
+            processor.logger.info(
+                "ℹ️ Reused source re-segmentation skipped (set AMIR_RESEGMENT_REUSED_SOURCE=1 to enable)."
+            )
+
     if has_limit and is_srt_input:
         def ts_to_sec(ts: str) -> float:
             ts = ts.replace(",", ".")
@@ -100,9 +119,14 @@ def prepare_source_srt(
             f"[{limit_start}s, {'end' if limit_end is None else str(limit_end) + 's'}]"
         )
 
-    sanitized = processor.sanitize_entries(src_entries)
-    if isinstance(sanitized, list):
-        src_entries = sanitized
+    # Avoid repeated semantic splitting on already-produced source SRT by default.
+    extra_sanitize = str(os.environ.get("AMIR_SOURCE_EXTRA_SANITIZE", "0")).strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+    if extra_sanitize:
+        sanitized = processor.sanitize_entries(src_entries)
+        if isinstance(sanitized, list):
+            src_entries = sanitized
 
     merged = processor._merge_split_numbers(src_entries)
     if isinstance(merged, list):
@@ -111,12 +135,13 @@ def prepare_source_srt(
     avg_words = sum(len((e.get("text") or "").split()) for e in src_entries) / max(1, len(src_entries))
     src_is_fragmented = len(src_entries) >= 60 and avg_words < 2.3
 
-    if src_is_fresh or src_is_fragmented:
-        if src_is_fragmented and not src_is_fresh:
-            processor.logger.info(
-                f"📐 Detected fragmented source timeline (avg words/entry={avg_words:.2f}); "
-                "applying clause merge."
-            )
+    if src_is_fragmented and not src_is_fresh:
+        processor.logger.info(
+            f"📐 Detected fragmented source timeline (avg words/entry={avg_words:.2f}); "
+            "applying clause merge."
+        )
+    
+    if src_is_fragmented:
         merged_clauses = processor.merge_to_clauses(src_entries)
         if isinstance(merged_clauses, list):
             src_entries = merged_clauses
@@ -124,9 +149,11 @@ def prepare_source_srt(
         re_sanitized = processor.sanitize_entries(src_entries)
         if isinstance(re_sanitized, list):
             src_entries = re_sanitized
-        with open(src_srt, "w", encoding="utf-8-sig") as f:
-            for idx, entry in enumerate(src_entries, 1):
-                f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
+            
+    # Always commit the sanitized output back to disk to enforce geometry bounds
+    with open(src_srt, "w", encoding="utf-8-sig") as f:
+        for idx, entry in enumerate(src_entries, 1):
+            f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
 
     result[source_lang] = src_srt
     return src_srt
