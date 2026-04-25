@@ -24,7 +24,8 @@ run_qr() {
         echo "📌 Mode: $protocol_type | Data: $input"
         qrencode -t ANSIUTF8 "$input"
     
-        local temp_qr="/tmp/temp_qr_amir.png"
+        local temp_qr
+        temp_qr=$(mktemp "$(amir_preferred_temp_dir "$PWD")/temp_qr_amir_XXXXXX.png")
         qrencode -o "$temp_qr" -s 10 "$input"
         
         osascript -e "set the clipboard to (read (POSIX file \"$temp_qr\") as JPEG picture)" 2>/dev/null

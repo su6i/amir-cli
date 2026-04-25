@@ -139,8 +139,70 @@ def bundle_outputs_zip(base_path: str, files: List[str], logger=None) -> Optiona
 
 
 def detect_video_dimensions(video_path: str) -> Tuple[Optional[int], Optional[int]]:
-    """Detect video width and height using ffprobe."""
+    """Detect display-correct video width and height using ffprobe.
+
+    Notes:
+    - Some files are stored rotated (e.g. 480x854 + rotate=90 metadata).
+    - For subtitle layout/orientation we need DISPLAY orientation, not raw coded size.
+    """
     try:
+        # Primary path: JSON output with rotation metadata (tags + side_data_list).
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height,side_data_list,tags",
+                "-of",
+                "json",
+                video_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        payload = result.stdout.strip()
+        if payload:
+            parsed = json.loads(payload)
+            streams = parsed.get("streams") or []
+            if streams:
+                stream = streams[0] or {}
+                w = int(stream.get("width") or 0)
+                h = int(stream.get("height") or 0)
+                if w > 0 and h > 0:
+                    rotate = 0
+
+                    tags = stream.get("tags") or {}
+                    try:
+                        rotate = int(float(str(tags.get("rotate", 0)).strip()))
+                    except Exception:
+                        rotate = 0
+
+                    if rotate == 0:
+                        for sd in stream.get("side_data_list") or []:
+                            if not isinstance(sd, dict):
+                                continue
+                            rot_val = sd.get("rotation")
+                            if rot_val is not None:
+                                try:
+                                    rotate = int(float(str(rot_val).strip()))
+                                    break
+                                except Exception:
+                                    pass
+
+                    # 90/270 degree rotation swaps display width/height.
+                    if abs(rotate) % 180 == 90:
+                        w, h = h, w
+
+                    return w, h
+    except Exception:
+        pass
+
+    try:
+        # Fallback path: plain csv output.
         result = subprocess.run(
             [
                 "ffprobe",
@@ -164,6 +226,7 @@ def detect_video_dimensions(video_path: str) -> Tuple[Optional[int], Optional[in
             return int(w), int(h)
     except Exception:
         pass
+
     return None, None
 
 

@@ -508,7 +508,13 @@ run_ffmpeg_with_progress() {
     local duration="$1"
     shift
     
-    local ffmpeg_error_log=$(mktemp)
+    local temp_root
+    temp_root="${TMPDIR:-}"
+    [[ -z "$temp_root" && -n "$PWD" ]] && temp_root="$(amir_preferred_temp_dir "$PWD" 2>/dev/null)"
+    [[ -z "$temp_root" ]] && temp_root="${PWD:-/tmp}"
+
+    local ffmpeg_error_log
+    ffmpeg_error_log=$(mktemp "${temp_root%/}/ffmpeg_error_XXXXXX.log" 2>/dev/null) || ffmpeg_error_log=$(mktemp)
     
     "$@" 2>&1 | tee "$ffmpeg_error_log" | ffmpeg_progress_bar "$duration"
     local exit_code=${PIPESTATUS[0]:-$?}

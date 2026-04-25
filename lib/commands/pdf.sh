@@ -28,7 +28,8 @@ run_pdf() {
     # If no files provided, check for piped input
     if [[ ${#inputs[@]} -eq 0 ]]; then
         if [[ ! -t 0 ]]; then
-            local stdin_tmp=$(mktemp "/tmp/amir_pdf_stdin_XXXXXX.txt")
+            local stdin_tmp
+            stdin_tmp=$(mktemp "${amir_data}/tmp/amir_pdf_stdin_XXXXXX.txt")
             cat > "$stdin_tmp"
             if [[ -s "$stdin_tmp" ]]; then
                 inputs+=("$stdin_tmp")
@@ -41,11 +42,13 @@ run_pdf() {
 
     [[ ${#inputs[@]} -eq 0 ]] && return 1
 
-    local amir_data="/tmp/amir_data"
+    local amir_data=""
     local use_external=false
     if [[ -d "/Volumes/SanDisk" ]]; then
         amir_data="/Volumes/SanDisk/amir_data"
         use_external=true
+    else
+        amir_data="$(amir_preferred_temp_dir "$PWD")/pdf_data"
     fi
     mkdir -p "$amir_data/tmp" "$amir_data/uv_cache" "$amir_data/chrome_profile"
     
@@ -59,7 +62,7 @@ run_pdf() {
     fi
     
     local chrome_profile="$amir_data/chrome_profile"
-    local tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/pdf_XXXXXX")
+    local tmp_dir=$(mktemp -d "${amir_data}/tmp/pdf_XXXXXX")
     
     local processed=()
     for i in "${!inputs[@]}"; do

@@ -79,12 +79,13 @@ def build_ass_styles(style, secondary_srt: Optional[str], fa_style: Optional[str
     return styles_block
 
 
-def build_ass_header(styles_block: str, secondary_srt: Optional[str]) -> str:
+def build_ass_header(styles_block: str, secondary_srt: Optional[str], video_width: int = 0, video_height: int = 0) -> str:
     """Compose full ASS header text."""
     wrap_style = "2" if secondary_srt else "0"
+    res_info = f"PlayResX: {video_width}\nPlayResY: {video_height}\n" if video_width and video_height else ""
     return f"""[Script Info]
 ScriptType: v4.00+
-WrapStyle: {wrap_style}
+{res_info}WrapStyle: {wrap_style}
 
 [V4+ Styles]
 {styles_block}
@@ -124,10 +125,10 @@ def _normalize_primary_text(text: str, secondary_srt: Optional[str], is_portrait
     out = " ".join(out.split())
     
     if secondary_srt:
-        # CRITICAL FIX: Increased character limit for portrait to avoid truncation sync issues
-        # was: 42 chars (too restrictive, caused text loss)
-        # now: 52 chars (allows full phrases, maintains sync)
-        max_top_chars = 52 if is_portrait else 80
+        # CRITICAL FIX: Portrait character limits must strictly match the narrow width
+        # to ensure it breaks properly, especially for YouTube auto-sub imports.
+        # Max 36 chars ensures it rarely spans more than 2 safe lines.
+        max_top_chars = 36 if is_portrait else 80
         
         # Use vis_len for proper visual character counting (handles Unicode zero-width chars)
         visual_len = vis_len(out)
@@ -199,11 +200,11 @@ def build_ass_events(
                     sec_text_fixed = sec_text_fixed.replace("\\N", " ").replace("\\n", " ").replace("\n", " ")
                     sec_text_fixed = " ".join(sec_text_fixed.split())
                 sec_text_formatted = _wrap_parentheses_with_smaller_font(sec_text_fixed)
-                top_scale = 0.90 if is_portrait else 0.82
-                top_fs = max(13, int(style.font_size * top_scale))
+                top_scale = 0.65 if is_portrait else 0.82
+                top_fs = max(11, int(style.font_size * top_scale))
                 bot_fs = style.font_size
-                top_wrap = "{\\q2}" if max_lines <= 1 else ""
-                fa_wrap = "{\\q2}" if max_lines <= 1 else ""
+                top_wrap = "{\\q0}" if is_portrait else ("{\\q2}" if max_lines <= 1 else "")
+                fa_wrap = "{\\q0}" if is_portrait else ("{\\q2}" if max_lines <= 1 else "")
                 final_text = f"{top_wrap}{{\\fs{top_fs}}}{{\\c&H808080}}{text}"
                 bi_fa_text = f"{fa_wrap}{{\\b1}}{{\\fs{bot_fs}}}{sec_text_formatted}"
 
