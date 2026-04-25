@@ -83,6 +83,8 @@ _amir() {
                 'subtitle:Transcribe + translate video (Whisper AI + LLM). Also accepts a URL'
                 'compress:Process video with smart selection'
                 'cut:Cut / Trim video segment'
+                'concat:Concatenate videos in the given order'
+                'merge:Alias for concat'
                 'split:Split video into ~N MB chunks'
                 'batch:Batch process all videos in directory'
                 'download:Download video from any website (YouTube, news, etc.)'
@@ -111,7 +113,9 @@ _amir() {
                         '3:video file:_files -g "*.mp4 *.mov *.mkv *.avi *.webm *.MP4 *.MOV *.MKV *.WEBM"' \
                         '(-s --start)'{-s,--start}'[Start time]:format HH\:MM\:SS or seconds (e.g. 00\:10\:30 or 630): ' \
                         '(-e --end -t --to)'{-e,--end,-t,--to}'[End time]:format HH\:MM\:SS or seconds (e.g. 01\:30\:00 or 5400): ' \
-                        '(-d --duration)'{-d,--duration}'[Duration]:format HH\:MM\:SS or seconds (e.g. 00\:05\:00 or 300): ' \
+                        '--duration[Duration from start]:format HH\:MM\:SS or seconds (e.g. 00\:05\:00 or 300): ' \
+                        '(-d --delete)'{-d,--delete}'[Delete range and stitch]:start time (then end time): ' \
+                        '(-x --extract)'{-x,--extract}'[Extract only range into a clip]:start time (then end time): ' \
                         '(-o --output)'{-o,--output}'[Output filename]:output file:_files' \
                         '--split[Split output into chunks of N MB]:size in MB: ' \
                         '--render[Re-encode video instead of copy stream]'
@@ -121,6 +125,25 @@ _amir() {
                         '1: : ' '2: : ' \
                         '3:video file:_files -g "*.mp4 *.mov *.mkv *.avi *.webm *.MP4 *.MOV *.MKV *.WEBM"' \
                         '4:chunk size in MB: '
+                    ;;
+                concat|merge)
+                    case "$prev" in
+                        -o|--output)
+                            _files
+                            ;;
+                        *)
+                            if [[ "$PREFIX" == -* ]]; then
+                                local -a vm_opts
+                                vm_opts=(
+                                    '-o:Output video file'
+                                    '--output:Output video file'
+                                )
+                                _describe -t vm_opts 'options' vm_opts
+                            else
+                                _files -g "*.mp4 *.mov *.mkv *.avi *.webm *.MP4 *.MOV *.MKV *.WEBM"
+                            fi
+                            ;;
+                    esac
                     ;;
                 compress)
                     _arguments -s \
@@ -164,6 +187,7 @@ _amir() {
                         '(-s --source)'{-s,--source}'[Source language / audio language for Whisper (default\: auto)]:source lang:(auto en zh es hi ar bn pt ru ja fr de fa tr ko)' \
                         '*'{--sub,-t}'[Subtitle display langs in top→bottom order (repeatable)]:lang:(auto fa en de ar zh es fr ru ja ko tr pt hi)' \
                         '(-r --render)'{-r,--render}'[Burn subtitles into video (default\: enabled)]' \
+                        '--ass-input[Render directly from a pre-edited ASS file (skip SRT→ASS conversion)]:ass file:_files -g "*.ass *.ASS"' \
                         '--sub-only[Generate subtitle files only — do not burn into video]' \
                         '--no-render[Alias for --sub-only (deprecated)]' \
                         '(-f --force)'{-f,--force}'[Force re-transcription]' \
@@ -642,6 +666,7 @@ _amir() {
                         '(-s --source)'{-s,--source}'[Source language / audio language for Whisper (default\: auto)]:source lang:(auto en zh es hi ar bn pt ru ja fr ur pa vi tr ko id de fa gu it mr te ta th ha el he mg nl pl uk)' \
                         '*'{--sub,-t}'[Subtitle display langs in top→bottom order (repeatable)]:lang:(auto fa en de ar zh es fr ru ja ko tr pt hi ur pa vi id gu it)' \
                         '(-r --render)'{-r,--render}'[Burn subtitles into video (default\: enabled)]' \
+                        '--ass-input[Render directly from a pre-edited ASS file (skip SRT→ASS conversion)]:ass file:_files -g "*.ass *.ASS"' \
                         '--sub-only[Generate subtitle files only — do not burn into video]' \
                         '--no-render[Alias for --sub-only (deprecated)]' \
                         '(-f --force)'{-f,--force}'[Force re-transcription]' \

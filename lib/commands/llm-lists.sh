@@ -59,7 +59,9 @@ llm_lists() {
     fi
     
     # Create Python script
-    python_script=$(mktemp)
+    local temp_root
+    temp_root="$(amir_preferred_temp_dir "$AMIR_ROOT")" || return 1
+    python_script=$(mktemp "$temp_root/llm_lists_XXXXXX.py")
     if [[ -z "$python_script" ]]; then
         echo "❌ Error: Failed to create temporary Python script."
         return 1
@@ -176,7 +178,7 @@ if __name__ == "__main__":
 PYTHON_EOF
     
     # Run Python script and capture output
-    local output_file=$(mktemp)
+    local output_file=$(mktemp "$temp_root/llm_lists_out_XXXXXX.txt")
     if [[ -z "$output_file" ]]; then
         echo "❌ Error: Failed to create temporary output file."
         rm -f "$python_script"
@@ -262,7 +264,7 @@ PYTHON_EOF
                 if command -v convert &> /dev/null; then
                     local jpg_file="${provider}_models_$(date +%Y%m%d).jpg"
                     # Create temporary HTML
-                    local html_file=$(mktemp)
+                    local html_file=$(mktemp "$temp_root/llm_lists_html_XXXXXX.html")
                     {
                         echo "<html><body style='font-family: monospace; padding: 20px;'>"
                         echo "<h1>${provider^^} Models</h1>"

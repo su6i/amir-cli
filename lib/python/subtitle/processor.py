@@ -36,6 +36,7 @@ from subtitle.config import (
     LANGUAGE_REGISTRY,
     LanguageConfig,
     get_language_config,
+    get_segmentation_config,
     has_target_language_chars,
     load_api_key,
 )
@@ -1631,21 +1632,32 @@ class SubtitleProcessor:
         limit      = getattr(self.style_config, 'max_chars', 42)   # soft char target
         max_lines  = getattr(self.style_config, 'max_lines', 2)
         hard_limit = limit + (12 if max_lines > 1 else 4) # strict ceiling for 1-liners
-        _target_wpl = int(getattr(self, 'target_words_per_line', 7) or 7)
-        # For landscape (max_chars >= 30): require at least 5 words before any soft break.
-        # For portrait (max_chars < 30): 3 words is enough (tight line budgets).
-        _min_words_floor = 3 if limit < 30 else 5
-        MIN_WORDS  = max(_min_words_floor, _target_wpl)
-        MAX_WORDS  = 12               # hard ceiling — never exceed 12 words per entry
-        MAX_SEG_SEC = 6.0              # time ceiling (no punctuation safety net)
+        
+        # Load segmentation config (applies to all languages)
+        seg_config = get_segmentation_config()
+        # Use real video orientation when available.
+        # Fallback keeps backward compatibility for SRT-only workflows.
+        orientation_flag = getattr(self, 'is_vertical_video', None)
+        if isinstance(orientation_flag, bool):
+            is_vertical = orientation_flag
+        else:
+            is_vertical = limit < 30
+        low_ram = getattr(self, 'low_ram_mode', False)
+        # Low-RAM should reduce compute pressure, but not silently degrade subtitle
+        # readability. Only use low-RAM segmentation limits when explicitly enabled.
+        low_ram_seg = bool(low_ram and str(os.environ.get("AMIR_LOW_RAM_SEGMENTATION", "0")).strip().lower() in {"1", "true", "yes", "on"})
+        constraints = seg_config.get_constraints(is_vertical=is_vertical, low_ram=low_ram_seg)
+        
+        # Apply config-based word count constraints
+        MIN_WORDS  = constraints['min_words']
+        MAX_WORDS  = constraints['max_words']
+        MAX_SEG_SEC = seg_config.max_segment_seconds
         MIN_NEXT_CLAUSE = max(4, MIN_WORDS - 1)  # lookahead: next clause must stand alone
 
-        # Low-RAM tuning is portrait-only; horizontal videos should keep longer cues.
-        if getattr(self, 'low_ram_mode', False) and limit < 30:
-            MIN_WORDS = max(3, min(MIN_WORDS, 6))
-            MAX_WORDS = min(MAX_WORDS, 9)
-            MAX_SEG_SEC = min(MAX_SEG_SEC, 4.5)
-            MIN_NEXT_CLAUSE = max(3, min(MIN_NEXT_CLAUSE, 5))
+        self.logger.debug(
+            f"Segmentation config: is_vertical={is_vertical}, low_ram={low_ram}, "
+            f"low_ram_seg={low_ram_seg}, MIN_WORDS={MIN_WORDS}, MAX_WORDS={MAX_WORDS}"
+        )
         # ─────────────────────────────────────────────────────────────────────
 
         _ABBREVS = frozenset({
@@ -1811,16 +1823,18 @@ class SubtitleProcessor:
                     continue
 
         # ── post-pass: orphan prevention ──
+        # CRITICAL: Always enforce minimum word count, regardless of --whisper-timing.
+        # Whisper timing refers to word-level timestamps; minimum word count is a display readability constraint.
+        # Merging short segments doesn't violate Whisper timing preservation.
+        entries = merge_orphan_segments(
+            entries,
+            hard_limit,
+            min_words=MIN_WORDS,  # Use config-based minimum
+            max_allowance=25 if max_lines > 1 else 8,
+            parse_to_sec_fn=self.parse_to_sec,
+        )
         if self.whisper_timing:
-            self.logger.info("⏱️  Skipping orphan-segment timing merge (--whisper-timing)")
-        else:
-            entries = merge_orphan_segments(
-                entries,
-                hard_limit,
-                min_words=max(_min_words_floor, int(getattr(self, 'target_words_per_line', 4) or 4)),
-                max_allowance=25 if max_lines > 1 else 8,
-                parse_to_sec_fn=self.parse_to_sec,
-            )
+            self.logger.info("⏱️  --whisper-timing: Merged short segments while preserving word-level timestamps")
 
         # ── hallucination suppression + timing fix ───────────────────────────
         entries = self.suppress_hallucinations(entries)
@@ -1835,6 +1849,17 @@ class SubtitleProcessor:
         """Fix overlaps, enforce minimum duration, and semantically split long lines"""
         min_duration = self.min_duration
         max_chars = getattr(self.style_config, 'max_chars', 42)
+
+        # Get minimum word count constraint from segmentation config
+        from .config.segmentation import get_segmentation_config
+        seg_config = get_segmentation_config()
+        is_vertical = getattr(self, 'is_vertical_video', None)
+        if not isinstance(is_vertical, bool):
+            is_vertical = max_chars < 30
+        low_ram = getattr(self, 'low_ram_mode', False)
+        low_ram_seg = bool(low_ram and str(os.environ.get("AMIR_LOW_RAM_SEGMENTATION", "0")).strip().lower() in {"1", "true", "yes", "on"})
+        constraints = seg_config.get_constraints(is_vertical=is_vertical, low_ram=low_ram_seg)
+        min_words = constraints['min_words']
 
         if not entries:
             return []
@@ -1866,6 +1891,7 @@ class SubtitleProcessor:
         return postprocess_orphans_and_collocations(
             deduped,
             max_chars=max_chars,
+            min_words=min_words,
             load_collocations_fn=self._load_collocations,
             remove_whisper_artifacts_fn=self._remove_whisper_artifacts,
             clean_bidi_fn=self._clean_bidi,
@@ -2532,6 +2558,85 @@ class SubtitleProcessor:
     def parse_srt(self, srt_path: str) -> List[Dict]:
         return parse_srt_file(srt_path)
 
+    def _entries_to_pseudo_words(self, entries: List[Dict]) -> List[WordObj]:
+        """Convert SRT entries to pseudo word-timestamps for re-segmentation.
+
+        This allows applying the same segmentation pipeline on existing subtitles
+        without rerunning Whisper.
+        """
+        pseudo_words: List[WordObj] = []
+        for entry in entries or []:
+            text = re.sub(r"\s+", " ", str(entry.get("text", "") or "")).strip()
+            if not text:
+                continue
+
+            words = text.split(" ")
+            if not words:
+                continue
+
+            try:
+                start_sec = self.parse_to_sec(str(entry.get("start", "00:00:00,000")))
+                end_sec = self.parse_to_sec(str(entry.get("end", "00:00:00,000")))
+            except Exception:
+                continue
+
+            if end_sec <= start_sec:
+                end_sec = start_sec + max(0.05, 0.05 * len(words))
+
+            step = max((end_sec - start_sec) / max(1, len(words)), 0.01)
+            cur = start_sec
+            for i, w in enumerate(words):
+                w_start = cur
+                w_end = end_sec if i == len(words) - 1 else min(end_sec, w_start + step)
+                if w_end <= w_start:
+                    w_end = w_start + 0.01
+                pseudo_words.append(WordObj(w_start, w_end, w))
+                cur = w_end
+
+        return pseudo_words
+
+    def resegment_existing_entries(self, entries: List[Dict]) -> List[Dict]:
+        """Re-segment existing SRT entries using current segmentation rules.
+
+        This path is intentionally offline-only (no Whisper/LLM), so users can
+        iterate on segmentation config and immediately re-render.
+        """
+        if not isinstance(entries, list) or not entries:
+            return entries
+
+        pseudo_words = self._entries_to_pseudo_words(entries)
+        if not pseudo_words:
+            return entries
+
+        try:
+            resegged = self.segment_words_smart(pseudo_words)
+            if isinstance(resegged, list) and resegged:
+                return resegged
+        except Exception as e:
+            self.logger.warning(f"⚠️ Existing-entry resegmentation failed; keeping original segmentation: {e}")
+
+        return entries
+
+    def resegment_existing_srt_file(self, srt_path: str) -> bool:
+        """Re-segment an existing SRT file in-place using current rules."""
+        if not srt_path or not os.path.exists(srt_path):
+            return False
+
+        entries = self.parse_srt(srt_path)
+        if not isinstance(entries, list) or not entries:
+            return False
+
+        resegged = self.resegment_existing_entries(entries)
+        if not isinstance(resegged, list) or not resegged:
+            return False
+
+        with open(srt_path, "w", encoding="utf-8-sig") as f:
+            for idx, entry in enumerate(resegged, 1):
+                f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
+
+        self.logger.info(f"♻️ Re-segmented existing subtitles in-place: {Path(srt_path).name}")
+        return True
+
     def validate_srt(self, srt_path: str, expected_count: int, target_lang: str = 'fa') -> bool:
         return validate_srt_file(
             srt_path=srt_path,
@@ -2657,6 +2762,7 @@ class SubtitleProcessor:
         pad_bottom: int = 0,
         subtitle_raise_top_px: int = 0,
         subtitle_raise_bottom_px: int = 0,
+        ass_input_path: Optional[str] = None,
         use_vad: bool = True,
         progress_callback=None,
     ) -> Dict[str, Any]:
@@ -2741,6 +2847,63 @@ class SubtitleProcessor:
             _has_limit = runtime_ctx["has_limit"]
             source_lang = runtime_ctx["source_lang"]
             target_langs = runtime_ctx["target_langs"]
+
+            # Direct ASS render mode: skip transcription/translation and render user-provided ASS.
+            if ass_input_path:
+                ass_path_abs = os.path.abspath(os.path.expanduser(str(ass_input_path)))
+                if not os.path.exists(ass_path_abs):
+                    raise FileNotFoundError(f"Direct ASS file not found: {ass_path_abs}")
+                if not render:
+                    raise ValueError("--ass-input requires rendering mode (do not use --no-render)")
+                if _is_srt_input:
+                    raise ValueError("--ass-input requires a video input, not an SRT input")
+
+                self.logger.info(
+                    f"🎯 Direct ASS render mode active. Skipping SRT/translation pipeline and rendering from: {Path(ass_path_abs).name}"
+                )
+                _render_ok = run_rendering_stage(
+                    self,
+                    result=result,
+                    source_lang=source_lang,
+                    target_langs=target_langs,
+                    src_srt="",
+                    original_base=original_base,
+                    current_video_input=current_video_input,
+                    force=force,
+                    limit_start=_limit_start,
+                    video_width=_vw or 0,
+                    video_height=_vh or 0,
+                    render_resolution=render_resolution,
+                    render_quality=render_quality,
+                    render_fps=render_fps,
+                    render_split_mb=render_split_mb,
+                    pad_bottom=pad_bottom,
+                    subtitle_raise_top_px=subtitle_raise_top_px,
+                    subtitle_raise_bottom_px=subtitle_raise_bottom_px,
+                    emit_progress=_emit_progress,
+                    detect_best_hw_encoder_fn=detect_best_hw_encoder,
+                    get_default_quality_fn=get_default_quality,
+                    direct_ass_path=ass_path_abs,
+                )
+                if not _render_ok:
+                    return None
+
+                run_finalize_stage(
+                    self,
+                    result=result,
+                    original_base=original_base,
+                    original_stem=original_stem,
+                    original_dir=original_dir,
+                    source_lang=source_lang,
+                    target_langs=target_langs,
+                    platforms=platforms,
+                    prompt_file=prompt_file,
+                    post_langs=post_langs,
+                    save_formats=save_formats,
+                )
+
+                self.logger.info("Execution sequence finalized (direct ASS render mode).")
+                return result
             
             # 1. Source SRT preparation (reuse/transcribe + sanitize/merge)
             src_srt = prepare_source_srt(
@@ -2814,6 +2977,7 @@ class SubtitleProcessor:
                     emit_progress=_emit_progress,
                     detect_best_hw_encoder_fn=detect_best_hw_encoder,
                     get_default_quality_fn=get_default_quality,
+                    direct_ass_path=None,
                 )
                 if not _render_ok:
                     return None

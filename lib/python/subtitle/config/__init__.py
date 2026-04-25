@@ -5,6 +5,10 @@ from .language import (
     get_language_config,
     has_target_language_chars,
 )
+from .segmentation import (
+    SegmentationConfig,
+    get_segmentation_config,
+)
 
 __all__ = [
     "LanguageConfig",
@@ -12,4 +16,6 @@ __all__ = [
     "get_language_config",
     "has_target_language_chars",
     "load_api_key",
+    "SegmentationConfig",
+    "get_segmentation_config",
 ]

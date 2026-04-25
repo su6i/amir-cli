@@ -126,6 +126,16 @@ Note:
     )
     parser.add_argument("-r", "--render", action="store_true", default=True, help="Burn subtitles into video (default: enabled)")
     parser.add_argument("--no-render", action="store_false", dest="render", help="Skip burning — generate subtitle files only")
+    parser.add_argument(
+        "--ass-input",
+        type=str,
+        default=None,
+        metavar="ASS_FILE",
+        help=(
+            "Render directly from a pre-edited ASS file (skip SRT→ASS conversion and subtitle pipeline). "
+            "Used only when this switch is provided."
+        ),
+    )
     
     parser.add_argument("-f", "--force", action="store_true", help="Force re-transcription and skip SRT smart resume (still uses local hash cache + provider KV caches)")
     parser.add_argument("-c", "--correct", action="store_true", help="Correct transcription with AI")
@@ -273,6 +283,16 @@ Note:
     if not os.path.exists(args.video) and not _post_only:
         print(f"Error: {args.video} not found")
         sys.exit(1)
+
+    if args.ass_input:
+        ass_input_abs = os.path.abspath(os.path.expanduser(args.ass_input))
+        if not os.path.exists(ass_input_abs):
+            print(f"Error: ASS file not found: {args.ass_input}")
+            sys.exit(1)
+        if not args.render:
+            print("Error: --ass-input requires render mode. Remove --no-render.")
+            sys.exit(2)
+        args.ass_input = ass_input_abs
         
     # Convert string style to Enum
     style_enum = SubtitleStyle(args.style)
@@ -324,6 +344,7 @@ Note:
         pad_bottom=args.pad_bottom,
         subtitle_raise_top_px=args.raise_top,
         subtitle_raise_bottom_px=args.raise_bottom,
+        ass_input_path=args.ass_input,
         use_vad=args.use_vad,
     )
 

@@ -491,11 +491,100 @@ run_video_split() {
     split_video_by_size_strict "$input_file" "$split_mb"
 }
 
+video_abspath() {
+    python3 -c "import os, sys; print(os.path.abspath(sys.argv[1]))" "$1"
+}
+
+video_concat() {
+    local output_file=""
+    local input_files=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -o|--output)
+                output_file="$2"
+                shift 2
+                ;;
+            *)
+                input_files+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    if [[ ${#input_files[@]} -eq 0 ]]; then
+        echo "❌ Error: No input files specified."
+        echo "Usage: amir video concat <files...> [-o output.mp4]"
+        return 1
+    fi
+
+    if [[ -z "$output_file" ]]; then
+        local first_file
+        first_file=$(basename "${input_files[0]%.*}")
+        output_file="${first_file}_merged.mp4"
+    fi
+
+    local list_file
+    list_file=$(mktemp "$(amir_preferred_temp_dir "$PWD")/video_concat_XXXXXX.txt")
+    local valid_count=0
+
+    echo "🎬 Preparing to concatenate ${#input_files[@]} files into $(basename "$output_file")"
+    for f in "${input_files[@]}"; do
+        if [[ -f "$f" ]]; then
+            local abs_path
+            abs_path=$(video_abspath "$f")
+            echo "file '$abs_path'" >> "$list_file"
+            echo "   🔗 $(basename "$f")"
+            valid_count=$((valid_count + 1))
+        else
+            echo "   ⚠️  Skipping missing file: $f"
+        fi
+    done
+
+    if [[ "$valid_count" -eq 0 ]]; then
+        rm -f "$list_file"
+        echo "❌ Error: No valid input files found."
+        return 1
+    fi
+
+    if [[ -f "$output_file" && -s "$output_file" ]]; then
+        rm -f "$list_file"
+        echo "ℹ️  Fast-track: Output already exists: $output_file (skipping merge)"
+        echo "$output_file"
+        return 0
+    fi
+
+    local ffmpeg_path
+    ffmpeg_path=$(get_ffmpeg_path)
+    # Re-encoding avoids concat failures when source files differ in codecs/timebase.
+    run_ffmpeg_with_progress "" \
+        "$ffmpeg_path" -hide_banner -loglevel info -stats -y \
+        -f concat -safe 0 -i "$list_file" \
+        -c:v libx264 -crf 20 -preset medium \
+        -c:a aac -b:a 192k -movflags +faststart "$output_file"
+    local exit_code=$?
+    rm -f "$list_file"
+
+    if [[ $exit_code -eq 0 ]]; then
+        echo "✅ Concatenation complete: $output_file"
+        echo "$output_file"
+    else
+        echo "❌ FFmpeg failed to merge video files."
+        return 1
+    fi
+}
+
 video() {
     # Direct shared split subcommand
     if [[ "$1" == "split" ]]; then
         shift
         run_video_split "$@"
+        return $?
+    fi
+
+    if [[ "$1" == "concat" || "$1" == "merge" ]]; then
+        shift
+        video_concat "$@"
         return $?
     fi
 
@@ -507,13 +596,16 @@ video() {
     # If no arguments, show help
     if [[ $# -eq 0 ]]; then
         echo "Usage: amir video compress <files...> [Resolution] [Quality] [--gpu|--cpu]"
+        echo "       amir video concat <files...> [-o output.mp4]"
         echo "       amir video cut / trim <file> [options]"
         echo "       amir video split <file> <mb>"
         echo "       amir video batch <dir> [Resolution]"
         echo ""
         echo "Example (Compress): amir video compress movie.mp4 1080 60"
         echo "Example (Compress): amir video compress movie.mp4 --resolution 720 --quality 40"
+        echo "Example (Concat):   amir video concat part1.mp4 part2.mp4 -o final.mp4"
         echo "Example (Trim):     amir video trim clip.mp4 -s 00:01:30 -t 00:03:00"
+        echo "Example (Delete):   amir video cut clip.mp4 -d 00:01:00 00:02:00"
         echo ""
         echo "Options:"
         echo "  --gpu            Use hardware encoder (default on Apple Silicon)"
@@ -521,9 +613,11 @@ video() {
         echo "  --quality N      Set quality (1-100, higher = better)"
         echo "  --resolution N   Set resolution height (e.g. 720, 1080)"
         echo "  -s, --start      Start time (HH:MM:SS or seconds)"
-        echo "  -e, --end        End time (HH:MM:SS or seconds)"
+        echo "  -e, --end        End time on original timeline (HH:MM:SS or seconds)"
         echo "  -t, --to         End time (alias for --end)"
-        echo "  -d, --duration   Duration from start"
+        echo "  --duration       Duration from start"
+        echo "  -d, --delete     Delete range: <start> <end> and stitch remaining parts"
+        echo "  -x, --extract    Extract only range: <start> <end> into a clip file"
         echo "  -o, --output     Output filename"
         return 1
     fi
@@ -622,6 +716,12 @@ run_video_cut() {
     local start_time=""
     local end_time=""
     local duration=""
+    local extract_start=""
+    local extract_end=""
+    local extract_mode=0
+    local delete_start=""
+    local delete_end=""
+    local delete_mode=0
     local output_file=""
     local subtitle_file=""
     local cover_frame_file=""
@@ -636,6 +736,7 @@ run_video_cut() {
     # UI Display Overrides (for symlinked/temp files)
     local display_in=""
     local display_out=""
+    local render_tmp_dir=""
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -643,7 +744,25 @@ run_video_cut() {
             -s|--start) start_time="$2"; shift 2 ;;
             -e|--end) end_time="$2"; shift 2 ;;
             -t|--to) end_time="$2"; shift 2 ;;
-            -d|--duration) duration="$2"; shift 2 ;;
+            --duration) duration="$2"; shift 2 ;;
+            -x|--extract)
+                extract_mode=1
+                extract_start="$2"
+                extract_end="$3"
+                shift 3
+                ;;
+            -d|--delete)
+                # Backward compatibility: old -d <duration>
+                if [[ "$1" == "-d" && ( -z "${3:-}" || "${2:-}" == -* || "${3:-}" == -* ) ]]; then
+                    duration="$2"
+                    shift 2
+                else
+                    delete_mode=1
+                    delete_start="$2"
+                    delete_end="$3"
+                    shift 3
+                fi
+                ;;
             -o|--output) output_file="$2"; shift 2 ;;
             --subtitles) subtitle_file="$2"; shift 2 ;;
             --cover-frame) cover_frame_file="$2"; shift 2 ;;
@@ -670,14 +789,39 @@ run_video_cut() {
 
     if [[ -z "$input_file" ]]; then
         echo "❌ Error: No input file specified."
-        echo "Usage: amir video cut <file> [-s start] [-e end] [-o output] [--resolution H] [--quality Q] [--fps N] [--split MB] [--cover-frame IMG]"
+        echo "Usage: amir video cut <file> [-s start] [-e end] [--duration d] [-d start end] [-x start end] [-o output] [--resolution H] [--quality Q] [--fps N] [--split MB] [--cover-frame IMG]"
         return 1
     fi
 
-    # Split-only fast path: if the user asked only for chunking, don't create an
+    if [[ $extract_mode -eq 1 && $delete_mode -eq 1 ]]; then
+        echo "❌ Error: --extract cannot be combined with --delete."
+        return 1
+    fi
+
+    if [[ $extract_mode -eq 1 && ( -n "$start_time" || -n "$end_time" || -n "$duration" || -n "$delete_start" || -n "$delete_end" ) ]]; then
+        echo "❌ Error: --extract cannot be combined with --start/--end/--duration/--delete in the same command."
+        return 1
+    fi
+
+    if [[ $delete_mode -eq 1 && ( -n "$start_time" || -n "$end_time" || -n "$duration" ) ]]; then
+        echo "❌ Error: --delete cannot be combined with --start/--end/--duration in the same command."
+        return 1
+    fi
+
+    if [[ $extract_mode -eq 1 ]]; then
+        start_time="$extract_start"
+        end_time="$extract_end"
+        if [[ -z "$start_time" || -z "$end_time" ]]; then
+            echo "❌ Error: --extract requires both start and end times."
+            return 1
+        fi
+    fi
+
+        # Split-only fast path: if the user asked only for chunking, don't create an
     # unnecessary *_cut file first. Just split the original input directly.
     if [[ -n "$split_mb" && "$split_mb" =~ ^[0-9]+$ && "$split_mb" -gt 0 \
           && -z "$start_time" && -z "$end_time" && -z "$duration" \
+            && $delete_mode -eq 0 \
           && -z "$subtitle_file" && -z "$fonts_dir" \
           && -z "$render_resolution" && -z "$render_quality" && -z "$render_fps" \
           && "$encode" -eq 0 && -z "$output_file" ]]; then
@@ -690,7 +834,44 @@ run_video_cut() {
     if [[ -z "$output_file" ]]; then
         local base="${input_file%.*}"
         local ext="${input_file##*.}"
-        output_file="${base}_cut.${ext}"
+        _time_token() {
+            local value="$1"
+            value="${value//:/-}"
+            value="${value//./-}"
+            value="${value// /_}"
+            printf '%s' "$value"
+        }
+        if [[ $extract_mode -eq 1 ]]; then
+            output_file="${base}_cut_$(_time_token "$extract_start")_$(_time_token "$extract_end").${ext}"
+        else
+            output_file="${base}_cut.${ext}"
+        fi
+    fi
+
+    # Keep render-time temp files off system /tmp when possible.
+    # This prevents subtitle rendering from failing on machines with a full local temp volume.
+    local tmp_parent
+    tmp_parent="$(dirname "$output_file")"
+    [[ -d "$tmp_parent" ]] || tmp_parent="$(dirname "$input_file")"
+    if [[ -d "$tmp_parent" ]]; then
+        if ! tmp_parent="$(cd "$tmp_parent" 2>/dev/null && pwd -P)"; then
+            tmp_parent=""
+        fi
+    fi
+    if [[ -n "$tmp_parent" ]]; then
+        render_tmp_dir="$tmp_parent/.amir_tmp_$$"
+        mkdir -p "$render_tmp_dir" 2>/dev/null || render_tmp_dir=""
+    fi
+
+    cleanup_render_tmp() {
+        if [[ -n "$render_tmp_dir" && -d "$render_tmp_dir" ]]; then
+            rm -rf "$render_tmp_dir"
+        fi
+    }
+    trap cleanup_render_tmp EXIT
+
+    if [[ -n "$render_tmp_dir" ]]; then
+        export TMPDIR="$render_tmp_dir"
     fi
 
     echo "🎬  Processing Video: ${display_in:-$(basename "$input_file")}"
@@ -699,6 +880,213 @@ run_video_cut() {
     local ffmpeg_cmd="${FFMPEG_EXEC:-ffmpeg}"
 
     local cmd=("$ffmpeg_cmd" "-hide_banner" "-loglevel" "error" "-stats" "-y")
+
+    # Convert time expressions (SS, MM:SS, HH:MM:SS) to seconds.
+    # Used to turn absolute end times into a true clip duration when start is set.
+    _to_seconds() {
+        local ts="$1"
+        awk -v t="$ts" 'BEGIN {
+            n = split(t, a, ":")
+            if (n == 1) {
+                printf "%.6f", a[1] + 0
+            } else if (n == 2) {
+                printf "%.6f", (a[1] * 60) + a[2]
+            } else if (n == 3) {
+                printf "%.6f", (a[1] * 3600) + (a[2] * 60) + a[3]
+            } else {
+                print ""
+            }
+        }'
+    }
+
+    if [[ $delete_mode -eq 1 ]]; then
+        local delete_start_seconds
+        local delete_end_seconds
+        local input_duration
+
+        delete_start_seconds="$(_to_seconds "$delete_start")"
+        delete_end_seconds="$(_to_seconds "$delete_end")"
+        input_duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
+
+        if [[ -z "$delete_start_seconds" || -z "$delete_end_seconds" || -z "$input_duration" ]]; then
+            echo "❌ Error: Invalid time format for --delete or unreadable input duration."
+            return 1
+        fi
+
+        if awk -v s="$delete_start_seconds" -v e="$delete_end_seconds" 'BEGIN { exit (e <= s) ? 0 : 1 }'; then
+            echo "❌ Error: delete end must be greater than delete start."
+            return 1
+        fi
+
+        if awk -v s="$delete_start_seconds" -v d="$input_duration" 'BEGIN { exit (s >= d) ? 0 : 1 }'; then
+            echo "❌ Error: delete start is beyond video duration."
+            return 1
+        fi
+
+        if awk -v e="$delete_end_seconds" -v d="$input_duration" 'BEGIN { exit (e > d) ? 0 : 1 }'; then
+            delete_end_seconds="$input_duration"
+        fi
+
+        echo "✂️  Mode: Delete Range and Stitch"
+
+        local tmp_parent
+        tmp_parent="$(dirname "$output_file")"
+        [[ -d "$tmp_parent" ]] || tmp_parent="$(dirname "$input_file")"
+        if ! tmp_parent="$(cd "$tmp_parent" 2>/dev/null && pwd -P)"; then
+            echo "❌ Error: Failed to resolve temp directory path."
+            return 1
+        fi
+
+        local tmp_dir
+        tmp_dir=$(mktemp -d "$tmp_parent/.amir_delete_XXXXXX")
+        if [[ -z "$tmp_dir" || ! -d "$tmp_dir" ]]; then
+            echo "❌ Error: Failed to create temporary directory."
+            return 1
+        fi
+
+        local part1="$tmp_dir/part1.${input_file##*.}"
+        local part2="$tmp_dir/part2.${input_file##*.}"
+        local list_file="$tmp_dir/concat_list.txt"
+        local part1_abs=""
+        local part2_abs=""
+        local has_part=0
+        local has_audio_track=0
+        if ffprobe -v error -select_streams a:0 -show_entries stream=index -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null | head -n1 | grep -q '^[0-9]'; then
+            has_audio_track=1
+        fi
+
+        if awk -v s="$delete_start_seconds" 'BEGIN { exit (s > 0.01) ? 0 : 1 }'; then
+            "$ffmpeg_cmd" -hide_banner -loglevel error -stats -y \
+                -ss 0 -i "$input_file" -t "$delete_start_seconds" \
+                -map 0:v:0 -map 0:a? -sn -dn -c copy "$part1"
+            if [[ $? -ne 0 ]]; then
+                rm -rf "$tmp_dir"
+                echo "❌ Error: Failed to build first segment."
+                return 1
+            fi
+            if ! part1_abs="$(cd "$(dirname "$part1")" && pwd -P)/$(basename "$part1")"; then
+                rm -rf "$tmp_dir"
+                echo "❌ Error: Failed to resolve first segment path."
+                return 1
+            fi
+            echo "file '$part1_abs'" >> "$list_file"
+            has_part=1
+        fi
+
+        if awk -v e="$delete_end_seconds" -v d="$input_duration" 'BEGIN { exit (e < d - 0.01) ? 0 : 1 }'; then
+            "$ffmpeg_cmd" -hide_banner -loglevel error -stats -y \
+                -ss "$delete_end_seconds" -i "$input_file" \
+                -map 0:v:0 -map 0:a? -sn -dn -c copy "$part2"
+            if [[ $? -ne 0 ]]; then
+                rm -rf "$tmp_dir"
+                echo "❌ Error: Failed to build second segment."
+                return 1
+            fi
+            if ! part2_abs="$(cd "$(dirname "$part2")" && pwd -P)/$(basename "$part2")"; then
+                rm -rf "$tmp_dir"
+                echo "❌ Error: Failed to resolve second segment path."
+                return 1
+            fi
+            echo "file '$part2_abs'" >> "$list_file"
+            has_part=1
+        fi
+
+        if [[ $has_part -eq 0 || ! -s "$list_file" ]]; then
+            rm -rf "$tmp_dir"
+            echo "❌ Error: delete range removed the whole video."
+            return 1
+        fi
+
+        local stitched_copy="$tmp_dir/stitched_copy.${input_file##*.}"
+        local concat_log="$tmp_dir/concat_stitch.log"
+
+        "$ffmpeg_cmd" -hide_banner -loglevel warning -stats -y \
+            -f concat -safe 0 -i "$list_file" \
+            -fflags +genpts -avoid_negative_ts make_zero \
+            -map 0:v:0 -map 0:a? -sn -dn -c copy -map_metadata 0 "$stitched_copy" >"$concat_log" 2>&1
+        local delete_exit=$?
+
+        if [[ $delete_exit -ne 0 || ! -f "$stitched_copy" ]]; then
+            echo "ℹ️  Auto-fix fallback: concat copy failed, rebuilding with re-encode..."
+            if [[ $has_audio_track -eq 1 ]]; then
+                "$ffmpeg_cmd" -hide_banner -loglevel error -stats -y \
+                    -f concat -safe 0 -i "$list_file" \
+                    -map 0:v:0 -map 0:a? -sn -dn \
+                    -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p \
+                    -c:a aac -b:a 160k -af aresample=async=1:first_pts=0 \
+                    -movflags +faststart -map_metadata 0 "$output_file"
+            else
+                "$ffmpeg_cmd" -hide_banner -loglevel error -stats -y \
+                    -f concat -safe 0 -i "$list_file" \
+                    -map 0:v:0 -sn -dn \
+                    -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p \
+                    -an -movflags +faststart -map_metadata 0 "$output_file"
+            fi
+
+            if [[ $? -ne 0 || ! -f "$output_file" ]]; then
+                rm -rf "$tmp_dir"
+                rm -f "$output_file"
+                echo "❌ Error: Failed to stitch remaining segments."
+                return 1
+            fi
+
+            rm -rf "$tmp_dir"
+
+            echo ""
+            echo "✅ COMPLETE: $(basename "$output_file")"
+            echo "📍 Output: $(realpath "$output_file")"
+
+            if [[ -n "$split_mb" && "$split_mb" =~ ^[0-9]+$ && "$split_mb" -gt 0 ]]; then
+                echo ""
+                split_video_by_size_strict "$output_file" "$split_mb"
+            fi
+            return 0
+        fi
+
+        local needs_timestamp_fix=0
+        if grep -qi "Non-monotonic DTS" "$concat_log"; then
+            needs_timestamp_fix=1
+        fi
+
+        if [[ $needs_timestamp_fix -eq 1 ]]; then
+            echo "ℹ️  Auto-fix: normalizing timestamps for seamless playback..."
+        fi
+
+        echo "ℹ️  Auto-fix: ensuring audio/video sync..."
+        if [[ $has_audio_track -eq 1 ]]; then
+            "$ffmpeg_cmd" -hide_banner -loglevel error -stats -y \
+                -fflags +genpts -i "$stitched_copy" \
+                -map 0:v:0 -map 0:a? -sn -dn \
+                -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p \
+                -c:a aac -b:a 160k -af aresample=async=1:first_pts=0 \
+                -movflags +faststart -map_metadata 0 "$output_file"
+        else
+            "$ffmpeg_cmd" -hide_banner -loglevel error -stats -y \
+                -fflags +genpts -i "$stitched_copy" \
+                -map 0:v:0 -sn -dn \
+                -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p \
+                -an -movflags +faststart -map_metadata 0 "$output_file"
+        fi
+
+        if [[ $? -ne 0 || ! -f "$output_file" ]]; then
+            rm -rf "$tmp_dir"
+            rm -f "$output_file"
+            echo "❌ Error: Auto-fix failed while rebuilding stitched output."
+            return 1
+        fi
+
+        rm -rf "$tmp_dir"
+
+        echo ""
+        echo "✅ COMPLETE: $(basename "$output_file")"
+        echo "📍 Output: $(realpath "$output_file")"
+
+        if [[ -n "$split_mb" && "$split_mb" =~ ^[0-9]+$ && "$split_mb" -gt 0 ]]; then
+            echo ""
+            split_video_by_size_strict "$output_file" "$split_mb"
+        fi
+        return 0
+    fi
     
     # Start time (seek)
     if [[ -n "$start_time" ]]; then
@@ -708,7 +1096,29 @@ run_video_cut() {
     cmd+=("-i" "$input_file")
 
     if [[ -n "$end_time" ]]; then
-        cmd+=("-to" "$end_time")
+        if [[ -n "$start_time" ]]; then
+            local start_seconds
+            local end_seconds
+            start_seconds="$(_to_seconds "$start_time")"
+            end_seconds="$(_to_seconds "$end_time")"
+
+            if [[ -z "$start_seconds" || -z "$end_seconds" ]]; then
+                echo "❌ Error: Invalid time format for --start/--end."
+                return 1
+            fi
+
+            local clip_duration
+            clip_duration=$(awk -v s="$start_seconds" -v e="$end_seconds" 'BEGIN { printf "%.6f", e - s }')
+            if awk -v d="$clip_duration" 'BEGIN { exit (d <= 0) ? 0 : 1 }'; then
+                echo "❌ Error: --end must be greater than --start."
+                return 1
+            fi
+
+            cmd+=("-t" "$clip_duration")
+        else
+            # No explicit start seek: keep native ffmpeg absolute-end behavior.
+            cmd+=("-to" "$end_time")
+        fi
     elif [[ -n "$duration" ]]; then
         cmd+=("-t" "$duration")
     fi
@@ -732,7 +1142,7 @@ run_video_cut() {
 
     if [[ -n "$subtitle_file" ]]; then
         # Create safe temp copy to avoid FFmpeg parsing headaches with spaces/special chars
-        tmp_sub="/tmp/safe_subs_$$.ass"
+        tmp_sub="$render_tmp_dir/safe_subs_$$.ass"
         cp "$subtitle_file" "$tmp_sub"
 
         # Helper function for basic escaping (mainly for fonts_dir if needed)
@@ -1637,7 +2047,7 @@ video_download() {
         log_info "📊 Fetching available formats for: $URL" >&2
         echo "" >&2
         local _fmt_json
-        _fmt_json=$(mktemp /tmp/amir_formats.XXXXXX)
+        _fmt_json=$(mktemp "$OUT_DIR/.amir_formats.XXXXXX")
         if ! yt-dlp \
             "${COOKIE_ARGS[@]}" \
             "${IMPERSONATE_ARGS[@]}" \
@@ -1759,7 +2169,7 @@ PY
         #   stderr  → filtered:  only [download] progress lines + ERROR/WARNING lines reach the terminal
         #             everything else ([youtube], [info], [generic], …) is hidden
         local _PATHFILE
-        _PATHFILE=$(mktemp /tmp/amir_dl_path.XXXXXX)
+        _PATHFILE=$(mktemp "$OUT_DIR/.amir_dl_path.XXXXXX")
         # Some titles contain unicode slash-like characters that break fragmented
         # merge/rename on certain yt-dlp + fs combinations. Force safe filenames.
         yt-dlp \
@@ -2024,6 +2434,12 @@ PY
             if [[ -n "$THUMB_FILE" && -f "$THUMB_FILE" ]] && { $THUMB_TMP || ! $KEEP_THUMB_FILE; }; then
                 rm -f "$THUMB_FILE"
             fi
+            # Create a text file with the video URL before returning
+            if [[ $_sub_exit -eq 0 && -f "$VIDEO_FILE" ]]; then
+                local URL_FILE="${VIDEO_FILE%.*}_link.txt"
+                echo "$URL" > "$URL_FILE"
+                log_info "📝 URL saved: $(basename "$URL_FILE")" >&2
+            fi
             return $_sub_exit
         fi
 
@@ -2060,6 +2476,11 @@ PY
             if $DELETE_VIDEO; then
                 rm -f "$VIDEO_FILE"
                 log_info "🗑️  Deleted: $VIDEO_FILE" >&2
+            else
+                # Create a text file with the video URL if video was kept
+                local URL_FILE="${VIDEO_FILE%.*}_link.txt"
+                echo "$URL" > "$URL_FILE"
+                log_info "📝 URL saved: $(basename "$URL_FILE")" >&2
             fi
             if [[ -n "$THUMB_FILE" && -f "$THUMB_FILE" ]] && { $THUMB_TMP || ! $KEEP_THUMB_FILE; }; then
                 rm -f "$THUMB_FILE"
@@ -2148,6 +2569,10 @@ PY
                 log_info "🗑️  Deleted: $VIDEO_FILE" >&2
             else
                 log_info "📁 Kept: $VIDEO_FILE" >&2
+                # Create a text file with the video URL if video was kept
+                local URL_FILE="${VIDEO_FILE%.*}_link.txt"
+                echo "$URL" > "$URL_FILE"
+                log_info "📝 URL saved: $(basename "$URL_FILE")" >&2
             fi
             if [[ -n "$THUMB_FILE" && -f "$THUMB_FILE" ]] && { $THUMB_TMP || ! $KEEP_THUMB_FILE; }; then
                 rm -f "$THUMB_FILE"
@@ -2172,6 +2597,12 @@ PY
 
 
     log_success "✅ Final file: $VIDEO_FILE" >&2
+    
+    # Create a text file with the video URL
+    local URL_FILE="${VIDEO_FILE%.*}_link.txt"
+    echo "$URL" > "$URL_FILE"
+    log_info "📝 URL saved: $(basename "$URL_FILE")" >&2
+    
     echo "$VIDEO_FILE"
 }
 

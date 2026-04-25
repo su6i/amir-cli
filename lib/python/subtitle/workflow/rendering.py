@@ -28,44 +28,52 @@ def run_rendering_stage(
     emit_progress,
     detect_best_hw_encoder_fn,
     get_default_quality_fn,
+    direct_ass_path: Optional[str] = None,
 ) -> bool:
     """Run ASS creation and final video rendering stage. Returns False on hard failure."""
     processor.logger.info("Rendering sequence initiated.")
     emit_progress(80, "🎬 Rendering ASS subtitles...")
 
-    primary = target_langs[0]
-    secondary = target_langs[1] if len(target_langs) >= 2 else None
-    if secondary == source_lang and secondary not in result:
-        result[secondary] = src_srt
-    if primary not in result:
-        # In lightweight/test flows, translation may not have produced target file yet.
-        # Fallback to source SRT so rendering stage can still proceed deterministically.
-        result[primary] = src_srt
+    if direct_ass_path:
+        ass_path = os.path.abspath(direct_ass_path)
+        if not os.path.exists(ass_path):
+            processor.logger.error(f"❌ Direct ASS file not found: {ass_path}")
+            return False
+        processor.logger.info(f"🎯 Direct ASS mode: using provided ASS without SRT→ASS conversion: {Path(ass_path).name}")
+    else:
+        primary = target_langs[0]
+        secondary = target_langs[1] if len(target_langs) >= 2 else None
+        if secondary == source_lang and secondary not in result:
+            result[secondary] = src_srt
+        if primary not in result:
+            # In lightweight/test flows, translation may not have produced target file yet.
+            # Fallback to source SRT so rendering stage can still proceed deterministically.
+            result[primary] = src_srt
 
-    ass_path = f"{original_base}_{primary}"
-    if secondary:
-        ass_path += f"_{secondary}"
-    ass_path += ".ass"
+        ass_path = f"{original_base}_{primary}"
+        if secondary:
+            ass_path += f"_{secondary}"
+        ass_path += ".ass"
 
-    processor.create_ass_with_font(
-        result[primary],
-        ass_path,
-        primary,
-        result.get(secondary) if secondary else None,
-        time_offset=limit_start,
-        video_width=video_width or 0,
-        video_height=video_height or 0,
-        top_raise_px=subtitle_raise_top_px,
-        bottom_raise_px=subtitle_raise_bottom_px,
-    )
-    if not os.path.exists(ass_path):
-        # Test/Mock safety: ensure downstream pipeline has a tangible ASS file.
-        with open(ass_path, "w", encoding="utf-8") as f:
-            f.write("[Script Info]\nScriptType: v4.00+\n\n[V4+ Styles]\n")
-            f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
-            f.write("Style: Default,Arial,16,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,1,0,2,10,10,10,1\n\n")
-            f.write("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
-            f.write("Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,, \n")
+        processor.create_ass_with_font(
+            result[primary],
+            ass_path,
+            primary,
+            result.get(secondary) if secondary else None,
+            time_offset=limit_start,
+            video_width=video_width or 0,
+            video_height=video_height or 0,
+            top_raise_px=subtitle_raise_top_px,
+            bottom_raise_px=subtitle_raise_bottom_px,
+        )
+        if not os.path.exists(ass_path):
+            # Test/Mock safety: ensure downstream pipeline has a tangible ASS file.
+            with open(ass_path, "w", encoding="utf-8") as f:
+                f.write("[Script Info]\nScriptType: v4.00+\n\n[V4+ Styles]\n")
+                f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
+                f.write("Style: Default,Arial,16,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,1,0,2,10,10,10,1\n\n")
+                f.write("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+                f.write("Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,, \n")
     result["ass_file"] = ass_path
 
     render_h = 0
@@ -93,9 +101,19 @@ def run_rendering_stage(
         else f"{original_base}_q{render_q}_subbed.mp4"
     )
     if os.path.exists(output_video) and not force:
-        processor.logger.info(f"✅ Reusing existing rendered video: {Path(output_video).name}")
-        result["rendered_video"] = output_video
-        return True
+        try:
+            output_mtime = os.path.getmtime(output_video)
+            ass_mtime = os.path.getmtime(ass_path)
+            video_mtime = os.path.getmtime(current_video_input)
+            if output_mtime >= max(ass_mtime, video_mtime):
+                processor.logger.info(f"✅ Reusing existing rendered video: {Path(output_video).name}")
+                result["rendered_video"] = output_video
+                return True
+            processor.logger.info("♻️ Existing rendered video is stale vs ASS/video input; re-rendering.")
+        except Exception:
+            processor.logger.info(f"✅ Reusing existing rendered video: {Path(output_video).name}")
+            result["rendered_video"] = output_video
+            return True
 
     with tempfile.TemporaryDirectory() as temp_dir:
         safe_video_name = "safe_input.mp4"
