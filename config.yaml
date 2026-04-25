@@ -1,0 +1,28 @@
+# Subtitle Segmentation Word Count Constraints
+# Applied globally to all languages
+
+# Vertical videos (portrait mode, narrow displays)
+vertical:
+  min_words: 5      # Minimum words per segment
+  max_words: 7      # Maximum words per segment
+  max_chars: 30     # Character limit for display
+
+# Horizontal videos (landscape mode, wider displays)
+horizontal:
+  min_words: 5      # Minimum words per segment
+  max_words: 10     # Maximum words per segment
+  max_chars: 42     # Character limit for display
+
+# Global timing constraints
+timing:
+  max_segment_seconds: 6.0    # Maximum duration for a segment without punctuation
+  min_duration: 0.4           # Minimum display duration for any segment
+
+# Low RAM mode adjustments (active when multiple subtitle processes run)
+low_ram:
+  vertical:
+    min_words: 4
+    max_words: 6
+  horizontal:
+    min_words: 4
+    max_words: 8

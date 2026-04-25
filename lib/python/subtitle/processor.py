@@ -36,6 +36,7 @@ from subtitle.config import (
     LANGUAGE_REGISTRY,
     LanguageConfig,
     get_language_config,
+    get_segmentation_config,
     has_target_language_chars,
     load_api_key,
 )
@@ -269,12 +270,15 @@ class SubtitleProcessor:
         use_openai_fallback: bool = False,
         initial_prompt: Optional[str] = None,
         temperature: float = 0.0,
-        min_duration: float = 1.0,
+        min_duration: float = 0.0,
         llm: str = "deepseek",
         custom_model: Optional[str] = None,
         use_bert: bool = False,
         bert_model: Optional[str] = None,
-        use_vad: bool = True
+        use_vad: bool = True,
+        whisper_timing: bool = False,
+        native_target_lines: str = "keep",
+        allow_model_downgrade: bool = False,
     ):
         self.api_key = api_key or self.load_api_key()
         # Support both naming conventions
@@ -296,6 +300,19 @@ class SubtitleProcessor:
         self.use_bert = use_bert
         self.bert_model = bert_model or os.environ.get('AMIR_BERT_MODEL')
         self.use_vad = use_vad
+        # When enabled, bypass only timing-normalization rules and keep
+        # Whisper-derived cue starts/ends as-is after segmentation.
+        self.whisper_timing = whisper_timing
+        _allow_downgrade_env = str(os.environ.get("AMIR_ALLOW_MODEL_DOWNGRADE", "")).strip().lower()
+        _allow_downgrade_from_env = _allow_downgrade_env in {"1", "true", "yes", "on"}
+        self.allow_model_downgrade = bool(allow_model_downgrade or _allow_downgrade_from_env)
+        self.native_target_lines = str(native_target_lines or "keep").strip().lower()
+        if self.native_target_lines == "on":
+            self.native_target_lines = "keep"
+        elif self.native_target_lines == "off":
+            self.native_target_lines = "hide"
+        if self.native_target_lines not in {"keep", "hide"}:
+            self.native_target_lines = "keep"
         
         # LiteLLM API Key Normalization: Ensure DEEPSEEK_API_KEY for LiteLLM
         if self.api_key and 'DEEPSEEK_API_KEY' not in os.environ:
@@ -305,6 +322,7 @@ class SubtitleProcessor:
         # FIX: Copy the preset to avoid modifying the global dictionary
         base_style = STYLE_PRESETS.get(style, STYLE_PRESETS[SubtitleStyle.LECTURE])
         self.style_config = StyleConfig(**base_style.__dict__)
+        self.original_font_size = self.style_config.font_size
         
         self.en_font_scale = 1.0
         self.fa_font_name = 'Vazirmatn'
@@ -368,7 +386,8 @@ class SubtitleProcessor:
             if not self.openai_key:
                 self.logger.warning("OpenAI fallback enabled but OPENAI_API_KEY environment variable is not defined.")
         
-        self.cache_dir = Path(cache_dir or os.path.expanduser("~/.amir_cache"))
+        cache_root = cache_dir or os.environ.get("AMIR_CACHE_DIR") or os.path.expanduser("~/.amir_cache")
+        self.cache_dir = Path(cache_root).expanduser()
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         
         # === COST SAVING INFRASTRUCTURE ===
@@ -395,14 +414,24 @@ class SubtitleProcessor:
                 self.max_concurrent_workflows = 0
         except Exception:
             self.max_concurrent_workflows = 0
+        self.low_ram_mode = False
+        self._disable_shared_whisper_server = False
+        self._disable_mlx_fallback = False
+        self._available_ram_gb: Optional[float] = None
+        self._free_disk_gb: Optional[float] = None
         self._model = None
         self.logger = logger or self._setup_logger()
         self._check_disk_space()
+        self._configure_resource_profile()
         
         # Load local translation cache (needs logger to be ready)
         self._load_local_translation_cache()
         
-        self.logger.info(f"Initialization complete (model={model_size}, style={style.value})")
+        self.logger.info(f"Initialization complete (model={self.model_size}, style={style.value})")
+        if not self.allow_model_downgrade:
+            self.logger.info("🔒 Whisper model lock is ON (auto-downgrade disabled)")
+        if self.whisper_timing:
+            self.logger.info("⏱️  Whisper timing passthrough is ON (internal timing normalization is bypassed)")
 
     def _setup_logger(self) -> logging.Logger:
         logger = logging.getLogger("SubtitleProcessor")
@@ -431,6 +460,164 @@ class SubtitleProcessor:
                 self.logger.warning(f"Resource threshold warning: available disk space is {free_gb}GB (minimum requirement: {min_gb}GB)")
         except:
             pass
+
+    @staticmethod
+    def _get_available_ram_gb() -> Optional[float]:
+        """Best-effort available RAM detection in GB.
+
+        Uses psutil when available; falls back to macOS vm_stat parsing.
+        Returns None if not detectable.
+        """
+        try:
+            import psutil  # type: ignore
+
+            return float(psutil.virtual_memory().available) / (1024 ** 3)
+        except Exception:
+            pass
+
+        # macOS fallback
+        try:
+            out = subprocess.check_output(["vm_stat"], text=True)
+            page_size = 4096
+            m = re.search(r"page size of\s+(\d+)\s+bytes", out)
+            if m:
+                page_size = int(m.group(1))
+
+            pages = {}
+            for raw_line in out.splitlines():
+                line = raw_line.strip()
+                mm = re.match(r"Pages\s+([^:]+):\s+([0-9]+)\.", line)
+                if not mm:
+                    continue
+                key = mm.group(1).strip().lower()
+                pages[key] = int(mm.group(2))
+
+            # free + speculative are the most conservative "available" pages.
+            free_pages = pages.get("free", 0) + pages.get("speculative", 0)
+            if free_pages <= 0:
+                return None
+
+            return (free_pages * page_size) / (1024 ** 3)
+        except Exception:
+            return None
+
+    def _configure_resource_profile(self):
+        """Enable low-RAM safety knobs automatically when the system is constrained."""
+        self._available_ram_gb = self._get_available_ram_gb()
+        self._free_disk_gb = None
+        try:
+            total, used, free = shutil.disk_usage(self.cache_dir)
+            self._free_disk_gb = free / (2 ** 30)
+        except Exception:
+            pass
+
+        mode_env = str(os.environ.get("AMIR_LOW_RAM_MODE", "")).strip().lower()
+        forced_mode: Optional[bool]
+        if mode_env in ("1", "true", "yes", "on"):
+            forced_mode = True
+        elif mode_env in ("0", "false", "no", "off"):
+            forced_mode = False
+        else:
+            forced_mode = None
+
+        try:
+            low_ram_threshold = float(os.environ.get("AMIR_LOW_RAM_THRESHOLD_GB", "6"))
+        except Exception:
+            low_ram_threshold = 6.0
+        try:
+            low_disk_threshold = float(os.environ.get("AMIR_LOW_DISK_THRESHOLD_GB", "8"))
+        except Exception:
+            low_disk_threshold = 8.0
+
+        auto_low_ram = False
+        if self._available_ram_gb is not None and self._available_ram_gb < low_ram_threshold:
+            auto_low_ram = True
+        if self._free_disk_gb is not None and self._free_disk_gb < low_disk_threshold:
+            auto_low_ram = True
+
+        self.low_ram_mode = forced_mode if forced_mode is not None else auto_low_ram
+        self._disable_shared_whisper_server = bool(
+            self.low_ram_mode and os.environ.get("AMIR_LOW_RAM_DISABLE_SERVER", "1") != "0"
+        )
+        self._disable_mlx_fallback = bool(
+            self.low_ram_mode and os.environ.get("AMIR_LOW_RAM_DISABLE_MLX", "1") != "0"
+        )
+
+        if self.low_ram_mode:
+            # Low-RAM mode should not run concurrent heavy jobs.
+            if self.max_concurrent_workflows == 0 or self.max_concurrent_workflows > 1:
+                self.max_concurrent_workflows = 1
+
+            # Keep BLAS/OMP thread count low to reduce memory pressure.
+            os.environ.setdefault("OMP_NUM_THREADS", "1")
+            os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+            os.environ.setdefault("MKL_NUM_THREADS", "1")
+            os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+            os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+
+            # Optional adaptive downshift. Disabled by default to keep user-selected
+            # model fixed for the entire workflow.
+            if self.allow_model_downgrade:
+                try:
+                    large_v3_min_ram = float(os.environ.get("AMIR_LARGE_V3_MIN_RAM_GB", "8.0"))
+                except Exception:
+                    large_v3_min_ram = 8.0
+
+                if (
+                    self._available_ram_gb is not None
+                    and self._available_ram_gb < large_v3_min_ram
+                    and self.model_size == "large-v3"
+                ):
+                    fallback_model = str(os.environ.get("AMIR_LARGE_V3_FALLBACK_MODEL", "medium")).strip() or "medium"
+                    if fallback_model not in {"tiny", "base", "small", "medium", "large-v2", "large-v3", "turbo"}:
+                        fallback_model = "medium"
+                    old_model = self.model_size
+                    self.model_size = fallback_model
+                    self.logger.warning(
+                        "🧠 Adaptive RAM guard: Whisper model downgraded "
+                        f"{old_model} -> {self.model_size} "
+                        f"(available RAM {self._available_ram_gb:.2f}GB < {large_v3_min_ram:.2f}GB)"
+                    )
+
+                # Emergency downshift: if RAM is critically low, reduce model size.
+                try:
+                    critical_ram_threshold = float(os.environ.get("AMIR_CRITICAL_RAM_THRESHOLD_GB", "3.5"))
+                except Exception:
+                    critical_ram_threshold = 3.5
+
+                if (
+                    self._available_ram_gb is not None
+                    and self._available_ram_gb < critical_ram_threshold
+                    and self.model_size not in ("tiny", "base", "small")
+                ):
+                    low_model = str(os.environ.get("AMIR_LOW_RAM_MODEL", "small")).strip() or "small"
+                    old_model = self.model_size
+                    self.model_size = low_model
+                    self.logger.warning(
+                        f"🧠 Low-RAM emergency mode: Whisper model downgraded {old_model} -> {self.model_size}"
+                    )
+            else:
+                if self._available_ram_gb is not None or self._free_disk_gb is not None:
+                    ram_txt = (
+                        f"{self._available_ram_gb:.2f}GB"
+                        if self._available_ram_gb is not None
+                        else "unknown"
+                    )
+                    disk_txt = (
+                        f"{self._free_disk_gb:.2f}GB"
+                        if self._free_disk_gb is not None
+                        else "unknown"
+                    )
+                    self.logger.warning(
+                        "🔒 Low-resource profile active but model lock is ON; "
+                        f"keeping Whisper model='{self.model_size}' (RAM={ram_txt}, DiskFree={disk_txt})"
+                    )
+
+            self.logger.warning(
+                "🧠 Low-RAM profile active: chunked transcription + serialized workflows"
+                + (" + shared-server OFF" if self._disable_shared_whisper_server else "")
+                + (" + MLX fallback OFF" if self._disable_mlx_fallback else "")
+            )
 
     @staticmethod
     def _is_pid_alive(pid: int) -> bool:
@@ -476,6 +663,8 @@ class SubtitleProcessor:
     # ==================== SHARED WHISPER SERVER ====================
 
     def _whisper_server_enabled(self) -> bool:
+        if getattr(self, "_disable_shared_whisper_server", False):
+            return False
         return whisper_server_enabled()
 
     def _get_whisper_server_socket_path(self) -> str:
@@ -485,6 +674,8 @@ class SubtitleProcessor:
         return is_whisper_server_ready(socket_path)
 
     def _ensure_whisper_server(self) -> Optional[str]:
+        if not self._whisper_server_enabled():
+            return None
         return ensure_whisper_server(self.model_size, logger=self.logger)
 
     def _transcribe_via_server(
@@ -516,18 +707,37 @@ class SubtitleProcessor:
             "temperature": self.temperature,
         }
 
+        # Long-form videos often need >10 minutes on CPU models.
+        # Scale socket timeout with media duration so we don't fall back
+        # prematurely to the local chunk path (which can degrade timing).
+        timeout_s = 900
+        try:
+            media_dur = float(self._get_video_duration(media_path) or 0.0)
+            if media_dur > 0:
+                # Long-form podcasts can take substantially longer on CPU.
+                # Keep a generous timeout to avoid premature fallback to the
+                # local chunk path, which can degrade subtitle pacing.
+                timeout_s = int(min(7200, max(900, media_dur * 0.60 + 300)))
+        except Exception:
+            pass
+
         payload = json.dumps(req, ensure_ascii=False).encode("utf-8")
         chunks = []
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-            s.settimeout(600)
-            s.connect(socket_path)
-            s.sendall(payload)
-            s.shutdown(socket.SHUT_WR)
-            while True:
-                data = s.recv(65536)
-                if not data:
-                    break
-                chunks.append(data)
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(timeout_s)
+                s.connect(socket_path)
+                s.sendall(payload)
+                s.shutdown(socket.SHUT_WR)
+                while True:
+                    data = s.recv(65536)
+                    if not data:
+                        break
+                    chunks.append(data)
+        except socket.timeout as e:
+            raise TimeoutError(
+                f"shared whisper server timed out after {timeout_s}s for: {Path(media_path).name}"
+            ) from e
 
         raw = b"".join(chunks).decode("utf-8", errors="replace").strip()
         if not raw:
@@ -563,8 +773,21 @@ class SubtitleProcessor:
                     device = "cuda"
             except:
                 pass
-            
-            self._model = WhisperModel(self.model_size, device=device, compute_type="int8")
+
+            if self.low_ram_mode:
+                try:
+                    self._model = WhisperModel(
+                        self.model_size,
+                        device=device,
+                        compute_type="int8",
+                        cpu_threads=1,
+                        num_workers=1,
+                    )
+                except TypeError:
+                    # Backward compatibility with older faster-whisper signatures.
+                    self._model = WhisperModel(self.model_size, device=device, compute_type="int8")
+            else:
+                self._model = WhisperModel(self.model_size, device=device, compute_type="int8")
         
         return self._model
 
@@ -742,7 +965,19 @@ class SubtitleProcessor:
             except Exception:
                 pass
                 
-            model = WhisperModel(self.model_size, device=device, compute_type="int8")
+            if self.low_ram_mode:
+                try:
+                    model = WhisperModel(
+                        self.model_size,
+                        device=device,
+                        compute_type="int8",
+                        cpu_threads=1,
+                        num_workers=1,
+                    )
+                except TypeError:
+                    model = WhisperModel(self.model_size, device=device, compute_type="int8")
+            else:
+                model = WhisperModel(self.model_size, device=device, compute_type="int8")
             segments, info = model.transcribe(
                 slice_path,
                 word_timestamps=True,
@@ -771,6 +1006,20 @@ class SubtitleProcessor:
                 try: os.remove(slice_path)
                 except: pass
 
+    def _fill_vad_gaps(self, all_words: List['WordObj'], video_path: str, language: str = '') -> List['WordObj']:
+        """DEPRECATED: Gap filling via no-VAD re-transcription is disabled.
+        
+        Inserting words with no-VAD timestamps into a VAD-transcribed word list
+        causes severe timing corruption (Whisper returns relative chunk timestamps
+        that cannot be reliably mapped to absolute video time when there is
+        background music/noise in the gap).
+        
+        The correct fix for missed speech-over-music is to tune the primary VAD
+        parameters (lower min_silence_duration_ms, higher speech_pad_ms).
+        This stub is kept for call-site compatibility only.
+        """
+        return all_words
+
     def _run_faster_whisper_full(self, video_path: str, language: str = '') -> Tuple[List[WordObj], str]:
         """Full-video transcription using faster-whisper + VAD.
         
@@ -784,21 +1033,26 @@ class SubtitleProcessor:
         
         _lang = (language or 'auto').strip().lower()
         _lang_for_engine = None if _lang in ('auto', 'detect', '') else _lang
+        low_ram = bool(getattr(self, 'low_ram_mode', False))
+
+        if low_ram and self._disable_shared_whisper_server:
+            self.logger.info("🧠 Low-RAM mode: skipping shared whisper server, using local chunked transcription.")
 
         # Preferred path: shared whisper server (single model shared across processes).
-        try:
-            server_words, server_lang = self._transcribe_via_server(
-                video_path,
-                language=_lang_for_engine or '',
-                use_vad=self.use_vad,
-                min_silence_duration_ms=700,
-                speech_pad_ms=400,
-            )
-            if server_words:
-                self.logger.info(f"✅ Shared-server transcription complete: {len(server_words)} words")
-                return server_words, (server_lang or '')
-        except Exception as e:
-            self.logger.warning(f"⚠️ Shared whisper server failed, using local model: {e}")
+        if self._whisper_server_enabled():
+            try:
+                server_words, server_lang = self._transcribe_via_server(
+                    video_path,
+                    language=_lang_for_engine or '',
+                    use_vad=self.use_vad,
+                    min_silence_duration_ms=700,
+                    speech_pad_ms=400,
+                )
+                if server_words:
+                    self.logger.info(f"✅ Shared-server transcription complete: {len(server_words)} words")
+                    return server_words, (server_lang or '')
+            except Exception as e:
+                self.logger.warning(f"⚠️ Shared whisper server failed, using local model: {e}")
 
         # Get total duration for progress reporting
         total_dur = 0.0
@@ -823,13 +1077,30 @@ class SubtitleProcessor:
             pass
         
         try:
-            model = WhisperModel(self.model_size, device=device, compute_type="int8")
+            if low_ram:
+                try:
+                    model = WhisperModel(
+                        self.model_size,
+                        device=device,
+                        compute_type="int8",
+                        cpu_threads=1,
+                        num_workers=1,
+                    )
+                except TypeError:
+                    model = WhisperModel(self.model_size, device=device, compute_type="int8")
+            else:
+                model = WhisperModel(self.model_size, device=device, compute_type="int8")
         except Exception as e:
             self.logger.warning(f"⚠️ faster-whisper model load failed: {e}. Falling back to MLX.")
             return [], ''
 
-        CHUNK = 600   # 10-min chunks
-        OVERLAP = 5   # 5s overlap to avoid cutting mid-word at boundaries
+        if low_ram:
+            CHUNK = 300
+        elif self.model_size in ("large-v3", "large-v2", "large"):
+            CHUNK = 420
+        else:
+            CHUNK = 600
+        OVERLAP = 4 if low_ram else 5     # overlap to avoid cutting mid-word at boundaries
         all_words: List[WordObj] = []
         detected_lang = ''
         seen_ends: set = set()
@@ -883,12 +1154,36 @@ class SubtitleProcessor:
                         all_words.append(WordObj(abs_start, abs_end, w.word))
                         chunk_words += 1
 
+                # Per-chunk word-loop detection: if the same word appears
+                # >=4 times consecutively in this chunk's output, truncate.
+                if chunk_words > 4:
+                    deduped_words: List[WordObj] = []
+                    run_count = 1
+                    for wi in range(len(all_words) - chunk_words, len(all_words)):
+                        wobj = all_words[wi]
+                        if deduped_words and wobj.word.strip().lower() == deduped_words[-1].word.strip().lower():
+                            run_count += 1
+                        else:
+                            run_count = 1
+                        if run_count <= 3:
+                            deduped_words.append(wobj)
+                    # Replace chunk portion with deduped version
+                    kept_before = all_words[:len(all_words) - chunk_words]
+                    all_words = kept_before + deduped_words
+                    if len(deduped_words) < chunk_words:
+                        removed = chunk_words - len(deduped_words)
+                        self.logger.warning(f"⚠️ Removed {removed} looped words in chunk {chunk_idx+1}")
+                        chunk_words = len(deduped_words)
+
                 pct = int((end / total_dur) * 100) if total_dur > 0 else 0
                 self.logger.info(f"PROGRESS:{5 + int(pct * 0.44)}:🎙️ VAD Transcription ({pct}%)")
                 self.logger.info(f"  ✅ Chunk {chunk_idx+1}: +{chunk_words} words (total {len(all_words)})")
 
                 os.remove(tmp_wav)
                 tmp_wav = None
+
+                if low_ram:
+                    gc.collect()
 
                 chunk_idx += 1
                 if total_dur > 0 and start + CHUNK >= total_dur:
@@ -906,6 +1201,7 @@ class SubtitleProcessor:
             return [], ''
 
         self.logger.info(f"✅ Full-video VAD transcription complete: {len(all_words)} words, lang={detected_lang or 'auto'}")
+
         return all_words, detected_lang
 
 
@@ -922,6 +1218,26 @@ class SubtitleProcessor:
         _lang = (language or 'auto').strip().lower()
         _lang_for_engine = None if _lang in ('auto', 'detect', '') else _lang
         self.logger.info(f"Transcription process initiated (ISO: {(_lang_for_engine or 'AUTO').upper()})")
+
+        if self.low_ram_mode:
+            self.logger.info("🧠 Low-RAM mode: using chunked faster-whisper path.")
+            all_words, detected_lang = self._run_faster_whisper_full(
+                video_path,
+                language=_lang_for_engine or '',
+            )
+            if all_words:
+                out_lang = _lang if _lang_for_engine else (detected_lang if re.fullmatch(r"[a-z]{2,3}", detected_lang) else 'en')
+                if _lang_for_engine is None and out_lang:
+                    self.logger.info(f"🌐 Whisper detected source language: {out_lang}")
+
+                entries = self.resegment_to_sentences(all_words, None)
+                srt_path = os.path.splitext(video_path)[0] + f"_{out_lang}.srt"
+                with open(srt_path, 'w', encoding='utf-8-sig') as f:
+                    for i, entry in enumerate(entries, 1):
+                        f.write(f"{i}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
+
+                self.logger.info(f"Asset preservation complete: {Path(srt_path).name}")
+                return srt_path
 
         # Preferred path: shared server to avoid per-process model duplication.
         try:
@@ -967,7 +1283,7 @@ class SubtitleProcessor:
             initial_prompt=self.initial_prompt or "Clear punctuation and case sensitivity.",
             temperature=self.temperature,
             vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=700, speech_pad_ms=400)
+            vad_parameters=dict(min_silence_duration_ms=700, speech_pad_ms=400),
         )
 
         detected_lang = str(getattr(info, 'language', '') or '').strip().lower()
@@ -1018,6 +1334,23 @@ class SubtitleProcessor:
 
         all_words: List[WordObj] = vad_words
         detected_lang: str = vad_lang
+
+        # Low-RAM recovery path: avoid spawning MLX subprocess immediately.
+        if not all_words and self._disable_mlx_fallback:
+            self.logger.warning(
+                "⚠️ Low-RAM mode: MLX fallback is disabled; retrying chunked faster-whisper without VAD."
+            )
+            _orig_vad = self.use_vad
+            try:
+                self.use_vad = False
+                retry_words, retry_lang = self._run_faster_whisper_full(video_path, language=_lang_for_worker)
+            finally:
+                self.use_vad = _orig_vad
+
+            if retry_words:
+                all_words = retry_words
+                detected_lang = retry_lang or detected_lang
+                self.logger.info(f"✅ Low-RAM retry complete: {len(all_words)} words")
 
         # --- FALLBACK: MLX subprocess if VAD produced no words ---
         if not all_words:
@@ -1179,34 +1512,88 @@ class SubtitleProcessor:
         text = re.sub(r'\s+', ' ', text)
         return text.strip()
 
+    @staticmethod
+    def _dedup_word_loops(text: str) -> str:
+        """Remove intra-entry word-level repetition loops.
+
+        Handles patterns like 'we we we we we' → 'we' and
+        'نحن نحن نحن نحن' → 'نحن'.  Operates on raw words so it works
+        for any language.
+        """
+        if not text:
+            return text
+        words = text.split()
+        if len(words) < 3:
+            return text
+        cleaned: list = []
+        run_count = 1
+        for i, w in enumerate(words):
+            if i > 0 and w == words[i - 1]:
+                run_count += 1
+            else:
+                run_count = 1
+            # Keep the first occurrence; suppress 3rd+ consecutive identical words
+            if run_count <= 2:
+                cleaned.append(w)
+        # If after dedup the entry is mostly one repeated word, keep just one
+        if len(cleaned) >= 2:
+            unique = set(cleaned)
+            if len(unique) == 1:
+                cleaned = [cleaned[0]]
+        return ' '.join(cleaned)
+
     def suppress_hallucinations(self, entries: List[Dict]) -> List[Dict]:
-        """DeepSeek/Whisper hallucination suppressor"""
-        if not entries: return []
-        
+        """DeepSeek/Whisper hallucination suppressor.
+
+        Multi-layer defence:
+        1. Intra-entry word-level loop dedup (e.g. 'نحن نحن نحن نحن' → 'نحن').
+        2. Exact entry-level repetition removal.
+        3. Fuzzy substring repetition removal.
+        4. Sliding-window frequency check — if one word dominates >70% of entry,
+           it's almost certainly a hallucination.
+        """
+        if not entries:
+            return []
+
         clean = []
         last_text = ""
-        
+
         for e in entries:
-            # First, remove Whisper artifacts
+            # Remove Whisper artifacts first
             e['text'] = self._remove_whisper_artifacts(e['text'])
-            
+            # Layer 1: intra-entry word-level loop dedup
+            e['text'] = self._dedup_word_loops(e['text'])
+
             current_text = e['text'].strip().lower()
-            # 1. Exact repetition check
+
+            # Layer 2: exact entry repetition
             if current_text == last_text:
                 continue
-            
-            # 2. Fuzzy repetition check (for slight variations)
+
+            # Layer 3: fuzzy substring repetition
             if len(current_text) > 10 and len(last_text) > 10:
-                # If one is a substring of the other (very common loop pattern)
                 if current_text in last_text or last_text in current_text:
-                    # Keep the longer one if it adds information, otherwise skip
-                    # heuristic: if length difference is small, it's likely a stutter/loop
                     if abs(len(current_text) - len(last_text)) < 5:
                         continue
 
+            # Layer 4: single-word domination check
+            words = current_text.split()
+            if len(words) >= 4:
+                from collections import Counter
+                freq = Counter(words)
+                most_common_word, most_common_count = freq.most_common(1)[0]
+                if most_common_count / len(words) > 0.7:
+                    # Almost entirely the same word repeated — hallucination
+                    e['text'] = most_common_word
+                    current_text = most_common_word
+
+            # Skip empty results
+            if not e['text'].strip():
+                continue
+
             clean.append(e)
             last_text = current_text
-            
+
         return clean
 
     def resegment_to_sentences(self, words: List, speaker_segments) -> List[Dict]:
@@ -1243,10 +1630,34 @@ class SubtitleProcessor:
 
         # ── tunables ─────────────────────────────────────────────────────────
         limit      = getattr(self.style_config, 'max_chars', 42)   # soft char target
-        hard_limit = limit + 12          # absolute ceiling before forced break
-        MIN_WORDS  = max(3, int(getattr(self, 'target_words_per_line', 4) or 4))
-        MAX_SEG_SEC = 6.0                # time ceiling (no punctuation safety net)
-        MIN_NEXT_CLAUSE = MIN_WORDS      # lookahead: next clause must be this long (words)
+        max_lines  = getattr(self.style_config, 'max_lines', 2)
+        hard_limit = limit + (12 if max_lines > 1 else 4) # strict ceiling for 1-liners
+        
+        # Load segmentation config (applies to all languages)
+        seg_config = get_segmentation_config()
+        # Use real video orientation when available.
+        # Fallback keeps backward compatibility for SRT-only workflows.
+        orientation_flag = getattr(self, 'is_vertical_video', None)
+        if isinstance(orientation_flag, bool):
+            is_vertical = orientation_flag
+        else:
+            is_vertical = limit < 30
+        low_ram = getattr(self, 'low_ram_mode', False)
+        # Low-RAM should reduce compute pressure, but not silently degrade subtitle
+        # readability. Only use low-RAM segmentation limits when explicitly enabled.
+        low_ram_seg = bool(low_ram and str(os.environ.get("AMIR_LOW_RAM_SEGMENTATION", "0")).strip().lower() in {"1", "true", "yes", "on"})
+        constraints = seg_config.get_constraints(is_vertical=is_vertical, low_ram=low_ram_seg)
+        
+        # Apply config-based word count constraints
+        MIN_WORDS  = constraints['min_words']
+        MAX_WORDS  = constraints['max_words']
+        MAX_SEG_SEC = seg_config.max_segment_seconds
+        MIN_NEXT_CLAUSE = max(4, MIN_WORDS - 1)  # lookahead: next clause must stand alone
+
+        self.logger.debug(
+            f"Segmentation config: is_vertical={is_vertical}, low_ram={low_ram}, "
+            f"low_ram_seg={low_ram_seg}, MIN_WORDS={MIN_WORDS}, MAX_WORDS={MAX_WORDS}"
+        )
         # ─────────────────────────────────────────────────────────────────────
 
         _ABBREVS = frozenset({
@@ -1255,13 +1666,20 @@ class SubtitleProcessor:
             'co', 'corp', 'inc', 'ltd', 'gen', 'col', 'capt', 'maj',
         })
 
-        # Words that OPEN a subordinate clause — never break immediately before them
+        # Words that should trigger a break BEFORE them — they OPEN a new interrogative
+        # or meaningful clause that a viewer needs to see at the START of the next cue.
+        # e.g., "Why are we doing this" → break BEFORE 'Why' so it leads the next line.
+        _PRE_BREAK_STARTERS = frozenset({
+            'why', 'how', 'what', 'when', 'where', 'who', 'which',
+        })
+
+        # Words that OPEN a subordinate clause mid-sentence — NEVER break immediately
+        # BEFORE these since they complete the meaning of the preceding clause.
         _CLAUSE_STARTERS = frozenset({
-            'who', 'whom', 'whose', 'which', 'that',
-            'when', 'where', 'why', 'how',
+            'whom', 'whose', 'that',
             'because', 'although', 'if', 'unless', 'until',
             'while', 'after', 'before', 'since', 'as',
-            'what', 'whether',
+            'whether',
         })
 
         # Words that START an independent clause — good break points when buffer is full
@@ -1312,6 +1730,7 @@ class SubtitleProcessor:
 
             next_lower = next_text.lower()
             next_is_clause_starter = next_lower in _CLAUSE_STARTERS
+            next_is_pre_break = next_lower in _PRE_BREAK_STARTERS
             next_is_coord = next_lower in _COORD_CONJUNCTIONS
 
             # ── decision tree (evaluated top to bottom, first match wins) ──
@@ -1321,10 +1740,26 @@ class SubtitleProcessor:
                 continue
 
             # 1. Hard sentence end → always break (even before clause starters)
+            #    BUT if only 1-2 words remain until next sentence-end, absorb them
+            #    to prevent orphan fragments like "people of Sudan." appearing alone.
             is_sentence_end = text.endswith(sentence_enders)
             if text.endswith('.') and not is_abbrev_dot(text, next_text, _ABBREVS):
                 is_sentence_end = True
             if is_sentence_end:
+                # After-period orphan absorption: peek ahead. If the remaining
+                # words before the NEXT sentence ender are ≤ 2, absorb them
+                # into this segment instead of creating a tiny orphan.
+                remaining_until_next_end = 0
+                for k in range(i + 1, min(i + 5, total)):
+                    nw = words[k].word.strip()
+                    if not nw:
+                        continue
+                    remaining_until_next_end += 1
+                    if nw.endswith(('.', '?', '!', '...')):
+                        break
+                # Only absorb if 1-2 trailing words AND we won't exceed hard limit
+                if 1 <= remaining_until_next_end <= 2 and buf_chars < hard_limit - 15:
+                    continue  # don't flush yet — absorb the trailing orphan
                 _flush_buf()
                 continue
 
@@ -1343,28 +1778,41 @@ class SubtitleProcessor:
                         break
                     if w.endswith((',', ';', ':')):
                         break
-                # Allow up to 20 extra chars to reach a nearby sentence end
-                if found_end_nearby and buf_chars < hard_limit + 20:
+                # Allow extra chars to reach a nearby sentence end, but cap strict for 1-liners
+                lookahead_allowance = 20 if max_lines > 1 else 6
+                if found_end_nearby and buf_chars < hard_limit + lookahead_allowance:
                     continue
                 _flush_buf()
                 continue
 
-            # 3. Time ceiling — long silence / run-on speech
-            seg_dur = buf[-1].end - buf[0].start
-            if seg_dur >= MAX_SEG_SEC and not next_is_clause_starter:
-                _flush_buf()
-                continue
-
-            # 4. Coordinating conjunction at start of next fragment:
-            #    good break if buffer is already substantial
+            # 3. Hard word ceiling — prevent overly long segments
             buf_words = len(buf)
-            if next_is_coord and buf_words >= MIN_WORDS and buf_chars >= limit * 0.7:
+            if buf_words >= MAX_WORDS:
                 _flush_buf()
                 continue
 
-            # 5. Soft break (comma/semicolon/colon) after enough content,
+            # 4. Time ceiling — long silence / run-on speech
+            seg_dur = buf[-1].end - buf[0].start
+            if seg_dur >= MAX_SEG_SEC and buf_words >= MIN_WORDS and not next_is_clause_starter:
+                _flush_buf()
+                continue
+
+            # 5. PRE-BREAK starters (why/how/what/when/who/which at the opening of a new clause):
+            #    break BEFORE these when the buffer has enough content, so the viewer
+            #    sees the question word at the START of the next cue — not buried at the end.
+            if next_is_pre_break and buf_words >= MIN_WORDS:
+                _flush_buf()
+                continue
+
+            # 6. Coordinating conjunction at start of next fragment:
+            #    good break if buffer is already substantial
+            if next_is_coord and buf_words >= MIN_WORDS and buf_chars >= limit * 0.6:
+                _flush_buf()
+                continue
+
+            # 7. Soft break (comma/semicolon/colon) after enough content,
             #    AND the next clause is long enough to stand on its own,
-            #    AND the next word is NOT a clause starter.
+            #    AND the next word is NOT a subordinate clause starter (but pre-break is OK).
             if (text.endswith(soft_break_chars)
                     and buf_words >= MIN_WORDS
                     and buf_chars >= limit * 0.6
@@ -1374,12 +1822,19 @@ class SubtitleProcessor:
                     _flush_buf()
                     continue
 
-        # ── post-pass: orphan prevention ─────────────────────────────────────
+        # ── post-pass: orphan prevention ──
+        # CRITICAL: Always enforce minimum word count, regardless of --whisper-timing.
+        # Whisper timing refers to word-level timestamps; minimum word count is a display readability constraint.
+        # Merging short segments doesn't violate Whisper timing preservation.
         entries = merge_orphan_segments(
             entries,
             hard_limit,
-            min_words=max(3, int(getattr(self, 'target_words_per_line', 4) or 4)),
+            min_words=MIN_WORDS,  # Use config-based minimum
+            max_allowance=25 if max_lines > 1 else 8,
+            parse_to_sec_fn=self.parse_to_sec,
         )
+        if self.whisper_timing:
+            self.logger.info("⏱️  --whisper-timing: Merged short segments while preserving word-level timestamps")
 
         # ── hallucination suppression + timing fix ───────────────────────────
         entries = self.suppress_hallucinations(entries)
@@ -1395,6 +1850,17 @@ class SubtitleProcessor:
         min_duration = self.min_duration
         max_chars = getattr(self.style_config, 'max_chars', 42)
 
+        # Get minimum word count constraint from segmentation config
+        from .config.segmentation import get_segmentation_config
+        seg_config = get_segmentation_config()
+        is_vertical = getattr(self, 'is_vertical_video', None)
+        if not isinstance(is_vertical, bool):
+            is_vertical = max_chars < 30
+        low_ram = getattr(self, 'low_ram_mode', False)
+        low_ram_seg = bool(low_ram and str(os.environ.get("AMIR_LOW_RAM_SEGMENTATION", "0")).strip().lower() in {"1", "true", "yes", "on"})
+        constraints = seg_config.get_constraints(is_vertical=is_vertical, low_ram=low_ram_seg)
+        min_words = constraints['min_words']
+
         if not entries:
             return []
 
@@ -1404,25 +1870,33 @@ class SubtitleProcessor:
             split_at_best_point_fn=self._split_at_best_point,
         )
 
-        cleaned = normalize_and_fix_timing(
-            entries,
-            min_duration=min_duration,
-            parse_to_sec_fn=self.parse_to_sec,
-            format_time_fn=self.format_time,
-        )
-
-        deduped = deduplicate_consecutive_entries(cleaned)
-        removed_count = len(cleaned) - len(deduped)
-        if removed_count > 0:
-            self.logger.warning(f"⚠️ Removed {removed_count} duplicate entries (Whisper hallucination suppression)")
+        if self.whisper_timing:
+            # Requested passthrough: keep Whisper timing untouched by our
+            # timing normalization layer (min-duration/gap/overlap rules).
+            cleaned = entries
+            deduped = cleaned
+            removed_count = 0
+        else:
+            cleaned = normalize_and_fix_timing(
+                entries,
+                min_duration=min_duration,
+                parse_to_sec_fn=self.parse_to_sec,
+                format_time_fn=self.format_time,
+            )
+            deduped = deduplicate_consecutive_entries(cleaned)
+            removed_count = len(cleaned) - len(deduped)
+            if removed_count > 0:
+                self.logger.warning(f"⚠️ Removed {removed_count} duplicate entries (Whisper hallucination suppression)")
 
         return postprocess_orphans_and_collocations(
             deduped,
             max_chars=max_chars,
+            min_words=min_words,
             load_collocations_fn=self._load_collocations,
             remove_whisper_artifacts_fn=self._remove_whisper_artifacts,
             clean_bidi_fn=self._clean_bidi,
             fix_persian_text_fn=self.fix_persian_text,
+            preserve_timing=self.whisper_timing,
         )
 
 
@@ -2041,7 +2515,7 @@ class SubtitleProcessor:
             fa_margin_v=layout['fa_margin_v'],
             top_margin_v=layout['top_margin_v'],
         )
-        header = build_ass_header(styles_block, secondary_srt)
+        header = build_ass_header(styles_block, secondary_srt, video_width, video_height)
 
         secondary_map = {}
         if secondary_srt and os.path.exists(secondary_srt):
@@ -2083,6 +2557,85 @@ class SubtitleProcessor:
 
     def parse_srt(self, srt_path: str) -> List[Dict]:
         return parse_srt_file(srt_path)
+
+    def _entries_to_pseudo_words(self, entries: List[Dict]) -> List[WordObj]:
+        """Convert SRT entries to pseudo word-timestamps for re-segmentation.
+
+        This allows applying the same segmentation pipeline on existing subtitles
+        without rerunning Whisper.
+        """
+        pseudo_words: List[WordObj] = []
+        for entry in entries or []:
+            text = re.sub(r"\s+", " ", str(entry.get("text", "") or "")).strip()
+            if not text:
+                continue
+
+            words = text.split(" ")
+            if not words:
+                continue
+
+            try:
+                start_sec = self.parse_to_sec(str(entry.get("start", "00:00:00,000")))
+                end_sec = self.parse_to_sec(str(entry.get("end", "00:00:00,000")))
+            except Exception:
+                continue
+
+            if end_sec <= start_sec:
+                end_sec = start_sec + max(0.05, 0.05 * len(words))
+
+            step = max((end_sec - start_sec) / max(1, len(words)), 0.01)
+            cur = start_sec
+            for i, w in enumerate(words):
+                w_start = cur
+                w_end = end_sec if i == len(words) - 1 else min(end_sec, w_start + step)
+                if w_end <= w_start:
+                    w_end = w_start + 0.01
+                pseudo_words.append(WordObj(w_start, w_end, w))
+                cur = w_end
+
+        return pseudo_words
+
+    def resegment_existing_entries(self, entries: List[Dict]) -> List[Dict]:
+        """Re-segment existing SRT entries using current segmentation rules.
+
+        This path is intentionally offline-only (no Whisper/LLM), so users can
+        iterate on segmentation config and immediately re-render.
+        """
+        if not isinstance(entries, list) or not entries:
+            return entries
+
+        pseudo_words = self._entries_to_pseudo_words(entries)
+        if not pseudo_words:
+            return entries
+
+        try:
+            resegged = self.segment_words_smart(pseudo_words)
+            if isinstance(resegged, list) and resegged:
+                return resegged
+        except Exception as e:
+            self.logger.warning(f"⚠️ Existing-entry resegmentation failed; keeping original segmentation: {e}")
+
+        return entries
+
+    def resegment_existing_srt_file(self, srt_path: str) -> bool:
+        """Re-segment an existing SRT file in-place using current rules."""
+        if not srt_path or not os.path.exists(srt_path):
+            return False
+
+        entries = self.parse_srt(srt_path)
+        if not isinstance(entries, list) or not entries:
+            return False
+
+        resegged = self.resegment_existing_entries(entries)
+        if not isinstance(resegged, list) or not resegged:
+            return False
+
+        with open(srt_path, "w", encoding="utf-8-sig") as f:
+            for idx, entry in enumerate(resegged, 1):
+                f.write(f"{idx}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
+
+        self.logger.info(f"♻️ Re-segmented existing subtitles in-place: {Path(srt_path).name}")
+        return True
 
     def validate_srt(self, srt_path: str, expected_count: int, target_lang: str = 'fa') -> bool:
         return validate_srt_file(
@@ -2132,6 +2685,13 @@ class SubtitleProcessor:
             partial_entries = self.parse_srt(target_srt_path)
             recovered_count = 0
             
+            # If the segmentations are fundamentally different, index-based mapping will scramble the translations.
+            # Only ingest if the number of segments matches exactly OR if we're ingesting a _partial state that matches precisely up to its length.
+            # For safety, if lengths differ and it's not a _partial.srt, we decline ingestion.
+            if len(partial_entries) != len(source_entries) and not target_srt_path.endswith("_partial.srt"):
+                self.logger.warning(f"⚠️ Source/Target length mismatch ({len(source_entries)} != {len(partial_entries)}). Skipping unsafe ingestion.")
+                return recovered
+
             # HALLUCINATION FILTER: Pre-calculate text counts to detect repetitions
             counts = {}
             for e in partial_entries:
@@ -2202,6 +2762,7 @@ class SubtitleProcessor:
         pad_bottom: int = 0,
         subtitle_raise_top_px: int = 0,
         subtitle_raise_bottom_px: int = 0,
+        ass_input_path: Optional[str] = None,
         use_vad: bool = True,
         progress_callback=None,
     ) -> Dict[str, Any]:
@@ -2286,6 +2847,63 @@ class SubtitleProcessor:
             _has_limit = runtime_ctx["has_limit"]
             source_lang = runtime_ctx["source_lang"]
             target_langs = runtime_ctx["target_langs"]
+
+            # Direct ASS render mode: skip transcription/translation and render user-provided ASS.
+            if ass_input_path:
+                ass_path_abs = os.path.abspath(os.path.expanduser(str(ass_input_path)))
+                if not os.path.exists(ass_path_abs):
+                    raise FileNotFoundError(f"Direct ASS file not found: {ass_path_abs}")
+                if not render:
+                    raise ValueError("--ass-input requires rendering mode (do not use --no-render)")
+                if _is_srt_input:
+                    raise ValueError("--ass-input requires a video input, not an SRT input")
+
+                self.logger.info(
+                    f"🎯 Direct ASS render mode active. Skipping SRT/translation pipeline and rendering from: {Path(ass_path_abs).name}"
+                )
+                _render_ok = run_rendering_stage(
+                    self,
+                    result=result,
+                    source_lang=source_lang,
+                    target_langs=target_langs,
+                    src_srt="",
+                    original_base=original_base,
+                    current_video_input=current_video_input,
+                    force=force,
+                    limit_start=_limit_start,
+                    video_width=_vw or 0,
+                    video_height=_vh or 0,
+                    render_resolution=render_resolution,
+                    render_quality=render_quality,
+                    render_fps=render_fps,
+                    render_split_mb=render_split_mb,
+                    pad_bottom=pad_bottom,
+                    subtitle_raise_top_px=subtitle_raise_top_px,
+                    subtitle_raise_bottom_px=subtitle_raise_bottom_px,
+                    emit_progress=_emit_progress,
+                    detect_best_hw_encoder_fn=detect_best_hw_encoder,
+                    get_default_quality_fn=get_default_quality,
+                    direct_ass_path=ass_path_abs,
+                )
+                if not _render_ok:
+                    return None
+
+                run_finalize_stage(
+                    self,
+                    result=result,
+                    original_base=original_base,
+                    original_stem=original_stem,
+                    original_dir=original_dir,
+                    source_lang=source_lang,
+                    target_langs=target_langs,
+                    platforms=platforms,
+                    prompt_file=prompt_file,
+                    post_langs=post_langs,
+                    save_formats=save_formats,
+                )
+
+                self.logger.info("Execution sequence finalized (direct ASS render mode).")
+                return result
             
             # 1. Source SRT preparation (reuse/transcribe + sanitize/merge)
             src_srt = prepare_source_srt(
@@ -2359,6 +2977,7 @@ class SubtitleProcessor:
                     emit_progress=_emit_progress,
                     detect_best_hw_encoder_fn=detect_best_hw_encoder,
                     get_default_quality_fn=get_default_quality,
+                    direct_ass_path=None,
                 )
                 if not _render_ok:
                     return None
@@ -2405,7 +3024,7 @@ class SubtitleProcessor:
     def _get_post_prompt(self, platform: str, title: str, srt_lang_name: str, full_text: str,
                           prompt_file: Optional[str] = None, srt_lang: str = 'fa',
                           duration: str = '', all_srt_langs: Optional[List[str]] = None,
-                          source_lang: str = ''):
+                          source_lang: str = '', metadata: Optional[Dict[str, Any]] = None):
         return get_post_prompt(
             self,
             platform=platform,
@@ -2417,6 +3036,7 @@ class SubtitleProcessor:
             duration=duration,
             all_srt_langs=all_srt_langs,
             source_lang=source_lang,
+            metadata=metadata,
         )
 
     def _call_llm_for_post(self, system: str, user: str) -> Optional[str]:

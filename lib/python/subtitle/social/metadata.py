@@ -27,6 +27,10 @@ def format_publish_date(value: str) -> str:
 
 def compose_post_file_header(platform: str, metadata: Dict[str, str], fallback_title: str) -> str:
     """Human-readable header added above saved post text files."""
+    if platform == "telegram":
+        # Telegram output must begin with post content itself.
+        return ""
+
     title = (metadata.get("title") or fallback_title or "").strip()
     publish_date = (metadata.get("publish_date") or "").strip()
     webpage_url = (metadata.get("webpage_url") or "").strip()
@@ -36,11 +40,7 @@ def compose_post_file_header(platform: str, metadata: Dict[str, str], fallback_t
     if title:
         lines.append(title)
     if publish_date:
-        if platform == "telegram":
-            clean_date = publish_date.split(" ")[0]
-            lines.append(f"\nDate: {clean_date}")
-        else:
-            lines.append(f"تاریخ انتشار: {publish_date}")
+        lines.append(f"تاریخ انتشار: {publish_date}")
     if uploader:
         lines.append(f"\nمنتشرکننده: {uploader}")
     if webpage_url:

@@ -156,7 +156,7 @@ audio_concat() {
         OUTPUT="${first_file}_merged.mp3"
     fi
 
-    local LIST_FILE=$(mktemp)
+    local LIST_FILE=$(mktemp "$(amir_preferred_temp_dir "$PWD")/audio_concat_XXXXXX.txt")
     log_info "Preparing to concatenate ${#INPUT_FILES[@]} files into $OUTPUT:" >&2
     
     for f in "${INPUT_FILES[@]}"; do
@@ -322,7 +322,7 @@ audio_youtube() {
     # ── Step 2: Pick the best audio stream closest to target bitrate ──────────
     # Write selector to a temp file (heredoc + pipe conflict in zsh if using stdin)
     local PY_SEL
-    PY_SEL=$(mktemp /tmp/amir_ytsel.XXXXXX.py)
+    PY_SEL=$(mktemp "$(amir_preferred_temp_dir "$PWD")/amir_ytsel.XXXXXX.py")
     cat > "$PY_SEL" << 'PYEOF'
 import json, sys
 

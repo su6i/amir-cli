@@ -65,7 +65,8 @@ def resegment_translation(
                 break
             budget += needed
             fitted.append(w)
-        return " ".join(fitted) if fitted else text[:slot_max_chars]
+        # Never cut inside a word: if nothing fits, keep the original token as-is.
+        return " ".join(fitted) if fitted else text
 
     def split_at_punct(text: str) -> List[str]:
         parts = sent_end.split(text.strip())

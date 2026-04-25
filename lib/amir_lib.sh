@@ -75,6 +75,47 @@ copy_to_clipboard() {
     fi
 }
 
+# Prefer a writable local temp root over system /tmp.
+amir_preferred_temp_dir() {
+    local hint_dir="${1:-}"
+    local -a candidates=()
+
+    [[ -n "$hint_dir" ]] && candidates+=("$hint_dir")
+    [[ -n "$PWD" ]] && candidates+=("$PWD")
+    [[ -n "$AMIR_ROOT" ]] && candidates+=("$AMIR_ROOT")
+    [[ -n "$HOME" ]] && candidates+=("$HOME")
+    [[ -n "$TMPDIR" ]] && candidates+=("$TMPDIR")
+    candidates+=("/tmp")
+
+    local base
+    for base in "${candidates[@]}"; do
+        [[ -n "$base" && -d "$base" && -w "$base" ]] || continue
+        base="${base%/}/.amir_tmp"
+        mkdir -p "$base" 2>/dev/null || continue
+        printf '%s' "$base"
+        return 0
+    done
+
+    return 1
+}
+
+amir_mktemp_file() {
+    local prefix="$1"
+    local suffix="${2:-}"
+    local hint_dir="${3:-}"
+    local temp_root
+    temp_root="$(amir_preferred_temp_dir "$hint_dir")" || return 1
+    mktemp "${temp_root%/}/${prefix}.XXXXXX${suffix}"
+}
+
+amir_mktemp_dir() {
+    local prefix="$1"
+    local hint_dir="${2:-}"
+    local temp_root
+    temp_root="$(amir_preferred_temp_dir "$hint_dir")" || return 1
+    mktemp -d "${temp_root%/}/${prefix}.XXXXXX"
+}
+
 # Helper to find the full-featured FFmpeg (with libass support)
 get_ffmpeg_path() {
     local SUBTITLE_DIR="$SCRIPT_DIR/lib/python/subtitle"

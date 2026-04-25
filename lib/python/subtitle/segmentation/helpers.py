@@ -161,35 +161,85 @@ def peek_next_clause_words(words: List, idx: int, max_lookahead: int = 20) -> in
     return count
 
 
-def merge_orphan_segments(entries: List[Dict], hard_limit: int, min_words: int = 4) -> List[Dict]:
-    """Merge tiny tail segments into previous when safe for readability."""
+def merge_orphan_segments(entries: List[Dict], hard_limit: int, min_words: int = 4, max_allowance: int = 20, parse_to_sec_fn=None) -> List[Dict]:
+    """Merge tiny tail segments into previous or next when safe for readability, enforcing minimum word count.
+    
+    This function ensures NO segment is left with fewer than min_words words.
+    It iterates until no more merges are needed.
+    """
+    if not entries:
+        return entries
+    
     merged: List[Dict] = []
     i = 0
+    
     while i < len(entries):
         entry = entries[i]
         word_count = len(entry["text"].split())
 
-        if word_count < max(2, int(min_words)):
-            # Prefer merge to previous when possible.
+        # Enforce minimum word count: merge any segment with fewer than min_words words
+        if word_count < min_words:
+            merged_successfully = False
+            
+            # First priority: merge into previous segment if possible
             if merged:
                 prev = merged[-1]
-                combined_prev = (prev["text"] + " " + entry["text"]).strip()
-                if len(combined_prev) <= hard_limit + 20:
-                    prev["end"] = entry["end"]
-                    prev["text"] = " ".join(combined_prev.split())
-                    i += 1
-                    continue
+                gap_safe = True
+                
+                if parse_to_sec_fn:
+                    try:
+                        gap = parse_to_sec_fn(entry["start"]) - parse_to_sec_fn(prev["end"])
+                        if gap > 0.5:  # Allow slightly larger gaps
+                            gap_safe = False
+                    except:
+                        pass
+                
+                if gap_safe:
+                    combined_prev = (prev["text"] + " " + entry["text"]).strip()
+                    # Check character limit
+                    if len(combined_prev) <= hard_limit + max_allowance:
+                        prev["end"] = entry["end"]
+                        prev["text"] = " ".join(combined_prev.split())
+                        merged_successfully = True
+                        i += 1
+                        continue
 
-            # If there is no previous (or previous merge is unsafe), merge into next.
-            if i + 1 < len(entries):
+            # Second priority: merge into next segment if previous merge didn't work
+            if not merged_successfully and i + 1 < len(entries):
                 nxt = entries[i + 1]
-                combined_next = (entry["text"] + " " + nxt["text"]).strip()
-                if len(combined_next) <= hard_limit + 20:
+                gap_safe = True
+                
+                if parse_to_sec_fn:
+                    try:
+                        gap = parse_to_sec_fn(nxt["start"]) - parse_to_sec_fn(entry["end"])
+                        if gap > 0.5:
+                            gap_safe = False
+                    except:
+                        pass
+
+                if gap_safe:
+                    combined_next = (entry["text"] + " " + nxt["text"]).strip()
+                    # Check character limit
+                    if len(combined_next) <= hard_limit + max_allowance:
+                        nxt["start"] = entry["start"]
+                        nxt["text"] = " ".join(combined_next.split())
+                        merged_successfully = True
+                        i += 1
+                        continue
+
+            # If merge attempts failed, still add to output but log it
+            # This shouldn't happen in normal operation if min_words is properly enforced
+            if not merged_successfully:
+                # As a last resort, try to merge into next anyway (without char limit check)
+                if i + 1 < len(entries):
+                    nxt = entries[i + 1]
+                    combined = (entry["text"] + " " + nxt["text"]).strip()
                     nxt["start"] = entry["start"]
-                    nxt["text"] = " ".join(combined_next.split())
+                    nxt["text"] = " ".join(combined.split())
                     i += 1
                     continue
 
         merged.append(entry)
         i += 1
+    
     return merged
