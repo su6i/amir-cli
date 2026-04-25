@@ -109,24 +109,40 @@ def deduplicate_consecutive_entries(cleaned: List[Dict]) -> List[Dict]:
 def postprocess_orphans_and_collocations(
     cleaned: List[Dict],
     max_chars: int,
-    load_collocations_fn: Callable[[], Set[str]],
-    remove_whisper_artifacts_fn: Callable[[str], str],
-    clean_bidi_fn: Callable[[str], str],
-    fix_persian_text_fn: Callable[[str], str],
+    min_words: int = 5,
+    load_collocations_fn: Callable[[], Set[str]] = None,
+    remove_whisper_artifacts_fn: Callable[[str], str] = None,
+    clean_bidi_fn: Callable[[str], str] = None,
+    fix_persian_text_fn: Callable[[str], str] = None,
     preserve_timing: bool = False,
 ) -> List[Dict]:
-    """Apply orphan merge policy and NBSP insertion for known collocations."""
-    collocations = load_collocations_fn()
+    """Apply orphan merge policy and NBSP insertion for known collocations.
+    
+    Enforces minimum word count regardless of preserve_timing to ensure display readability.
+    Preserve_timing only affects timing normalization, not word count enforcement.
+    """
+    collocations = load_collocations_fn() if load_collocations_fn else set()
 
     final: List[Dict] = []
     i = 0
+    
+    # Helper functions with fallbacks
+    def safe_remove_artifacts(text: str) -> str:
+        return remove_whisper_artifacts_fn(text) if remove_whisper_artifacts_fn else text
+    
+    def safe_clean_bidi(text: str) -> str:
+        return clean_bidi_fn(text) if clean_bidi_fn else text
+    
+    def safe_fix_persian(text: str) -> str:
+        return fix_persian_text_fn(text) if fix_persian_text_fn else text
+    
     while i < len(cleaned):
         cur = cleaned[i]
         text = cur.get("text", "").strip()
-        text = remove_whisper_artifacts_fn(text)
+        text = safe_remove_artifacts(text)
         cur["text"] = text
 
-        ctext = clean_bidi_fn(text)
+        ctext = safe_clean_bidi(text)
         words = ctext.split()
 
         # Persian verb-prefix repair across subtitle boundaries:
@@ -134,8 +150,8 @@ def postprocess_orphans_and_collocations(
         # move next first token to current as a joined verb (e.g., "می" + "بره" -> "می\u200cبره").
         nxt = cleaned[i + 1] if i + 1 < len(cleaned) else None
         if nxt:
-            ccur = clean_bidi_fn(cur.get("text", "")).strip()
-            cnxt = clean_bidi_fn(nxt.get("text", "")).strip()
+            ccur = safe_clean_bidi(cur.get("text", "")).strip()
+            cnxt = safe_clean_bidi(nxt.get("text", "")).strip()
 
             parts = ccur.split()
             nxt_parts = cnxt.split()
@@ -153,13 +169,13 @@ def postprocess_orphans_and_collocations(
                     remaining_next = " ".join(nxt_parts[1:]).strip()
                     if remaining_next:
                         nxt["text"] = remaining_next
-                        ctext = clean_bidi_fn(cur["text"])
+                        ctext = safe_clean_bidi(cur["text"])
                         words = ctext.split()
                     else:
                         if not preserve_timing:
                             cur["end"] = nxt["end"]
                             i += 1
-                        ctext = clean_bidi_fn(cur["text"])
+                        ctext = safe_clean_bidi(cur["text"])
                         words = ctext.split()
 
         if not preserve_timing and (len(words) <= 2 or len(ctext) < 12):
@@ -174,7 +190,7 @@ def postprocess_orphans_and_collocations(
                 orphan_max = int(max(max_chars * 1.2, max_chars + 4))
 
             if nxt:
-                cnxt_text = clean_bidi_fn(nxt["text"])
+                cnxt_text = safe_clean_bidi(nxt["text"])
                 right_first = re.findall(r"[\w\u0600-\u06FF'-]+", cnxt_text)
                 if right_first:
                     pair = f"{words[0].lower()} {right_first[0].lower()}"
@@ -188,9 +204,40 @@ def postprocess_orphans_and_collocations(
                             continue
 
             if prev and not merged_with_next:
-                cprev = clean_bidi_fn(prev["text"])
+                cprev = safe_clean_bidi(prev["text"])
                 combined_clean = cprev + " " + ctext
                 if len(combined_clean) <= orphan_max:
+                    prev["end"] = cur["end"]
+                    prev["text"] = combined_clean
+                    i += 1
+                    continue
+        
+        # CRITICAL: Always enforce minimum word count globally, regardless of preserve_timing.
+        # If the line has fewer than min_words, it MUST be merged into an adjacent line.
+        # Preserve_timing refers to word-level Whisper timestamps, not subtitle-level timing.
+        if len(words) < min_words:
+            prev = final[-1] if final else None
+            merged_with_next = False
+            
+            # First priority: merge into next segment
+            if nxt:
+                cnxt_text = safe_clean_bidi(nxt["text"])
+                combined_clean = ctext + " " + cnxt_text
+                # Allow extra chars for readability when merging to enforce min_words
+                merge_limit = max_chars * 2 if max_chars >= 30 else max_chars + 20
+                if len(combined_clean) <= merge_limit:
+                    nxt["start"] = cur["start"]
+                    nxt["text"] = combined_clean
+                    i += 1
+                    merged_with_next = True
+                    continue
+            
+            # Second priority: merge into previous segment
+            if prev and not merged_with_next:
+                cprev = safe_clean_bidi(prev["text"])
+                combined_clean = cprev + " " + ctext
+                merge_limit = max_chars * 2 if max_chars >= 30 else max_chars + 20
+                if len(combined_clean) <= merge_limit:
                     prev["end"] = cur["end"]
                     prev["text"] = combined_clean
                     i += 1
@@ -215,7 +262,7 @@ def postprocess_orphans_and_collocations(
         # Final Persian normalization pass for ZWNJ compounds.
         # Applies only when Persian/Arabic script is present.
         if re.search(r"[\u0600-\u06FF]", cur.get("text", "")):
-            cur["text"] = fix_persian_text_fn(cur["text"])
+            cur["text"] = safe_fix_persian(cur["text"])
 
         final.append(cur)
         i += 1

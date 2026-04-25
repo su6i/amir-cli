@@ -127,7 +127,8 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | :--- | :--- |
 | `amir video <URL> [opts]` | **Unified Download + Process**: Download from YouTube & 1000+ sites with smart reuse (existing matching downloads are reused to avoid `_2/_3` duplicates). Key flags: `--subtitle en fa` (Whisper AI), `--yt-subs --translate -t en fa` (platform subs → LLM translate), `--sub-only` (SRT only), `--only-subs`, `--formats` (list formats), `--resolution <h>` (explicit download height), `--extreme` (auto-min practical resolution), `--keep-thumb`, `--cookies`. |
 | `amir video <file/dir> [--gpu|--cpu]` | Advanced video processing (compress, cut, batch). Supports `extreme` (max compression profile), `--fps <N>` (e.g., 10fps), and `--split <MB>` (split encoded output to chunks). `--gpu` for hardware acceleration (default on Apple Silicon), `--cpu` for better compression ratio. |
-| `amir video cut <file> [opts]` | Cut video segments without re-encoding (instant) or with rendering. |
+| `amir video concat <files...> [-o out.mp4]` | Concatenate multiple videos in the exact order provided. Uses safe re-encode for compatibility and creates `<first>_merged.mp4` when `-o` is omitted. Alias: `amir video merge ...`. |
+| `amir video cut <file> [opts]` | Cut video segments without re-encoding (instant) or with rendering. Supports `-d/--delete <start> <end>` to remove a middle range and auto-stitch, and `-x/--extract <start> <end>` to keep only that range (default output name: `_cut_<start>_<end>`). |
 | `amir video split <file> <mb>` | Split an existing video into approximate MB chunks (keyframe-bound, non re-encode). |
 | `amir split <file> <mb>` | Global splitter for both audio and video files (approximate MB chunks, no re-encode). |
 | `amir video tiktok <url> [opts]` | TikTok-optimized wrapper around `video download` with the same subtitle/translate pipeline flags. |

@@ -254,6 +254,9 @@ def detect_subtitle_geometry(processor, video_path: str, target_langs: List[str]
         # Keep portrait single-line subtitles strictly within the narrow visible bounds.
         max_chars_dyn = max(15, min(22, max_chars_dyn))
     
+    # Persist detected orientation for downstream segmentation decisions.
+    processor.is_vertical_video = bool(vh > vw)
+
     # Portrait stays strict short-form; landscape should remain longer/readable.
     if vh > vw:  # Portrait mode: short-form videos need consistent 4-word lines
         target_words_dyn = 4

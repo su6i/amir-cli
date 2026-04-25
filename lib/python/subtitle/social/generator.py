@@ -6,6 +6,48 @@ from typing import Any, Dict, List, Optional
 from subtitle.config import get_language_config
 
 
+def _prepend_video_reference_block(
+    post_text: str,
+    metadata: Dict[str, Any],
+    fallback_title: str,
+    srt_lang: str,
+) -> str:
+    """Ensure original title/link are the first lines of the post body."""
+    body = str(post_text or "").strip()
+
+    title = str((metadata or {}).get("title") or fallback_title or "").strip()
+    url = str((metadata or {}).get("webpage_url") or "").strip()
+    if not title and not url:
+        return body
+
+    is_fa = str(srt_lang or "").strip().lower() == "fa"
+    title_line_fa = f"🎬 عنوان اصلی ویدیو: {title}" if title else ""
+    title_line_en = f"🎬 Original Video Title: {title}" if title else ""
+    url_line_fa = f"🔗 لینک ویدیو: {url}" if url else ""
+    url_line_en = f"🔗 Video Link: {url}" if url else ""
+
+    # Remove previous occurrences so title/link appear only at the top.
+    filtered_lines = []
+    for ln in body.splitlines():
+        s = ln.strip()
+        if s in {title_line_fa, title_line_en, url_line_fa, url_line_en}:
+            continue
+        filtered_lines.append(ln)
+    body_clean = "\n".join(filtered_lines).strip()
+
+    ref_lines = []
+    if title:
+        ref_lines.append(title_line_fa if is_fa else title_line_en)
+    if url:
+        ref_lines.append(url_line_fa if is_fa else url_line_en)
+
+    # Exactly one blank line between title and link, and one blank line before body.
+    header = "\n\n".join(ref_lines)
+    if body_clean:
+        return header + "\n\n" + body_clean
+    return header
+
+
 def generate_posts(
     processor,
     original_base: str,
@@ -109,6 +151,12 @@ def generate_posts(
 
                 try:
                     post_text = processor._sanitize_post(post_text, platform)
+                    post_text = _prepend_video_reference_block(
+                        post_text=post_text,
+                        metadata=video_metadata,
+                        fallback_title=title_clean,
+                        srt_lang=srt_lang,
+                    )
 
                     if platform == "telegram":
                         ok, missing = processor._telegram_sections_complete(post_text)
