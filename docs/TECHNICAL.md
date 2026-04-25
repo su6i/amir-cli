@@ -209,7 +209,7 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
   - `--fps <N>`: explicit output frame rate (can be lower than 24, e.g. 10fps).
   - `--split <MB>`: post-encode split into approximate chunk sizes using FFmpeg segment muxer.
 - **Subcommands:**
-    - `cut` (or `trim`): Fast video slicing. Uses `-c copy` (stream copy) by default for near-instant cutting without quality loss. Supports `-s` (start), `-e` (end), and `-d` (duration).
+    - `cut` (or `trim`): Fast video slicing. Uses `-c copy` (stream copy) by default for near-instant cutting without quality loss. Supports `-s` (start), `-e` (absolute end on original timeline), `--duration`, `-d/--delete <start> <end>` to remove a middle range and stitch the rest, and `-x/--extract <start> <end>` to keep only that range (default output: `_cut_<start>_<end>`).
   - `split`: Split an existing media file into approximate MB chunks without re-encoding.
     - `batch`: Optimized for directories.
     - `stats`: View AI learning statistics.
