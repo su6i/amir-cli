@@ -1394,7 +1394,10 @@ class SubtitleProcessor:
 
                 cmd = ["python3", "-u", worker_path]
                 # Use Popen to stream stdout/stderr
-                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+                # Suppress macOS malloc stack logging warnings
+                env = os.environ.copy()
+                env['MallocStackLogging'] = '0'
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, env=env)
                 
                 pbar = tqdm(total=100, unit="%", desc=f"  Transcribing ({(_lang_for_worker or 'AUTO').upper()})")
 
