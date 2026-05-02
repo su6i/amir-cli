@@ -141,9 +141,9 @@ class Verification:
     
     def verify_documentation(self):
         docs = [
-            self.base_path / "REFACTORING_SUMMARY.md",
+            self.base_path / "docs" / "dev_notes" / "REFACTORING_SUMMARY.md",
             self.subtitle_path / "tests" / "README.md",
-            self.base_path / "SESSION_PROGRESS.md",
+            self.base_path / "docs" / "dev_notes" / "SESSION_PROGRESS.md",
         ]
         
         for doc in docs:

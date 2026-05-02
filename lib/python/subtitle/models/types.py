@@ -8,6 +8,9 @@ class SubtitleStyle(Enum):
     LECTURE = "lecture"
     VLOG = "vlog"
     SHORT_FORM = "short_form"  # NEW: Optimized for vertical videos (TikTok, Reels, YouTube Shorts)
+    CHANNEL_BRAND_BLUE = "channel_brand_blue"
+    SHORTS_BRAND_BLUE = "shorts_brand_blue"
+    NEWS_GUEST_BLUE = "news_guest_blue"
     MOVIE = "movie"
     NEWS = "news"
     CUSTOM = "custom"
@@ -104,5 +107,50 @@ STYLE_PRESETS = {
         max_chars=48,  # Optimized for 5 words in vertical format (52 chars for portrait bilingual)
         max_lines=1,  # Single line primary for vertical videos with 5-word constraint
         use_banner=True,  # Use banner for better mobile readability
+    ),
+    SubtitleStyle.CHANNEL_BRAND_BLUE: StyleConfig(
+        name="ChannelBrandBlue",
+        font_name="Arial",
+        font_size=24,
+        position="bottom",
+        alignment=2,
+        outline=2,
+        shadow=0,
+        border_style=1,
+        back_color="&H00000000",
+        primary_color="&H00FFFFFF",
+        max_chars=44,
+        max_lines=2,
+        use_banner=True,
+    ),
+    SubtitleStyle.SHORTS_BRAND_BLUE: StyleConfig(
+        name="ShortsBrandBlue",
+        font_name="Arial",
+        font_size=20,
+        position="bottom",
+        alignment=2,
+        outline=2,
+        shadow=0,
+        border_style=1,
+        back_color="&H00000000",
+        primary_color="&H00FFFFFF",
+        max_chars=32,
+        max_lines=2,
+        use_banner=True,
+    ),
+    SubtitleStyle.NEWS_GUEST_BLUE: StyleConfig(
+        name="NewsGuestBlue",
+        font_name="Arial",
+        font_size=22,
+        position="bottom",
+        alignment=2,
+        outline=2,
+        shadow=0,
+        border_style=1,
+        back_color="&H00000000",
+        primary_color="&H00FFFFFF",
+        max_chars=40,
+        max_lines=2,
+        use_banner=True,
     ),
 }

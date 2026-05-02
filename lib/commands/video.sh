@@ -619,6 +619,14 @@ video() {
         echo "  -d, --delete     Delete range: <start> <end> and stitch remaining parts"
         echo "  -x, --extract    Extract only range: <start> <end> into a clip file"
         echo "  -o, --output     Output filename"
+        echo "  --subtitle-banner-image  Banner image behind subtitle area (full-width strip)"
+        echo "  --subtitle-banner-color  Fallback banner color (used when no image is provided)"
+        echo "  --subtitle-banner-height Banner strip height percent (default: 18)"
+        echo "  --subtitle-logo          Channel logo image on bottom-right of banner"
+        echo "  --subtitle-logo-animated Try animated logo rendering when codec/filter supports it"
+        echo "  --subtitle-logo-width    Logo width percent of video width (default: 10)"
+        echo "  --guest-tag             Guest lower-third: start,duration,name,title[,pos]"
+        echo "  --guest-tag-pos         Default guest position: br|bl|tr|tl|bc|tc"
         return 1
     fi
 
@@ -732,6 +740,16 @@ run_video_cut() {
     local render_fps=""
     local split_mb=""
     local pad_bottom_pct=0
+    local subtitle_banner_image=""
+    local subtitle_banner_color=""
+    local subtitle_banner_height_pct="18"
+    local subtitle_logo_image=""
+    local subtitle_logo_animated=0
+    local subtitle_logo_width_pct="10"
+    local subtitle_logo_margin_right="24"
+    local subtitle_logo_margin_bottom="24"
+    local guest_tag_default_pos="br"
+    local -a guest_tags=()
     
     # UI Display Overrides (for symlinked/temp files)
     local display_in=""
@@ -774,6 +792,16 @@ run_video_cut() {
             --fps) render_fps="$2"; shift 2 ;;
             --split) split_mb="$2"; shift 2 ;;
             --pad-bottom) pad_bottom_pct="$2"; shift 2 ;;
+            --subtitle-banner-image) subtitle_banner_image="$2"; shift 2 ;;
+            --subtitle-banner-color) subtitle_banner_color="$2"; shift 2 ;;
+            --subtitle-banner-height) subtitle_banner_height_pct="$2"; shift 2 ;;
+            --subtitle-logo) subtitle_logo_image="$2"; shift 2 ;;
+            --subtitle-logo-animated) subtitle_logo_animated=1; shift ;;
+            --subtitle-logo-width) subtitle_logo_width_pct="$2"; shift 2 ;;
+            --subtitle-logo-margin-right) subtitle_logo_margin_right="$2"; shift 2 ;;
+            --subtitle-logo-margin-bottom) subtitle_logo_margin_bottom="$2"; shift 2 ;;
+            --guest-tag) guest_tags+=("$2"); shift 2 ;;
+            --guest-tag-pos) guest_tag_default_pos="$2"; shift 2 ;;
             --render) encode=1; shift ;;
             *) 
                 if [[ -f "$1" && -z "$input_file" ]]; then
@@ -789,7 +817,7 @@ run_video_cut() {
 
     if [[ -z "$input_file" ]]; then
         echo "❌ Error: No input file specified."
-        echo "Usage: amir video cut <file> [-s start] [-e end] [--duration d] [-d start end] [-x start end] [-o output] [--resolution H] [--quality Q] [--fps N] [--split MB] [--cover-frame IMG]"
+        echo "Usage: amir video cut <file> [-s start] [-e end] [--duration d] [-d start end] [-x start end] [-o output] [--resolution H] [--quality Q] [--fps N] [--split MB] [--cover-frame IMG] [--subtitle-banner-image IMG|--subtitle-banner-color C] [--subtitle-logo IMG] [--guest-tag 'start,duration,name,title[,pos]']"
         return 1
     fi
 
@@ -880,6 +908,10 @@ run_video_cut() {
     local ffmpeg_cmd="${FFMPEG_EXEC:-ffmpeg}"
 
     local cmd=("$ffmpeg_cmd" "-hide_banner" "-loglevel" "error" "-stats" "-y")
+    local next_filter_input_idx=1
+    local cover_input_idx=-1
+    local banner_input_idx=-1
+    local logo_input_idx=-1
 
     # Convert time expressions (SS, MM:SS, HH:MM:SS) to seconds.
     # Used to turn absolute end times into a true clip duration when start is set.
@@ -1094,6 +1126,7 @@ run_video_cut() {
     fi
 
     cmd+=("-i" "$input_file")
+    local output_time_opts=()
 
     if [[ -n "$end_time" ]]; then
         if [[ -n "$start_time" ]]; then
@@ -1114,23 +1147,41 @@ run_video_cut() {
                 return 1
             fi
 
-            cmd+=("-t" "$clip_duration")
+            output_time_opts=("-t" "$clip_duration")
         else
             # No explicit start seek: keep native ffmpeg absolute-end behavior.
-            cmd+=("-to" "$end_time")
+            output_time_opts=("-to" "$end_time")
         fi
     elif [[ -n "$duration" ]]; then
-        cmd+=("-t" "$duration")
+        output_time_opts=("-t" "$duration")
     fi
 
     # Optional cover frame image: injected as first frame during render.
     if [[ -n "$cover_frame_file" && -f "$cover_frame_file" ]]; then
+        cover_input_idx=$next_filter_input_idx
         cmd+=("-i" "$cover_frame_file")
+        ((next_filter_input_idx++))
     fi
 
     # Subtitle Filter Logic
-    local filter_complex=""
+    local subtitle_filter=""
+    local banner_overlay_enabled=0
+    local logo_overlay_enabled=0
+    local guest_overlay_enabled=0
     local tmp_sub="" 
+
+    # Helper function for FFmpeg filter escaping
+    escape_ffmpeg() {
+        local s="$1"
+        s="${s//\\/\\\\}"  # \ -> \\
+        s="${s//:/\\:}"    # : -> \:
+        s="${s//\'/\\\'}"  # ' -> \'
+        s="${s//,/\\,}"    # , -> \,
+        s="${s//\[/\\[}"   # [ -> \[
+        s="${s//\]/\\]}"   # ] -> \]
+        s="${s// /\\ }"    # Space -> \ Space
+        echo "$s"
+    }
 
     # Cleanup trap (will run on exit)
     cleanup_subs() {
@@ -1145,19 +1196,6 @@ run_video_cut() {
         tmp_sub="$render_tmp_dir/safe_subs_$$.ass"
         cp "$subtitle_file" "$tmp_sub"
 
-        # Helper function for basic escaping (mainly for fonts_dir if needed)
-        escape_ffmpeg() {
-            local s="$1"
-            s="${s//\\/\\\\}"  # \ -> \\
-            s="${s//:/\\:}"    # : -> \:
-            s="${s//\'/\\\'}"  # ' -> \'
-            s="${s//,/\\,}"    # , -> \,
-            s="${s//\[/\\[}"   # [ -> \[
-            s="${s//\]/\\]}"   # ] -> \]
-            s="${s// /\\ }"    # Space -> \ Space
-            echo "$s"
-        }
-
         # Check fonts dir
         local fonts_opt=""
         if [[ -n "$fonts_dir" ]]; then
@@ -1170,10 +1208,64 @@ run_video_cut() {
         local esc_sub=$(escape_ffmpeg "$tmp_sub") 
         
         # Use subtitles filter with explicit filename key
-        filter_complex="subtitles=filename=${esc_sub}${fonts_opt}"
+        subtitle_filter="subtitles=filename=${esc_sub}${fonts_opt}"
         
         # If subtitles are present, force render mode
         encode=1
+    fi
+
+    if [[ -n "$subtitle_banner_image" ]]; then
+        if [[ -f "$subtitle_banner_image" ]]; then
+            banner_overlay_enabled=1
+        else
+            echo "⚠️  Banner image not found, skipping overlay: $subtitle_banner_image"
+        fi
+    fi
+    if [[ -n "$subtitle_banner_color" ]]; then
+        banner_overlay_enabled=1
+    fi
+    if [[ -n "$subtitle_logo_image" ]]; then
+        if [[ -f "$subtitle_logo_image" ]]; then
+            logo_overlay_enabled=1
+        else
+            echo "⚠️  Logo image not found, skipping overlay: $subtitle_logo_image"
+        fi
+    fi
+
+    # Sanitize numeric overlay controls.
+    [[ "$subtitle_banner_height_pct" =~ ^[0-9]+$ ]] || subtitle_banner_height_pct="18"
+    [[ "$subtitle_logo_width_pct" =~ ^[0-9]+$ ]] || subtitle_logo_width_pct="10"
+    [[ "$subtitle_logo_margin_right" =~ ^[0-9]+$ ]] || subtitle_logo_margin_right="24"
+    [[ "$subtitle_logo_margin_bottom" =~ ^[0-9]+$ ]] || subtitle_logo_margin_bottom="24"
+    (( subtitle_banner_height_pct < 5 || subtitle_banner_height_pct > 80 )) && subtitle_banner_height_pct=18
+    (( subtitle_logo_width_pct < 2 || subtitle_logo_width_pct > 40 )) && subtitle_logo_width_pct=10
+
+    if [[ $banner_overlay_enabled -eq 1 || $logo_overlay_enabled -eq 1 ]]; then
+        encode=1
+    fi
+    if [[ ${#guest_tags[@]} -gt 0 ]]; then
+        guest_overlay_enabled=1
+        encode=1
+    fi
+
+    # Provide stable overlay sources via dedicated ffmpeg inputs (instead of movie filter sources).
+    if [[ $banner_overlay_enabled -eq 1 && -n "$subtitle_banner_image" && -f "$subtitle_banner_image" ]]; then
+        banner_input_idx=$next_filter_input_idx
+        cmd+=("-loop" "1" "-i" "$subtitle_banner_image")
+        ((next_filter_input_idx++))
+    fi
+    if [[ $logo_overlay_enabled -eq 1 && -n "$subtitle_logo_image" && -f "$subtitle_logo_image" ]]; then
+        logo_input_idx=$next_filter_input_idx
+        if [[ $subtitle_logo_animated -eq 1 ]]; then
+            cmd+=("-stream_loop" "-1" "-i" "$subtitle_logo_image")
+        else
+            cmd+=("-loop" "1" "-i" "$subtitle_logo_image")
+        fi
+        ((next_filter_input_idx++))
+    fi
+
+    if [[ ${#output_time_opts[@]} -gt 0 ]]; then
+        cmd+=("${output_time_opts[@]}")
     fi
 
     if [[ $encode -eq 1 ]]; then
@@ -1255,12 +1347,88 @@ run_video_cut() {
         fi
 
         local final_filter=""
-        if [[ -n "$pre_filter" && -n "$filter_complex" ]]; then
-            final_filter="${pre_filter},${filter_complex}"
+        if [[ -n "$pre_filter" && -n "$subtitle_filter" ]]; then
+            final_filter="${pre_filter},${subtitle_filter}"
         elif [[ -n "$pre_filter" ]]; then
             final_filter="$pre_filter"
         else
-            final_filter="$filter_complex"
+            final_filter="$subtitle_filter"
+        fi
+
+        local guest_font_file=""
+        local -a guest_font_candidates=(
+            "$HOME/Library/Fonts/Vazirmatn-Regular.ttf"
+            "$HOME/Library/Fonts/Vazirmatn[wght].ttf"
+            "/Library/Fonts/Vazirmatn-Regular.ttf"
+            "/Library/Fonts/Arial Unicode.ttf"
+            "/Library/Fonts/Arial Unicode MS.ttf"
+            "/Library/Fonts/Arial.ttf"
+        )
+        local _fcand
+        for _fcand in "${guest_font_candidates[@]}"; do
+            if [[ -f "$_fcand" ]]; then
+                guest_font_file="$_fcand"
+                break
+            fi
+        done
+
+        local guest_filter=""
+        if [[ $guest_overlay_enabled -eq 1 ]]; then
+            local guest_font_opt=""
+            if [[ -n "$guest_font_file" ]]; then
+                guest_font_opt=":fontfile=$(escape_ffmpeg "$guest_font_file")"
+            fi
+
+            escape_drawtext_text() {
+                local t="$1"
+                t="${t//\\/\\\\}"
+                t="${t//:/\\:}"
+                t="${t//\'/\\\'}"
+                t="${t//,/\\,}"
+                t="${t//%/\\%}"
+                t="${t//\[/\\[}"
+                t="${t//\]/\\]}"
+                printf '%s' "$t"
+            }
+
+            local _tag _g_start _g_dur _g_name _g_role _g_pos _g_start_sec _g_dur_sec _g_end_sec
+            for _tag in "${guest_tags[@]}"; do
+                IFS=',' read -r _g_start _g_dur _g_name _g_role _g_pos <<< "$_tag"
+                [[ -z "$_g_start" || -z "$_g_dur" || -z "$_g_name" || -z "$_g_role" ]] && continue
+                _g_start_sec="$(_to_seconds "$_g_start")"
+                _g_dur_sec="$(_to_seconds "$_g_dur")"
+                [[ -z "$_g_start_sec" || -z "$_g_dur_sec" ]] && continue
+                _g_end_sec=$(awk -v s="$_g_start_sec" -v d="$_g_dur_sec" 'BEGIN { printf "%.6f", s + d }')
+
+                if [[ -z "$_g_pos" ]]; then
+                    _g_pos="$guest_tag_default_pos"
+                fi
+                _g_pos="$(printf '%s' "$_g_pos" | tr '[:upper:]' '[:lower:]')"
+
+                local _x_expr="w-tw-34"
+                local _y1_expr="h-(h*0.20)"
+                case "$_g_pos" in
+                    bl) _x_expr="34"; _y1_expr="h-(h*0.20)" ;;
+                    tr) _x_expr="w-tw-34"; _y1_expr="34" ;;
+                    tl) _x_expr="34"; _y1_expr="34" ;;
+                    bc) _x_expr="(w-tw)/2"; _y1_expr="h-(h*0.20)" ;;
+                    tc) _x_expr="(w-tw)/2"; _y1_expr="34" ;;
+                    *) _x_expr="w-tw-34"; _y1_expr="h-(h*0.20)" ;;
+                esac
+
+                local _name_esc _role_esc
+                _name_esc="$(escape_drawtext_text "$_g_name")"
+                _role_esc="$(escape_drawtext_text "$_g_role")"
+
+                local _dt1="drawtext=text='${_name_esc}'${guest_font_opt}:fontcolor=white:fontsize=h*0.050:box=1:boxcolor=0x2D1588EE@0.88:boxborderw=18:x=${_x_expr}:y=${_y1_expr}:enable='between(t,${_g_start_sec},${_g_end_sec})'"
+                local _dt2="drawtext=text='${_role_esc}'${guest_font_opt}:fontcolor=0xFFE066:fontsize=h*0.036:box=1:boxcolor=0x2D1588EE@0.88:boxborderw=14:x=${_x_expr}:y=${_y1_expr}+h*0.065:enable='between(t,${_g_start_sec},${_g_end_sec})'"
+
+                if [[ -z "$guest_filter" ]]; then
+                    guest_filter="${_dt1},${_dt2}"
+                else
+                    guest_filter+=",${_dt1},${_dt2}"
+                fi
+            done
         fi
         
         # Construct Filter Chain
@@ -1269,16 +1437,81 @@ run_video_cut() {
             use_cover_frame=true
         fi
 
+        local overlay_fc=""
+        local overlay_out_label=""
+        if [[ $banner_overlay_enabled -eq 1 || $logo_overlay_enabled -eq 1 ]]; then
+            local _curr_label="vbase"
+            local _overlay_segments=()
+            if [[ -n "$pre_filter" ]]; then
+                _overlay_segments+=("[0:v]${pre_filter}[${_curr_label}]")
+            else
+                _overlay_segments+=("[0:v]null[${_curr_label}]")
+            fi
+
+            if [[ $banner_overlay_enabled -eq 1 ]]; then
+                if [[ -n "$subtitle_banner_image" && -f "$subtitle_banner_image" ]]; then
+                    _overlay_segments+=("[${banner_input_idx}:v]setpts=PTS-STARTPTS[banner_src]")
+                else
+                    local banner_color="${subtitle_banner_color:-0x0A4DFF@1.0}"
+                    _overlay_segments+=("color=c=${banner_color}:s=16x16[banner_src]")
+                fi
+                _overlay_segments+=("[banner_src][${_curr_label}]scale2ref=w=main_w:h=main_h*${subtitle_banner_height_pct}/100[banner][banner_base]")
+                _overlay_segments+=("[banner_base][banner]overlay=0:main_h-overlay_h:shortest=1:eof_action=pass[vbanner]")
+                _curr_label="vbanner"
+            fi
+
+            if [[ $logo_overlay_enabled -eq 1 ]]; then
+                _overlay_segments+=("[${logo_input_idx}:v]setpts=PTS-STARTPTS[logo_src]")
+                _overlay_segments+=("[logo_src][${_curr_label}]scale2ref=w=main_w*${subtitle_logo_width_pct}/100:h=-1[logo][logo_base]")
+                _overlay_segments+=("[logo_base][logo]overlay=main_w-overlay_w-${subtitle_logo_margin_right}:main_h-overlay_h-${subtitle_logo_margin_bottom}:shortest=1:eof_action=pass[vlogo]")
+                _curr_label="vlogo"
+            fi
+
+            if [[ -n "$subtitle_filter" ]]; then
+                _overlay_segments+=("[${_curr_label}]${subtitle_filter}[vsub]")
+                _curr_label="vsub"
+            fi
+
+            if [[ -n "$guest_filter" ]]; then
+                _overlay_segments+=("[${_curr_label}]${guest_filter}[vguest]")
+                _curr_label="vguest"
+            fi
+
+            local _seg
+            for _seg in "${_overlay_segments[@]}"; do
+                if [[ -z "$overlay_fc" ]]; then
+                    overlay_fc="$_seg"
+                else
+                    overlay_fc+=";$_seg"
+                fi
+            done
+            overlay_out_label="$_curr_label"
+        fi
+
+        if [[ -z "$overlay_fc" && -n "$guest_filter" ]]; then
+            if [[ -n "$final_filter" ]]; then
+                final_filter+="${final_filter:+,}${guest_filter}"
+            else
+                final_filter="$guest_filter"
+            fi
+        fi
+
         # H.264 with CRF (match input quality, prevent bloat)
         local crf_val=$(( (100 - quality) * 51 / 100 ))
         [[ $crf_val -lt 18 ]] && crf_val=18
 
         if $use_cover_frame; then
-            local _vprep="null"
-            [[ -n "$final_filter" ]] && _vprep="$final_filter"
-            # Inject cover image only at startup (first ~80ms) in the same render pass.
-            local _fc="[0:v]${_vprep}[vmain];[1:v][vmain]scale2ref[cover][vref];[vref][cover]overlay=0:0:enable='lte(t,0.08)'[vout]"
+            local _fc=""
+            if [[ -n "$overlay_fc" ]]; then
+                _fc="${overlay_fc};[${overlay_out_label}]null[vmain];[${cover_input_idx}:v][vmain]scale2ref[cover][vref];[vref][cover]overlay=0:0:enable='lte(t,0.08)':eof_action=pass[vout]"
+            else
+                local _vprep="null"
+                [[ -n "$final_filter" ]] && _vprep="$final_filter"
+                _fc="[0:v]${_vprep}[vmain];[${cover_input_idx}:v][vmain]scale2ref[cover][vref];[vref][cover]overlay=0:0:enable='lte(t,0.08)':eof_action=pass[vout]"
+            fi
             cmd+=("-filter_complex" "$_fc" "-map" "[vout]" "-map" "0:a?" "-c:v" "libx264" "-crf" "$crf_val" "${bitrate_flags[@]}" "-preset" "medium" "-pix_fmt" "yuv420p" "-c:a" "copy")
+        elif [[ -n "$overlay_fc" ]]; then
+            cmd+=("-filter_complex" "$overlay_fc" "-map" "[${overlay_out_label}]" "-map" "0:a?" "-c:v" "libx264" "-crf" "$crf_val" "${bitrate_flags[@]}" "-preset" "medium" "-pix_fmt" "yuv420p" "-c:a" "copy")
         elif [[ -n "$final_filter" ]]; then
             cmd+=("-vf" "$final_filter" "-c:v" "libx264" "-crf" "$crf_val" "${bitrate_flags[@]}" "-preset" "medium" "-pix_fmt" "yuv420p" "-c:a" "copy")
         else
@@ -1397,7 +1630,6 @@ sanitize_terminal_filename_stem() {
         python3 - "$_input" <<'PY'
 import re
 import sys
-import unicodedata
 
 s = sys.argv[1] if len(sys.argv) > 1 else ""
 s = (
@@ -1406,10 +1638,10 @@ s = (
      .replace("`", "'")
      .replace("´", "'")
 )
-s = unicodedata.normalize("NFKD", s)
-s = s.encode("ascii", "ignore").decode("ascii")
-s = s.replace("'", "_")
-s = re.sub(r"[^A-Za-z0-9._-]+", "_", s)
+# Keep Unicode word characters (Persian, Arabic, etc), spaces, dots, underscores, hyphens.
+# Python 3 \w matches Unicode word characters by default.
+s = re.sub(r'[^\w\s._-]', '_', s)
+s = re.sub(r'\s+', '_', s) # Replace spaces with underscores for terminal safety
 s = re.sub(r"_+", "_", s).strip("._-")
 print(s or "video")
 PY
@@ -1471,8 +1703,36 @@ find_existing_downloaded_video() {
     _target_key="$(stem_compare_key "$_raw_title")"
     [[ -n "$_target_key" ]] || _target_key="$(stem_compare_key "$_safe_stem")"
 
+    is_reusable_download_video() {
+        local _video_path="$1"
+        [[ -f "$_video_path" ]] || return 1
+
+        local _lower_name
+        _lower_name="$(basename "$_video_path" | tr '[:upper:]' '[:lower:]')"
+
+        # Never reuse rendered subtitle outputs as download sources.
+        if [[ "$_lower_name" == *_subbed*.mp4 ]]; then
+            return 1
+        fi
+
+        local _ffprobe_cmd="${FFPROBE_EXEC:-ffprobe}"
+        local _frame_count _duration
+        _frame_count="$("$_ffprobe_cmd" -v error -select_streams v:0 -show_entries stream=nb_frames -of default=noprint_wrappers=1:nokey=1 "$_video_path" 2>/dev/null | tr -d '\r')"
+        _duration="$("$_ffprobe_cmd" -v error -select_streams v:0 -show_entries stream=duration -of default=noprint_wrappers=1:nokey=1 "$_video_path" 2>/dev/null | tr -d '\r')"
+
+        if [[ "$_frame_count" =~ ^[0-9]+$ && "$_frame_count" -gt 1 ]]; then
+            return 0
+        fi
+
+        if [[ -n "$_duration" ]] && awk -v d="$_duration" 'BEGIN { exit (d > 1.0) ? 0 : 1 }'; then
+            return 0
+        fi
+
+        return 1
+    }
+
     local _exact="${_out_dir}/${_safe_stem}_${_resolution}p.mp4"
-    if [[ -f "$_exact" ]]; then
+    if [[ -f "$_exact" ]] && is_reusable_download_video "$_exact"; then
         printf "%s" "$_exact"
         return 0
     fi
@@ -1480,6 +1740,7 @@ find_existing_downloaded_video() {
     local _candidate
     for _candidate in "${_out_dir}"/${_safe_stem}_${_resolution}p*.mp4; do
         [[ -f "$_candidate" ]] || continue
+        is_reusable_download_video "$_candidate" || continue
         printf "%s" "$_candidate"
         return 0
     done
@@ -1490,6 +1751,7 @@ find_existing_downloaded_video() {
         local _cand_name _cand_stem _cand_base _cand_key
         for _candidate in "${_out_dir}"/*_${_resolution}p*.mp4; do
             [[ -f "$_candidate" ]] || continue
+            is_reusable_download_video "$_candidate" || continue
             _cand_name="$(basename "$_candidate")"
             _cand_stem="${_cand_name%.*}"
             _cand_base="$(printf '%s' "$_cand_stem" | sed -E "s/_${_resolution}p(_[0-9]+)?$//")"
@@ -2042,6 +2304,29 @@ video_download() {
         log_info "⚡ Extreme mode defaults: ${DL_RESOLUTION}p, q${DL_QUALITY}" >&2
     fi
 
+    # ── Substack / Zeteo Video Interception ───────────────────────────────
+    # yt-dlp's Substack extractor defaults to downloading the audio podcast
+    # and misses the hidden Mux video streams. We manually extract the Mux URL.
+    local SUBSTACK_ORIG_URL=""
+    if [[ "$URL" =~ ^https?://([^/]+\.)?(substack\.com|zeteo\.com)(/|$) ]]; then
+        log_info "🔍 Inspecting Substack/Zeteo page for hidden native video streams..." >&2
+        local _mux_id=""
+        _mux_id=$(curl -sL "$URL" | python3 -c 'import re,json,sys; m=re.search(r"window._preloads\s*=\s*JSON\.parse\(\"(.*?)\"\)", sys.stdin.read()); print(json.loads(m.group(1).encode().decode("unicode_escape")).get("post",{}).get("videoUpload",{}).get("id","")) if m else ""' 2>/dev/null)
+        if [[ -n "$_mux_id" ]]; then
+            local _mux_url=""
+            _mux_url=$(curl -sI "https://api.substack.com/api/v1/video/upload/${_mux_id}/src" | awk -F' ' '/^[Ll]ocation:/ {print $2}' | tr -d '\r' 2>/dev/null)
+            if [[ -n "$_mux_url" && "$_mux_url" == http* ]]; then
+                # The Substack API redirects to the hardcoded /high.mp4
+                # We need the HLS playlist (.m3u8) so yt-dlp can see and select all resolutions!
+                _mux_url="${_mux_url/\/high.mp4?/.m3u8?}"
+                
+                log_info "✅ Found hidden Mux video stream! Redirecting yt-dlp..." >&2
+                SUBSTACK_ORIG_URL="$URL"
+                URL="$_mux_url"
+            fi
+        fi
+    fi
+
     # ── List-formats mode ──────────────────────────────────────────────────
     if $LIST_FORMATS; then
         log_info "📊 Fetching available formats for: $URL" >&2
@@ -2144,13 +2429,17 @@ PY
     local THUMB_TMP=false
     local INFO_JSON_FILE=""
     local _VID_TITLE
+    
+    local _title_url="$URL"
+    [[ -n "$SUBSTACK_ORIG_URL" ]] && _title_url="$SUBSTACK_ORIG_URL"
+    
     _VID_TITLE=$(yt-dlp \
         "${COOKIE_ARGS[@]}" \
         "${IMPERSONATE_ARGS[@]}" \
         --no-playlist \
         --print "%(title)s" \
         --skip-download \
-        "$URL" 2>/dev/null | head -n1 | tr -d '\r')
+        "$_title_url" 2>/dev/null | head -n1 | tr -d '\r')
 
     if [[ -n "$_VID_TITLE" ]]; then
         local _existing_video
@@ -2159,6 +2448,10 @@ PY
             VIDEO_FILE="$_existing_video"
             log_info "⏩ Reusing existing downloaded video: $(basename "$VIDEO_FILE")" >&2
         fi
+        
+        # Override the output template to use the pre-fetched title (sanitized for safe filenames)
+        local _safe_vid_title="${_VID_TITLE//\//_}"
+        OUT_TEMPLATE="${OUT_DIR}/${_safe_vid_title}.%(ext)s"
     fi
 
     if [[ -z "$VIDEO_FILE" ]]; then
@@ -2187,7 +2480,7 @@ PY
             --convert-thumbnails jpg \
             -f "bestvideo[height<=${DL_RESOLUTION}][format_id!*=timeline]+bestaudio/best[height<=${DL_RESOLUTION}][format_id!*=timeline]/best[height<=${DL_RESOLUTION}][vcodec!=none]/best[vcodec!=none]/best" \
             --merge-output-format mp4 \
-            --print "before_dl:%(title)s" \
+            --print "before_dl:${_VID_TITLE:-%(title)s}" \
             --print "after_move:filepath" \
             -o "$OUT_TEMPLATE" \
             "$URL" > "$_PATHFILE" \
@@ -2213,7 +2506,7 @@ PY
                 --convert-thumbnails jpg \
                 -f "bestvideo[height<=${DL_RESOLUTION}][format_id!*=timeline]+bestaudio/best[height<=${DL_RESOLUTION}][format_id!*=timeline]/best[height<=${DL_RESOLUTION}][vcodec!=none]/best[vcodec!=none]/best" \
                 --merge-output-format mp4 \
-                --print "before_dl:%(title)s" \
+                --print "before_dl:${_VID_TITLE:-%(title)s}" \
                 --print "after_move:filepath" \
                 -o "$OUT_TEMPLATE" \
                 "$URL" > "$_PATHFILE" \
