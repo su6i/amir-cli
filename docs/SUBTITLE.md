@@ -96,8 +96,11 @@ amir subtitle video.mp4
 # Specify source language + target language
 amir subtitle video.mp4 -s de --sub fa
 
-# Transcribe from SRT file (skip Whisper)
+# Transcribe from SRT file (skip Whisper) - Automatically styled with Vazirmatn
 amir subtitle video_en.srt -s en --sub fa
+
+# Force YouTube's internal subtitles (No Whisper)
+amir subtitle https://youtube.com/watch?v=... --yt-subs --sub fa
 
 # Generate Telegram channel intro post — FA only (default)
 amir subtitle video.mp4 --post
@@ -246,7 +249,7 @@ amir subtitle video_en.srt -s en --sub fa --post
 amir video download "https://youtube.com/watch?v=XYZ" --yt-subs --translate -t en fa
 
 # Same but output SRT only (no burning)
-amir video download "https://youtube.com/watch?v=XYZ" --yt-subs --translate -t en fa --no-render
+amir video download "https://youtube.com/watch?v=XYZ" --sub-only --yt-subs --translate -t en fa
 
 # Download video + transcribe with Whisper instead of YT subs (burn by default)
 amir video download "https://youtube.com/watch?v=XYZ" --subtitle -t fa
@@ -272,9 +275,11 @@ amir video download "https://youtube.com/watch?v=XYZ" --subtitle -t fa
 
 ### Core Flags
 
-| Flag | Short | Type | Default | Description |
-|------|-------|------|---------|-------------|
-| `--source` | `-s` | code | `auto` | Source language (audio language for Whisper). Auto-detect by default. |
+| Flag | Short | Type | Description |
+|------|-------|------|-------------|
+| `--yt-subs` | — | bool | Force use of YouTube's internal subtitles (skips Whisper). |
+| `--ass-input` | — | file | Render from a manual SRT/ASS file. SRTs are automatically styled with Vazirmatn. |
+| `--source` | `-s` | code | Source language (audio language for Whisper). Auto-detect by default. |
 | `--sub` | `-t` | codes | `auto fa` | Display languages (repeatable, first=top row, second=bottom) |
 | `--native-lines` | — | `keep \| hide \| on \| off` | `keep` | In mixed-language speech, keep or hide lines already in target script (aliases: `on=keep`, `off=hide`) |
 | `--render` | `-r` | bool | `true` | Burn subtitles into video |
@@ -412,7 +417,7 @@ amir subtitle german_doc.mp4 -s de --sub en fa --whisper-model large-v3
 | 15 | `ko` | Korean | Malgun Gothic (Hangul) | ❌ | K-Culture global trend |
 | 16 | `id` | Indonesian | Arial | ❌ | Explosive internet growth |
 | 17 | `de` | German | Arial | ❌ | Strong European economy |
-| 18 | `fa` | Persian (Dari/Tajik) | B Nazanin | ✅ | High engagement vs. population |
+| 18 | `fa` | Persian (Dari/Tajik) | Vazirmatn | ✅ | High engagement vs. population |
 | 19 | `gu` | Gujarati | Noto Sans Gujarati | ❌ | Wealthy Gujarat state audience |
 | 20 | `it` | Italian | Arial | ❌ | High-quality European audience |
 | 21 | `mr` | Marathi | Mangal (Devanagari) | ❌ | Maharashtra (Mumbai) |
@@ -453,10 +458,10 @@ View complete list: `amir subtitle -l`
 7. **Typography Enhancement**: Automatically fixes Persian text (adds proper ZWNJ: می‌کنم, صحبت‌های)
 8. **Subtitle Generation**: Creates SRT files with proper timing
 9. **Styling**: Converts to ASS format with:
-   - Language-appropriate fonts (B Nazanin for Persian, etc.)
-   - RTL support for Arabic/Persian/Urdu/Hebrew
-   - Resolution-adaptive sizing: `font_size = (height / 1080) * 25`
-   - Bilingual layout (primary: bottom white bold, secondary: top gray)
+    - **Font Selection:** `Vazirmatn` (Persian), `Noto Sans` (Fallback)
+    - **RTL Punctuation Fix:** Automatically fixes comma/period direction for Persian/Arabic.
+    - **Resolution Adaptive:** `font_size = (height / 1080) * 25`
+    - **Bilingual Layout:** (primary: bottom white bold, secondary: top gray)
 10. **Smart Video Rendering** (optional):
     - **Resolution Detection:** ffprobe extracts width × height
     - **Adaptive Bitrates:** 480p: 1.5M | 720p: 2.5M | 1080p: 4M | 4K: 8M
@@ -512,13 +517,12 @@ Tip for external drives (avoid false low-disk profile on system partition):
 
 - Set `AMIR_CACHE_DIR` to a location on a larger disk, e.g. `export AMIR_CACHE_DIR=/Volumes/SanDisk/subtitle/.amir_cache`.
 
-### API Configuration
+### API Configuration (DeepSeek)
 
-The script uses DeepSeek's chat model with:
-- **Model**: `deepseek-chat`
+- **Smart Model Selector:** Automatically uses `deepseek-v4-pro` (Thinking mode) before June 2026 to leverage 75% discount; falls back to `deepseek-v4-flash` thereafter.
 - **Temperature**: 0.3 (more consistent translations)
 - **Max Tokens**: 4000 per request
-- **Batch Size**: 20 lines per API call
+- **Batch Size**: 25 lines per API call
 - **Persian Enhancement**: Special prompt with ZWNJ rules and typography fixes
 
 ### Font Size Configuration
@@ -528,7 +532,7 @@ Default font sizes are optimized for 1080p videos. To adjust for different resol
 ```python
 LANGUAGE_CONFIG = {
     'en': {'name': 'English', 'font': 'Arial', 'font_size': 36, 'rtl': False},
-    'fa': {'name': 'Persian', 'font': 'B Nazanin', 'font_size': 36, 'rtl': True},
+    'fa': {'name': 'Persian', 'font': 'Vazirmatn', 'font_size': 36, 'rtl': True},
     # ...
 }
 ```
@@ -594,7 +598,7 @@ If you see **disjointed or reversed** Persian text (e.g., "م‌ا‌ل‌س" in
   # processor.py logic
   vf_arg = f"ass={sub_path}:fontsdir={'~/Library/Fonts'}"
   ```
-- **Font Choice:** With `fontsdir` injection, you can use any user font like `B Nazanin` without installation issues.
+- **Font Choice:** With `fontsdir` injection, you can use any user font like `Vazirmatn` without installation issues.
 
 ### 2. Double Subtitles (Ghosting)
 If you see **two sets of subtitles** (one usually white/yellow, one stylized):
