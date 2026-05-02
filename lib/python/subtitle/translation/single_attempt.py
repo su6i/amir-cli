@@ -1,7 +1,11 @@
 import time
 from typing import List
 
-from openai import OpenAI
+try:
+    from openai import OpenAI
+    HAS_OPENAI = True
+except ImportError:
+    HAS_OPENAI = False
 
 
 def translate_batch_single_attempt(
@@ -17,6 +21,8 @@ def translate_batch_single_attempt(
     """Run one model translation flow with limited retries and strict output size."""
 
     if model_name == "deepseek":
+        if not HAS_OPENAI:
+            raise ImportError("OpenAI package required for DeepSeek translation. Please install with 'pip install openai'")
         client = OpenAI(api_key=processor.api_key, base_url="https://api.deepseek.com/v1")
 
         for attempt in range(1, max_retries + 1):

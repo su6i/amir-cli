@@ -219,7 +219,11 @@ except ImportError:
 
 # Non-heavy imports
 from tqdm import tqdm
-from openai import OpenAI
+try:
+    from openai import OpenAI
+    HAS_OPENAI = True
+except ImportError:
+    HAS_OPENAI = False
 
 # ==================== CENTRALIZED MEDIA CONFIG ====================
 # Import centralized media configuration for encoding standards
@@ -2473,6 +2477,9 @@ class SubtitleProcessor:
                 if current_date < discount_end_date:
                     selected_model = 'deepseek-v4-pro'
                     self.logger.info(f"🏷️ Using discounted '{selected_model}' model for deep reasoning (valid until May 31).")
+                
+                if not HAS_OPENAI:
+                    raise ImportError("OpenAI package required for DeepSeek translation. Please install with 'pip install openai'")
                 
                 client = OpenAI(api_key=self.api_key, base_url="https://api.deepseek.com/v1")
                 response = client.chat.completions.create(

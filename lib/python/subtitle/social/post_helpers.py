@@ -1,7 +1,11 @@
 import re
 from typing import Optional, Tuple
 
-from openai import OpenAI
+try:
+    from openai import OpenAI
+    HAS_OPENAI = True
+except ImportError:
+    HAS_OPENAI = False
 
 
 def call_llm_for_post(
@@ -15,6 +19,8 @@ def call_llm_for_post(
     system = system.encode("utf-8", errors="replace").decode("utf-8")
     user = user.encode("utf-8", errors="replace").decode("utf-8")
     try:
+        if not HAS_OPENAI:
+            raise ImportError("OpenAI package required for DeepSeek post generation")
         ds_client = OpenAI(api_key=processor.api_key, base_url="https://api.deepseek.com/v1")
         resp = ds_client.chat.completions.create(
             model="deepseek-chat",

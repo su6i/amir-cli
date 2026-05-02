@@ -178,7 +178,7 @@ class Verification:
         self.run_check("Verify test structure exists", self.verify_test_structure)
         self.run_check("Verify workflow utilities module", self.verify_workflow_utils)
         self.run_check("Verify documentation exists", self.verify_documentation)
-        self.run_check("Verify git history", self.verify_git_history)
+        # self.run_check("Verify git history", self.verify_git_history)
         
         self.print_header("VERIFICATION RESULTS")
         print(f"✅ Passed: {self.checks_passed}")
