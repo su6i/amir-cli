@@ -137,6 +137,10 @@ run_subtitle() {
                     (( _i += 2 )) ;;
                 --browser|-b|--cookies)
                     _dl_flags+=("$_cur" "${_orig[_i+1]}"); (( _i += 2 )) ;;
+                --yt-subs)
+                    _dl_flags+=("$_cur")
+                    _sub_flags+=("$_cur")
+                    (( _i++ )) ;;
                 --keep-thumb)
                     _dl_flags+=("$_cur"); (( _i++ )) ;;
                 --extreme)

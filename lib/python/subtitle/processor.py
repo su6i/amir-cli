@@ -2464,10 +2464,19 @@ class SubtitleProcessor:
                 val = response.choices[0].message.content.strip()
                 
             else:
-                # Default DeepSeek
+                # Smart Model Selection: Use the 75% discounted 'deepseek-v4-pro' until May 31, 2026.
+                import datetime
+                current_date = datetime.datetime.now(datetime.timezone.utc)
+                discount_end_date = datetime.datetime(2026, 5, 31, 15, 59, tzinfo=datetime.timezone.utc)
+                
+                selected_model = 'deepseek-v4-flash'
+                if current_date < discount_end_date:
+                    selected_model = 'deepseek-v4-pro'
+                    self.logger.info(f"🏷️ Using discounted '{selected_model}' model for deep reasoning (valid until May 31).")
+                
                 client = OpenAI(api_key=self.api_key, base_url="https://api.deepseek.com/v1")
                 response = client.chat.completions.create(
-                    model="deepseek-chat",
+                    model=selected_model,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": context_prompt}
@@ -2760,10 +2769,21 @@ class SubtitleProcessor:
         render_fps: Optional[int] = None,
         render_split_mb: Optional[int] = None,
         pad_bottom: int = 0,
+        subtitle_banner_image: Optional[str] = None,
+        subtitle_banner_color: Optional[str] = None,
+        subtitle_banner_height: Optional[int] = None,
+        subtitle_logo: Optional[str] = None,
+        subtitle_logo_animated: bool = False,
+        subtitle_logo_width: Optional[int] = None,
+        subtitle_logo_margin_right: Optional[int] = None,
+        subtitle_logo_margin_bottom: Optional[int] = None,
+        guest_tags: Optional[List[str]] = None,
+        guest_tag_pos: str = "br",
         subtitle_raise_top_px: int = 0,
         subtitle_raise_bottom_px: int = 0,
         ass_input_path: Optional[str] = None,
         use_vad: bool = True,
+        yt_subs: bool = False,
         progress_callback=None,
     ) -> Dict[str, Any]:
         """Complete workflow with fixed path handling and memory management"""
@@ -2858,52 +2878,135 @@ class SubtitleProcessor:
                 if _is_srt_input:
                     raise ValueError("--ass-input requires a video input, not an SRT input")
 
-                self.logger.info(
-                    f"🎯 Direct ASS render mode active. Skipping SRT/translation pipeline and rendering from: {Path(ass_path_abs).name}"
-                )
-                _render_ok = run_rendering_stage(
-                    self,
-                    result=result,
-                    source_lang=source_lang,
-                    target_langs=target_langs,
-                    src_srt="",
-                    original_base=original_base,
-                    current_video_input=current_video_input,
-                    force=force,
-                    limit_start=_limit_start,
-                    video_width=_vw or 0,
-                    video_height=_vh or 0,
-                    render_resolution=render_resolution,
-                    render_quality=render_quality,
-                    render_fps=render_fps,
-                    render_split_mb=render_split_mb,
-                    pad_bottom=pad_bottom,
-                    subtitle_raise_top_px=subtitle_raise_top_px,
-                    subtitle_raise_bottom_px=subtitle_raise_bottom_px,
-                    emit_progress=_emit_progress,
-                    detect_best_hw_encoder_fn=detect_best_hw_encoder,
-                    get_default_quality_fn=get_default_quality,
-                    direct_ass_path=ass_path_abs,
-                )
-                if not _render_ok:
-                    return None
+                # If the input is actually an SRT, we shouldn't skip the conversion stage!
+                # We should use this SRT as our target and generate a styled ASS from it.
+                if ass_path_abs.lower().endswith(".srt"):
+                    # Detect language from filename (e.g. .fa.srt -> fa)
+                    manual_lang = "fa" # Default fallback
+                    lang_match = re.search(r"\.([a-z]{2,3})\.srt$", ass_path_abs.lower())
+                    if lang_match:
+                        manual_lang = lang_match.group(1)
+                    
+                    self.logger.info(
+                        f"🎯 Manual {manual_lang.upper()} SRT input detected via --ass-input: {Path(ass_path_abs).name}. "
+                        "Converting to styled ASS for standard rendering..."
+                    )
+                    # Inject this SRT into the result map for the detected language
+                    result[manual_lang] = ass_path_abs
+                    # Update target_langs to ensure rendering stage uses the correct primary language
+                    target_langs = [manual_lang]
+                    
+                    # Run rendering stage immediately and return (skipping Whisper/Translation)
+                    _render_ok = run_rendering_stage(
+                        self,
+                        result=result,
+                        source_lang=source_lang,
+                        target_langs=target_langs,
+                        src_srt="", # No source SRT needed
+                        original_base=original_base,
+                        current_video_input=current_video_input,
+                        force=force,
+                        limit_start=_limit_start,
+                        video_width=_vw or 0,
+                        video_height=_vh or 0,
+                        render_resolution=render_resolution,
+                        render_quality=render_quality,
+                        render_fps=render_fps,
+                        render_split_mb=render_split_mb,
+                        pad_bottom=pad_bottom,
+                        subtitle_banner_image=subtitle_banner_image,
+                        subtitle_banner_color=subtitle_banner_color,
+                        subtitle_banner_height=subtitle_banner_height,
+                        subtitle_logo=subtitle_logo,
+                        subtitle_logo_animated=subtitle_logo_animated,
+                        subtitle_logo_width=subtitle_logo_width,
+                        subtitle_logo_margin_right=subtitle_logo_margin_right,
+                        subtitle_logo_margin_bottom=subtitle_logo_margin_bottom,
+                        guest_tags=guest_tags,
+                        guest_tag_pos=guest_tag_pos,
+                        subtitle_raise_top_px=subtitle_raise_top_px,
+                        subtitle_raise_bottom_px=subtitle_raise_bottom_px,
+                        emit_progress=_emit_progress,
+                        detect_best_hw_encoder_fn=detect_best_hw_encoder,
+                        get_default_quality_fn=get_default_quality,
+                        direct_ass_path=None, # We want to generate ASS from result[primary_lang]
+                    )
+                    if not _render_ok:
+                        return None
 
-                run_finalize_stage(
-                    self,
-                    result=result,
-                    original_base=original_base,
-                    original_stem=original_stem,
-                    original_dir=original_dir,
-                    source_lang=source_lang,
-                    target_langs=target_langs,
-                    platforms=platforms,
-                    prompt_file=prompt_file,
-                    post_langs=post_langs,
-                    save_formats=save_formats,
-                )
+                    run_finalize_stage(
+                        self,
+                        result=result,
+                        original_base=original_base,
+                        original_stem=original_stem,
+                        original_dir=original_dir,
+                        source_lang=source_lang,
+                        target_langs=target_langs,
+                        platforms=platforms,
+                        prompt_file=prompt_file,
+                        post_langs=post_langs,
+                        save_formats=save_formats,
+                    )
 
-                self.logger.info("Execution sequence finalized (direct ASS render mode).")
-                return result
+                    self.logger.info("Execution sequence finalized (manual SRT render mode).")
+                    return result
+                else:
+                    self.logger.info(
+                        f"🎯 Direct ASS render mode active. Skipping SRT/translation pipeline and rendering from: {Path(ass_path_abs).name}"
+                    )
+                    _render_ok = run_rendering_stage(
+                        self,
+                        result=result,
+                        source_lang=source_lang,
+                        target_langs=target_langs,
+                        src_srt="",
+                        original_base=original_base,
+                        current_video_input=current_video_input,
+                        force=force,
+                        limit_start=_limit_start,
+                        video_width=_vw or 0,
+                        video_height=_vh or 0,
+                        render_resolution=render_resolution,
+                        render_quality=render_quality,
+                        render_fps=render_fps,
+                        render_split_mb=render_split_mb,
+                        pad_bottom=pad_bottom,
+                        subtitle_banner_image=subtitle_banner_image,
+                        subtitle_banner_color=subtitle_banner_color,
+                        subtitle_banner_height=subtitle_banner_height,
+                        subtitle_logo=subtitle_logo,
+                        subtitle_logo_animated=subtitle_logo_animated,
+                        subtitle_logo_width=subtitle_logo_width,
+                        subtitle_logo_margin_right=subtitle_logo_margin_right,
+                        subtitle_logo_margin_bottom=subtitle_logo_margin_bottom,
+                        guest_tags=guest_tags,
+                        guest_tag_pos=guest_tag_pos,
+                        subtitle_raise_top_px=subtitle_raise_top_px,
+                        subtitle_raise_bottom_px=subtitle_raise_bottom_px,
+                        emit_progress=_emit_progress,
+                        detect_best_hw_encoder_fn=detect_best_hw_encoder,
+                        get_default_quality_fn=get_default_quality,
+                        direct_ass_path=ass_path_abs,
+                    )
+                    if not _render_ok:
+                        return None
+
+                    run_finalize_stage(
+                        self,
+                        result=result,
+                        original_base=original_base,
+                        original_stem=original_stem,
+                        original_dir=original_dir,
+                        source_lang=source_lang,
+                        target_langs=target_langs,
+                        platforms=platforms,
+                        prompt_file=prompt_file,
+                        post_langs=post_langs,
+                        save_formats=save_formats,
+                    )
+
+                    self.logger.info("Execution sequence finalized (direct ASS render mode).")
+                    return result
             
             # 1. Source SRT preparation (reuse/transcribe + sanitize/merge)
             src_srt = prepare_source_srt(
@@ -2921,6 +3024,7 @@ class SubtitleProcessor:
                 is_srt_input=_is_srt_input,
                 migrate_legacy_resolution_srt_fn=_migrate_legacy_resolution_srt,
                 emit_progress=_emit_progress,
+                yt_subs=yt_subs,
             )
             
             # 2. Translation
@@ -2972,6 +3076,16 @@ class SubtitleProcessor:
                     render_fps=render_fps,
                     render_split_mb=render_split_mb,
                     pad_bottom=pad_bottom,
+                    subtitle_banner_image=subtitle_banner_image,
+                    subtitle_banner_color=subtitle_banner_color,
+                    subtitle_banner_height=subtitle_banner_height,
+                    subtitle_logo=subtitle_logo,
+                    subtitle_logo_animated=subtitle_logo_animated,
+                    subtitle_logo_width=subtitle_logo_width,
+                    subtitle_logo_margin_right=subtitle_logo_margin_right,
+                    subtitle_logo_margin_bottom=subtitle_logo_margin_bottom,
+                    guest_tags=guest_tags,
+                    guest_tag_pos=guest_tag_pos,
                     subtitle_raise_top_px=subtitle_raise_top_px,
                     subtitle_raise_bottom_px=subtitle_raise_bottom_px,
                     emit_progress=_emit_progress,

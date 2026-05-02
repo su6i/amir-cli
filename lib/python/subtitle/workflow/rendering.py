@@ -3,7 +3,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 def run_rendering_stage(
@@ -29,6 +29,16 @@ def run_rendering_stage(
     detect_best_hw_encoder_fn,
     get_default_quality_fn,
     direct_ass_path: Optional[str] = None,
+    subtitle_banner_image: Optional[str] = None,
+    subtitle_banner_color: Optional[str] = None,
+    subtitle_banner_height: Optional[int] = None,
+    subtitle_logo: Optional[str] = None,
+    subtitle_logo_animated: bool = False,
+    subtitle_logo_width: Optional[int] = None,
+    subtitle_logo_margin_right: Optional[int] = None,
+    subtitle_logo_margin_bottom: Optional[int] = None,
+    guest_tags: Optional[List[str]] = None,
+    guest_tag_pos: str = "br",
 ) -> bool:
     """Run ASS creation and final video rendering stage. Returns False on hard failure."""
     processor.logger.info("Rendering sequence initiated.")
@@ -208,6 +218,28 @@ def run_rendering_stage(
             render_cmd.extend(["--split", str(int(render_split_mb))])
         if pad_bottom and int(pad_bottom) > 0:
             render_cmd.extend(["--pad-bottom", str(int(pad_bottom))])
+        if subtitle_banner_image:
+            render_cmd.extend(["--subtitle-banner-image", str(subtitle_banner_image)])
+        if subtitle_banner_color:
+            render_cmd.extend(["--subtitle-banner-color", str(subtitle_banner_color)])
+        if subtitle_banner_height and int(subtitle_banner_height) > 0:
+            render_cmd.extend(["--subtitle-banner-height", str(int(subtitle_banner_height))])
+        if subtitle_logo:
+            render_cmd.extend(["--subtitle-logo", str(subtitle_logo)])
+        if subtitle_logo_animated:
+            render_cmd.append("--subtitle-logo-animated")
+        if subtitle_logo_width and int(subtitle_logo_width) > 0:
+            render_cmd.extend(["--subtitle-logo-width", str(int(subtitle_logo_width))])
+        if subtitle_logo_margin_right is not None:
+            render_cmd.extend(["--subtitle-logo-margin-right", str(int(subtitle_logo_margin_right))])
+        if subtitle_logo_margin_bottom is not None:
+            render_cmd.extend(["--subtitle-logo-margin-bottom", str(int(subtitle_logo_margin_bottom))])
+        if guest_tag_pos:
+            render_cmd.extend(["--guest-tag-pos", str(guest_tag_pos)])
+        if guest_tags:
+            for tag in guest_tags:
+                if tag:
+                    render_cmd.extend(["--guest-tag", str(tag)])
         if fonts_dir:
             render_cmd.extend(["--fonts-dir", fonts_dir])
         if cover_frame_path:

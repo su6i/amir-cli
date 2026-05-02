@@ -11,6 +11,8 @@ run_pdf() {
     
     local inputs=() output="" engine="puppeteer"
     local raw_output="" free_size=false
+    local multi_page=false
+    local do_deskew=true
     local CLEANUP_FILES=()
 
     while [[ $# -gt 0 ]]; do
@@ -21,6 +23,9 @@ run_pdf() {
             --pil) engine="pil"; shift ;;
             --pandoc) engine="pandoc"; shift ;;
             --free-size|-f) free_size=true; shift ;;
+            --pages|--merge) multi_page=true; shift ;;
+            --deskew|--straighten) do_deskew=true; shift ;;
+            --no-deskew|--no-straighten) do_deskew=false; shift ;;
             *) [[ -f "$1" ]] && inputs+=("$1"); shift ;;
         esac
     done
@@ -40,7 +45,10 @@ run_pdf() {
         fi
     fi
 
-    [[ ${#inputs[@]} -eq 0 ]] && return 1
+    if [[ ${#inputs[@]} -eq 0 ]]; then
+        echo "❌ Error: No valid input files provided or files do not exist."
+        return 1
+    fi
 
     local amir_data=""
     local use_external=false
@@ -132,19 +140,65 @@ run_pdf() {
     fi
     
     local final_ready=()
+    local image_batch=()
+
     for f in "${processed[@]}"; do
         if [[ "$f" == *.pdf* ]]; then
             final_ready+=("$f")
+        elif [[ "$free_size" == "true" ]]; then
+            final_ready+=("$f")
+        elif [[ "$multi_page" == "true" ]]; then
+            local clip="$tmp_dir/c_$(basename "$f")"
+            $cmd -density 300 "$f" -resize "2232x3260>" -gravity center -extent 2480x3508 -background white -flatten "$clip"
+            final_ready+=("$clip")
         else
-            if [[ "$free_size" == "true" ]]; then
-                final_ready+=("$f")
-            else
-                local clip="$tmp_dir/c_$(basename "$f")"
-                $cmd -density 300 "$f" -resize "2232x3260>" -gravity center -extent 2480x3508 -background white -flatten "$clip"
-                final_ready+=("$clip")
-            fi
+            # Collect images for collage
+            image_batch+=("$f")
         fi
     done
+
+    if [[ ${#image_batch[@]} -gt 0 ]]; then
+        local collaged="$tmp_dir/c_collage.jpg"
+        local collage_cmd=("$cmd" "-size" "2480x3508" "xc:white" "(")
+        for img in "${image_batch[@]}"; do
+            collage_cmd+=("(")
+            collage_cmd+=("$img" "-auto-orient" "+repage")
+            
+            # Auto-crop borders (like dark tables or scanner backgrounds)
+            collage_cmd+=("-fuzz" "10%" "-trim" "+repage")
+            
+            # Smart Rotate: Force portrait images to landscape
+            # Use -90 to ensure text orientation is upright for standard phone captures
+            collage_cmd+=("-set" "option:rot" "%[fx:(w<h)?-90:0]" "-rotate" "%[rot]" "+repage")
+            
+            if [[ "$do_deskew" == "true" ]]; then
+                collage_cmd+=("-deskew" "40%" "+repage")
+            fi
+            
+            # Elegant Presentation:
+            # 1. Resize to ~70% of A4 width (1800px out of 2480px) so it doesn't cover the full width
+            collage_cmd+=("-resize" "1800x")
+            
+            # 2. Add subtle rounded corners (radius 40)
+            collage_cmd+=("-alpha" "set" "(" "+clone" "-alpha" "transparent" "-background" "none" "-fill" "white" "-stroke" "none" "-draw" "roundrectangle 0,0 %[fx:w-1],%[fx:h-1] 40,40" ")" "-compose" "DstIn" "-composite" "-compose" "Over")
+            collage_cmd+=("-background" "white" "-alpha" "remove" "-alpha" "off")
+            
+            # 3. Add vertical padding
+            collage_cmd+=("-bordercolor" "white" "-border" "0x60")
+            
+            collage_cmd+=(")")
+        done
+        collage_cmd+=("-background" "white" "-append" "+repage")
+        collage_cmd+=("-resize" "2480x3508>" "+repage")
+        collage_cmd+=(")")
+        collage_cmd+=("-gravity" "center" "-composite" "-units" "PixelsPerInch" "-density" "300" "$collaged")
+        
+        "${collage_cmd[@]}"
+        
+        if [[ -f "$collaged" ]]; then
+            final_ready+=("$collaged")
+        fi
+    fi
 
     if [[ ${#final_ready[@]} -gt 0 ]]; then
         rm -f "$output" 2>/dev/null

@@ -232,12 +232,46 @@ Note:
                         help="Split final rendered video into ~N MB chunks")
     parser.add_argument("--pad-bottom", type=int, default=0,
                         help="Add black padding at the bottom (percentage of height, e.g., 15)")
+    parser.add_argument("--subtitle-banner-image", type=str, default=None,
+                        help="Banner image path for subtitle area (scaled full width)")
+    parser.add_argument("--subtitle-banner-color", type=str, default=None,
+                        help="Fallback banner color if no image is provided (e.g., 0x0A4DFF@1.0)")
+    parser.add_argument("--subtitle-banner-height", type=int, default=None,
+                        help="Banner height as percentage of video height (e.g., 18)")
+    parser.add_argument("--brand-kit", type=str, default=None,
+                        help="One-shot brand setup: provide logo path and auto-apply brand defaults")
+    parser.add_argument("--brand-kit-shorts", action="store_true",
+                        help="With --brand-kit, use Shorts-optimized preset and sizing")
+    parser.add_argument("--subtitle-logo", type=str, default=None,
+                        help="Channel logo image path (placed at bottom-right of banner)")
+    parser.add_argument("--subtitle-logo-animated", action="store_true",
+                        help="Treat logo asset as animated overlay when possible (GIF/APNG/WebP/WebM/SVG if decoder supports)")
+    parser.add_argument("--subtitle-logo-width", type=int, default=None,
+                        help="Logo width as percentage of video width (e.g., 10)")
+    parser.add_argument("--subtitle-logo-margin-right", type=int, default=None,
+                        help="Right margin for logo placement in pixels")
+    parser.add_argument("--subtitle-logo-margin-bottom", type=int, default=None,
+                        help="Bottom margin for logo placement in pixels")
+    parser.add_argument("--guest-tag", action="append", default=None,
+                        metavar="START,DURATION,NAME,TITLE[,POS]",
+                        help=(
+                            "Add temporary guest lower-third (repeatable). "
+                            "Format: START,DURATION,NAME,TITLE[,POS] "
+                            "POS: br|bl|tr|tl|bc|tc"
+                        ))
+    parser.add_argument("--guest-tag-pos", type=str, default="br",
+                        help="Default position for --guest-tag when POS is omitted (br/bl/tr/tl/bc/tc)")
     parser.add_argument("--raise-top", type=int, default=0,
                         help="Move top subtitle upward by N pixels (positive moves up)")
     parser.add_argument("--raise-bottom", type=int, default=0,
                         help="Move bottom subtitle upward by N pixels (positive moves up)")
+    parser.add_argument(
+        "--yt-subs",
+        action="store_true",
+        help="Use YouTube's built-in subtitles (manual first, then auto fallback) instead of Whisper"
+    )
     parser.add_argument("--no-vad", action="store_false", dest="use_vad", default=True,
-                        help="Disable Voice Activity Detection (VAD) in Faster-Whisper")
+                         help="Disable Voice Activity Detection (VAD) in Faster-Whisper")
 
     args = parser.parse_args()
 
@@ -254,6 +288,87 @@ Note:
         args.native_lines = "keep"
     elif args.native_lines == "off":
         args.native_lines = "hide"
+
+    # Style-level defaults for channel branding mode.
+    if args.style == SubtitleStyle.CHANNEL_BRAND_BLUE.value:
+        if not args.subtitle_banner_color and not args.subtitle_banner_image:
+            args.subtitle_banner_color = "0x0A4DFF@1.0"
+        if args.subtitle_banner_height is None:
+            args.subtitle_banner_height = 18
+        if args.pad_bottom <= 0:
+            args.pad_bottom = 18
+
+    if args.style == SubtitleStyle.SHORTS_BRAND_BLUE.value:
+        if not args.subtitle_banner_color and not args.subtitle_banner_image:
+            args.subtitle_banner_color = "0x0A4DFF@1.0"
+        if args.subtitle_banner_height is None:
+            args.subtitle_banner_height = 14
+        if args.pad_bottom <= 0:
+            args.pad_bottom = 14
+        if args.subtitle_logo_width is None:
+            args.subtitle_logo_width = 7
+
+    if args.style == SubtitleStyle.NEWS_GUEST_BLUE.value:
+        if not args.subtitle_banner_color and not args.subtitle_banner_image:
+            args.subtitle_banner_color = "0x0A4DFF@1.0"
+        if args.subtitle_banner_height is None:
+            args.subtitle_banner_height = 18
+        if args.pad_bottom <= 0:
+            args.pad_bottom = 18
+        if args.subtitle_logo_width is None:
+            args.subtitle_logo_width = 9
+
+    if args.brand_kit:
+        args.brand_kit = os.path.abspath(os.path.expanduser(args.brand_kit))
+        if not os.path.exists(args.brand_kit):
+            print(f"Error: Brand logo not found: {args.brand_kit}")
+            sys.exit(1)
+        if args.style == SubtitleStyle.LECTURE.value:
+            args.style = (
+                SubtitleStyle.SHORTS_BRAND_BLUE.value
+                if args.brand_kit_shorts
+                else SubtitleStyle.CHANNEL_BRAND_BLUE.value
+            )
+        if not args.subtitle_logo:
+            args.subtitle_logo = args.brand_kit
+        if not args.subtitle_banner_color and not args.subtitle_banner_image:
+            args.subtitle_banner_color = "0x0A4DFF@1.0"
+        if args.brand_kit_shorts:
+            if args.subtitle_banner_height is None:
+                args.subtitle_banner_height = 14
+            if args.pad_bottom <= 0:
+                args.pad_bottom = 14
+            if args.subtitle_logo_width is None:
+                args.subtitle_logo_width = 7
+        else:
+            if args.subtitle_banner_height is None:
+                args.subtitle_banner_height = 18
+            if args.pad_bottom <= 0:
+                args.pad_bottom = 18
+            if args.subtitle_logo_width is None:
+                args.subtitle_logo_width = 10
+
+    # When we intentionally create a bottom pad zone, keep subtitles in that zone.
+    if args.pad_bottom > 0 and args.alignment is None and args.style in {
+        SubtitleStyle.SHORT_FORM.value,
+        SubtitleStyle.CHANNEL_BRAND_BLUE.value,
+        SubtitleStyle.SHORTS_BRAND_BLUE.value,
+        SubtitleStyle.NEWS_GUEST_BLUE.value,
+    }:
+        args.alignment = 2
+
+    # Banner workflows should not keep ASS black box unless explicitly requested.
+    if (
+        args.back_color is None
+        and (args.subtitle_banner_image or args.subtitle_banner_color)
+        and args.style in {
+            SubtitleStyle.SHORT_FORM.value,
+            SubtitleStyle.CHANNEL_BRAND_BLUE.value,
+            SubtitleStyle.SHORTS_BRAND_BLUE.value,
+            SubtitleStyle.NEWS_GUEST_BLUE.value,
+        }
+    ):
+        args.back_color = "&H00000000"
 
     # Map inline per-language sizes to existing primary/secondary font knobs.
     # Explicit --font-size / --sec-font-size still have priority.
@@ -293,6 +408,35 @@ Note:
             print("Error: --ass-input requires render mode. Remove --no-render.")
             sys.exit(2)
         args.ass_input = ass_input_abs
+
+    if args.subtitle_banner_image:
+        args.subtitle_banner_image = os.path.abspath(os.path.expanduser(args.subtitle_banner_image))
+        if not os.path.exists(args.subtitle_banner_image):
+            print(f"Error: Banner image not found: {args.subtitle_banner_image}")
+            sys.exit(1)
+
+    if args.subtitle_logo:
+        args.subtitle_logo = os.path.abspath(os.path.expanduser(args.subtitle_logo))
+        if not os.path.exists(args.subtitle_logo):
+            print(f"Error: Subtitle logo not found: {args.subtitle_logo}")
+            sys.exit(1)
+
+    if args.guest_tag:
+        allowed_pos = {"br", "bl", "tr", "tl", "bc", "tc"}
+        default_pos = (args.guest_tag_pos or "br").strip().lower()
+        if default_pos not in allowed_pos:
+            print(f"Error: Invalid --guest-tag-pos '{args.guest_tag_pos}'. Allowed: br bl tr tl bc tc")
+            sys.exit(2)
+        for item in args.guest_tag:
+            parts = [p.strip() for p in str(item).split(",")]
+            if len(parts) < 4:
+                print(f"Error: Invalid --guest-tag format: '{item}'")
+                print("Expected: START,DURATION,NAME,TITLE[,POS]")
+                sys.exit(2)
+            if len(parts) >= 5 and parts[4].lower() not in allowed_pos:
+                print(f"Error: Invalid guest position '{parts[4]}' in --guest-tag '{item}'")
+                print("Allowed: br bl tr tl bc tc")
+                sys.exit(2)
         
     # Convert string style to Enum
     style_enum = SubtitleStyle(args.style)
@@ -342,10 +486,21 @@ Note:
         render_fps=args.fps,
         render_split_mb=args.split,
         pad_bottom=args.pad_bottom,
+        subtitle_banner_image=args.subtitle_banner_image,
+        subtitle_banner_color=args.subtitle_banner_color,
+        subtitle_banner_height=args.subtitle_banner_height,
+        subtitle_logo=args.subtitle_logo,
+        subtitle_logo_animated=args.subtitle_logo_animated,
+        subtitle_logo_width=args.subtitle_logo_width,
+        subtitle_logo_margin_right=args.subtitle_logo_margin_right,
+        subtitle_logo_margin_bottom=args.subtitle_logo_margin_bottom,
+        guest_tags=args.guest_tag,
+        guest_tag_pos=args.guest_tag_pos,
         subtitle_raise_top_px=args.raise_top,
         subtitle_raise_bottom_px=args.raise_bottom,
         ass_input_path=args.ass_input,
         use_vad=args.use_vad,
+        yt_subs=args.yt_subs,
     )
 
     def _collect_output_paths(value, acc):

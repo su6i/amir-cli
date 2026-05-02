@@ -118,6 +118,16 @@ _amir() {
                         '(-x --extract)'{-x,--extract}'[Extract only range into a clip]:start time (then end time): ' \
                         '(-o --output)'{-o,--output}'[Output filename]:output file:_files' \
                         '--split[Split output into chunks of N MB]:size in MB: ' \
+                        '--subtitle-banner-image[Banner image behind subtitle area]:image file:_files -g "*.png *.jpg *.jpeg *.webp *.PNG *.JPG *.JPEG *.WEBP"' \
+                        '--subtitle-banner-color[Fallback banner color when no banner image is provided]:color' \
+                        '--subtitle-banner-height[Banner strip height percentage]:pct:(10 12 15 18 20 24 30)' \
+                        '--subtitle-logo[Channel logo image on bottom-right]:logo file:_files -g "*.png *.jpg *.jpeg *.webp *.PNG *.JPG *.JPEG *.WEBP"' \
+                        '--subtitle-logo-animated[Treat logo as animated overlay when possible]' \
+                        '--subtitle-logo-width[Logo width percentage of video width]:pct:(6 8 10 12 15 18)' \
+                        '--subtitle-logo-margin-right[Logo right margin in pixels]:px' \
+                        '--subtitle-logo-margin-bottom[Logo bottom margin in pixels]:px' \
+                        '*--guest-tag[Temporary guest label: START,DURATION,NAME,TITLE,POS (optional)]:guest tag' \
+                        '--guest-tag-pos[Default position for guest tags]:pos:(br bl tr tl bc tc)' \
                         '--render[Re-encode video instead of copy stream]'
                     ;;
                 split)
@@ -198,7 +208,7 @@ _amir() {
                         '--native-lines[For mixed speech, keep or hide source lines already in target script]:mode:(keep hide on off)' \
                         '--whisper-model[Whisper model size/name]:model:((turbo\:Fastest\ reliable\ model large-v3\:Highest\ accuracy large-v2\:Legacy\ heavy\ model medium\:Balance\ of\ speed\ and\ accuracy small\:Fast\ but\ less\ accurate base\:Basic\ fallback tiny\:Ultra\ fast\ but\ inaccurate))' \
                         '--whisper-timing[Preserve Whisper timings and bypass internal timing normalization]' \
-                        '--style[Subtitle style template]:style:(lecture vlog game cinematic minimalist)' \
+                        '--style[Subtitle style template]:style:(podcast lecture vlog short_form channel_brand_blue shorts_brand_blue news_guest_blue movie news custom)' \
                         '--resolution[Final burn resolution height]:height:(240 360 480 720 1080)' \
                         '--quality[Final burn quality 0-100]:quality:(40 50 60 70 80)' \
                         '--fps[Final burn FPS]:fps:(6 10 12 15 20 24 25 30)' \
@@ -208,6 +218,18 @@ _amir() {
                         '*--post-only[Post only — skip processing (optional: telegram youtube linkedin)]:platform:(telegram youtube linkedin)' \
                         '--prompt-file[Custom prompt file for post generation]:file:_files' \
                         '--pad-bottom[Add black padding at bottom (percentage)]:pct' \
+                        '--subtitle-banner-image[Banner image behind subtitle area]:image file:_files -g "*.png *.jpg *.jpeg *.webp *.PNG *.JPG *.JPEG *.WEBP"' \
+                        '--subtitle-banner-color[Fallback banner color when no banner image is provided]:color' \
+                        '--subtitle-banner-height[Banner strip height percentage]:pct:(10 12 15 18 20 24 30)' \
+                        '--brand-kit[One-shot brand setup from logo path]:logo file:_files -g "*.png *.jpg *.jpeg *.webp *.svg *.SVG *.PNG *.JPG *.JPEG *.WEBP"' \
+                        '--brand-kit-shorts[With --brand-kit use shorts sizing preset]' \
+                        '--subtitle-logo[Channel logo image on bottom-right]:logo file:_files -g "*.png *.jpg *.jpeg *.webp *.PNG *.JPG *.JPEG *.WEBP"' \
+                        '--subtitle-logo-animated[Treat logo as animated overlay when possible]' \
+                        '--subtitle-logo-width[Logo width percentage of video width]:pct:(6 8 10 12 15 18)' \
+                        '--subtitle-logo-margin-right[Logo right margin in pixels]:px' \
+                        '--subtitle-logo-margin-bottom[Logo bottom margin in pixels]:px' \
+                        '*--guest-tag[Temporary guest label: START,DURATION,NAME,TITLE,POS (optional)]:guest tag' \
+                        '--guest-tag-pos[Default position for guest tags]:pos:(br bl tr tl bc tc)' \
                         '--raise-top[Move top subtitle upward by N pixels]:px' \
                         '--raise-bottom[Move bottom subtitle upward by N pixels]:px' \
                         '--no-vad[Disable Voice Activity Detection]'
@@ -672,7 +694,7 @@ _amir() {
                         '(-f --force)'{-f,--force}'[Force re-transcription]' \
                         '(-c --correct)'{-c,--correct}'[Correct transcription with AI]' \
                         '(-l --limit)'{-l,--limit}'[Time range — N seconds, or two values: start end (use begin/start/end keywords)]:time:(begin end start)' \
-                        '--style[Subtitle style template]:style:(lecture vlog game cinematic minimalist)' \
+                        '--style[Subtitle style template]:style:(podcast lecture vlog short_form channel_brand_blue shorts_brand_blue news_guest_blue movie news custom)' \
                         '--max-lines[Maximum lines per subtitle]:lines:(1 2)' \
                         '--speaker[Enable Speaker Diarization]' \
                         '--native-lines[For mixed speech, keep or hide source lines already in target script]:mode:(keep hide on off)' \
@@ -696,6 +718,18 @@ _amir() {
                         '--prompt-file[Custom prompt file for post generation]:file:_files' \
                         '(-R --resolution)'{-R,--resolution}'[After URL download: compress to height]:height:(240 360 480 720 1080)' \
                         '--pad-bottom[Add black padding at bottom (percentage)]:pct' \
+                        '--brand-kit[One-shot brand setup from logo path]:logo file:_files -g "*.png *.jpg *.jpeg *.webp *.svg *.SVG *.PNG *.JPG *.JPEG *.WEBP"' \
+                        '--brand-kit-shorts[With --brand-kit use shorts sizing preset]' \
+                        '--subtitle-banner-image[Banner image behind subtitle area]:image file:_files -g "*.png *.jpg *.jpeg *.webp *.PNG *.JPG *.JPEG *.WEBP"' \
+                        '--subtitle-banner-color[Fallback banner color when no banner image is provided]:color' \
+                        '--subtitle-banner-height[Banner strip height percentage]:pct:(10 12 15 18 20 24 30)' \
+                        '--subtitle-logo[Channel logo image on bottom-right]:logo file:_files -g "*.png *.jpg *.jpeg *.webp *.PNG *.JPG *.JPEG *.WEBP"' \
+                        '--subtitle-logo-animated[Treat logo as animated overlay when possible]' \
+                        '--subtitle-logo-width[Logo width percentage of video width]:pct:(6 8 10 12 15 18)' \
+                        '--subtitle-logo-margin-right[Logo right margin in pixels]:px' \
+                        '--subtitle-logo-margin-bottom[Logo bottom margin in pixels]:px' \
+                        '*--guest-tag[Temporary guest label: START,DURATION,NAME,TITLE,POS (optional)]:guest tag' \
+                        '--guest-tag-pos[Default position for guest tags]:pos:(br bl tr tl bc tc)' \
                         '--raise-top[Move top subtitle upward by N pixels]:px' \
                         '--raise-bottom[Move bottom subtitle upward by N pixels]:px' \
                         '--no-vad[Disable Voice Activity Detection]'

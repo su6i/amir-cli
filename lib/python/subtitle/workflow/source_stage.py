@@ -19,6 +19,7 @@ def prepare_source_srt(
     is_srt_input: bool,
     migrate_legacy_resolution_srt_fn: Callable[[str, str], bool],
     emit_progress,
+    yt_subs: bool = False,
 ) -> str:
     """Prepare source SRT via reuse or transcription and apply source pre-processing."""
     src_srt = f"{original_base}_{source_lang}.srt"
@@ -41,6 +42,11 @@ def prepare_source_srt(
         os.remove(src_srt)
 
     if not os.path.exists(src_srt):
+        if yt_subs:
+            raise FileNotFoundError(
+                f"❌ YouTube subtitles requested (--yt-subs) but '{Path(src_srt).name}' not found. "
+                "Ensure they were downloaded or provided."
+            )
         processor.logger.info(
             "🎙️ Reusable source transcription not found after probe; Whisper transcription will run."
         )

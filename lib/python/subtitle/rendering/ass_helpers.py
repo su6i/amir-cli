@@ -33,8 +33,14 @@ def compute_ass_layout(
     # FIX: Horizontal margins should be smaller for portrait to fit text in narrow width
     margin_h = 32 if is_portrait else 64
     # Base vertical margins. Per-run offsets allow shifting each subtitle lane.
-    base_bottom_margin_v = 20 if is_portrait else 10
-    base_top_margin_v = 30 if is_portrait else 24
+    # Portrait videos need extra bottom safe-area so Persian glyph descenders
+    # and outline/shadow never clip outside the visible frame.
+    if is_portrait:
+        base_bottom_margin_v = max(34, int(style.font_size * 1.35))
+        base_top_margin_v = max(34, int(style.font_size * 1.2))
+    else:
+        base_bottom_margin_v = 10
+        base_top_margin_v = 24
     fa_margin_v = max(0, base_bottom_margin_v + int(bottom_raise_px or 0))
     top_margin_v = max(0, base_top_margin_v + int(top_raise_px or 0))
 
@@ -184,6 +190,12 @@ def build_ass_events(
 
     for entry in entries:
         text = _normalize_primary_text(entry["text"], secondary_srt, is_portrait)
+        
+        # Ensure proper RTL formatting and punctuation for monolingual Persian output
+        if lang == "fa":
+            text = clean_bidi_fn(text)
+            text = fix_persian_text_fn(text)
+
         # If single-line mode is requested, enforce it at event text level.
         if max_lines <= 1:
             text = text.replace("\\N", " ").replace("\\n", " ").replace("\n", " ")

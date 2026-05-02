@@ -245,6 +245,8 @@ Notes:
 - Subtitle burn path (`amir video cut --render`, used by `amir subtitle`) is a separate re-encode pipeline from `amir video compress`.
 - Subtitle render defaults to the input video height when `--resolution` is not provided.
 - If a sidecar thumbnail (`.jpg/.jpeg/.png`) exists near the source, subtitle render can inject it as startup frame content (first ~80ms) in the same render pass to improve client previews.
+- Branded subtitle overlays are supported in the same render pass: `--subtitle-banner-image` or `--subtitle-banner-color`, optional `--subtitle-logo` (with `--subtitle-logo-animated`), and timed guest lower-thirds via repeatable `--guest-tag`.
+- Overlay chains use `shortest=1`/`eof_action=pass` on compositing stages to prevent frozen-video outputs when static/auxiliary overlay sources are present.
 
 #### `video download` — Download + Subtitle Pipeline
 
@@ -254,7 +256,7 @@ amir video download <url> [options]
 
 | Flag | Behavior |
 |------|----------|
-| `--yt-subs` | Download YouTube's built-in subtitles (human-curated first, auto-gen fallback). No Whisper. |
+| `--yt-subs` | Download and use YouTube's built-in subtitles (human-curated first, auto-gen fallback). Bypasses Whisper transcription. |
 | `--subtitle / -s` | Run Whisper AI transcription on the downloaded video, then burn. Sets `DO_RENDER=true`. |
 | `--translate` | Download YT subs + translate via DeepSeek → **burn into video by default** (`DO_RENDER=true`). Skip Whisper. |
 | `--sub-only` | Public flag for subtitle-only output (no burn). `--no-render` is still accepted as alias. |
@@ -335,6 +337,13 @@ amir video download <url> [options]
 ### `subtitle` (AI-Powered Multilingual Subtitle System)
 **Architecture:** Hybrid Python/FFmpeg pipeline with intelligent caching, validation, and rendering.
 
+#### Branded Render Presets
+- `channel_brand_blue`: Blue lower-third branding baseline for horizontal videos.
+- `shorts_brand_blue`: Shorts-optimized version with tighter banner/logo defaults.
+- `news_guest_blue`: News lower-third preset tuned for guest name/title overlays.
+- `--brand-kit <logo>`: One-shot brand setup (auto wires logo + blue banner defaults).
+- `--brand-kit-shorts`: Pair with `--brand-kit` to apply Shorts-oriented defaults.
+
 #### Component Stack
 1. **Transcription Engine:**
    - **Primary:** `faster-whisper` (CPU-optimized Whisper)
@@ -343,10 +352,11 @@ amir video download <url> [options]
    - **Optimization:** Smart caching with SHA-256 hash keying (`~/.amir_cache/transcriptions/`)
 
 2. **Translation System:**
-   - **Primary Provider:** DeepSeek API (GPT-4 class quality, cost-effective)
-   - **Fallback Chain:** LiteLLM → Gemini
-   - **Batch Processing:** 25 lines per API call (DeepSeek), 40 lines (Gemini), 20 lines (LiteLLM)
-   - **Cache:** SHA-256 keyed translations (`~/.amir_cache/translations/`)
+    - **Primary Provider:** DeepSeek API (GPT-4 class quality, cost-effective).
+    - **Smart Model Selector:** Dynamically selects `deepseek-v4-pro` (thinking mode) before June 2026 to leverage the 75% discount, automatically reverting to `deepseek-v4-flash` (non-thinking mode) post-expiry to prevent overcharging.
+    - **Fallback Chain:** LiteLLM → Gemini
+    - **Batch Processing:** 25 lines per API call (DeepSeek), 40 lines (Gemini), 20 lines (LiteLLM)
+    - **Cache:** SHA-256 keyed translations (`~/.amir_cache/translations/`)
 
 3. **Language Support (32 Languages):**
    - **Centralized Registry:** `LANGUAGE_REGISTRY` dataclass-based configuration
@@ -406,8 +416,8 @@ amir video download <url> [options]
    - **Bilingual Layout:**
      - **Primary:** Bottom, white, bold, 24px
      - **Secondary:** Top, gray, 18px (e.g., English commentary over Persian)
-   - **RTL Support:** Proper alignment for Arabic/Persian/Urdu/Hebrew
-   - **Font Selection:** `B Nazanin` (Persian), `Noto Sans` (Fallback)
+    - **RTL Support:** Proper alignment and punctuation fixing for Arabic/Persian/Urdu/Hebrew via `fix_persian_text_fn` (applied even to manual SRT imports).
+    - **Font Selection:** `Vazirmatn` (Persian), `Noto Sans` (Fallback).
    - **Resolution Scaling:** `font_size = (height / 1080) * 25`
 
 9. **Document Export (`--save` flag):**
