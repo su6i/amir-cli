@@ -1,7 +1,11 @@
 import time
 from typing import Dict, List, Optional
 
-from openai import OpenAI
+try:
+    from openai import OpenAI
+    HAS_OPENAI = True
+except ImportError:
+    HAS_OPENAI = False
 from tqdm import tqdm
 
 from subtitle.config import has_target_language_chars
@@ -55,6 +59,9 @@ def run_deepseek_translation_pipeline(
             attempt += 1
             batch_text = build_contextual_batch_text(texts, current_target_indices)
 
+            if not HAS_OPENAI:
+                raise ImportError("OpenAI package required for DeepSeek translation. Please install with 'pip install openai'")
+        
             # Smart Model Selection: Use the 75% discounted 'deepseek-v4-pro' until May 31, 2026.
             import datetime
             current_date = datetime.datetime.now(datetime.timezone.utc)
