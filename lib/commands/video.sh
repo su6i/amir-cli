@@ -1761,6 +1761,23 @@ find_existing_downloaded_video() {
                 return 0
             fi
         done
+
+        # Resolution-agnostic fallback: the actual downloaded height often differs from
+        # the requested resolution (e.g. user asks 480p but video only has 426p).
+        # Scan all *_<N>p* files and match by title key regardless of resolution.
+        for _candidate in "${_out_dir}"/*_[0-9]*p*.mp4; do
+            [[ -f "$_candidate" ]] || continue
+            is_reusable_download_video "$_candidate" || continue
+            _cand_name="$(basename "$_candidate")"
+            _cand_stem="${_cand_name%.*}"
+            # Strip any trailing _<N>p or _<N>p_<dupe-number> suffix
+            _cand_base="$(printf '%s' "$_cand_stem" | sed -E 's/_[0-9]+p(_[0-9]+)?$//')"
+            _cand_key="$(stem_compare_key "$_cand_base")"
+            if [[ -n "$_cand_key" && "$_cand_key" == "$_target_key" ]]; then
+                printf "%s" "$_candidate"
+                return 0
+            fi
+        done
     fi
 
     return 1
@@ -2444,8 +2461,10 @@ PY
     if [[ -n "$_VID_TITLE" ]]; then
         local _existing_video
         _existing_video="$(find_existing_downloaded_video "$OUT_DIR" "$_VID_TITLE" "$DL_RESOLUTION")"
+    local _IS_REUSED=false
         if [[ -n "$_existing_video" && -f "$_existing_video" ]]; then
             VIDEO_FILE="$_existing_video"
+            _IS_REUSED=true
             log_info "⏩ Reusing existing downloaded video: $(basename "$VIDEO_FILE")" >&2
         fi
         
@@ -2546,7 +2565,9 @@ PY
     fi
 
     # Enforce terminal-safe filename in-place before entering subtitle pipeline.
+    # Skip this step when reusing an existing file — it already has a safe name.
     local _dl_dir _dl_name _dl_stem _dl_ext _safe_stem _safe_path _n
+    if ! $_IS_REUSED; then
     _dl_dir="$(dirname "$VIDEO_FILE")"
     _dl_name="$(basename "$VIDEO_FILE")"
     _dl_stem="${_dl_name%.*}"
@@ -2574,8 +2595,10 @@ PY
             INFO_JSON_FILE="$_safe_info"
         fi
     fi
+    fi  # end of !_IS_REUSED normalization block
 
     # ── Add/normalize resolution suffix from ACTUAL downloaded height ───────
+    # Skip when reusing: the file already has the correct suffix from its first download.
     local ACTUAL_HEIGHT
     ACTUAL_HEIGHT=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=noprint_wrappers=1:nokey=1 "$VIDEO_FILE" 2>/dev/null | head -n1)
     [[ "$ACTUAL_HEIGHT" =~ ^[0-9]+$ ]] || ACTUAL_HEIGHT="$DL_RESOLUTION"
@@ -2584,7 +2607,7 @@ PY
         log_info "ℹ️  Requested ${DL_RESOLUTION}p but source provided ${ACTUAL_HEIGHT}p (best available)." >&2
     fi
 
-    if [[ "$ACTUAL_HEIGHT" =~ ^[0-9]+$ ]]; then
+    if ! $_IS_REUSED && [[ "$ACTUAL_HEIGHT" =~ ^[0-9]+$ ]]; then
         local _res_dir _res_name _res_stem _res_ext _res_base _res_new _res_n
         _res_dir="$(dirname "$VIDEO_FILE")"
         _res_name="$(basename "$VIDEO_FILE")"
