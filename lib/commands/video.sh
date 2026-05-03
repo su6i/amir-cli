@@ -2673,7 +2673,7 @@ PY
         fi
 
         if [[ ${#YT_SUB_FILES[@]} -eq 0 ]]; then
-            log_error "No subtitles found on YouTube for lang: $LANG" >&2
+            log_error "⚠️  This video has no YouTube captions (neither manual nor auto-generated). Whisper transcription will be used instead." >&2
         else
             for f in "${YT_SUB_FILES[@]}"; do
                 log_success "📄 $(basename "$f")" >&2
