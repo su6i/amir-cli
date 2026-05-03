@@ -86,8 +86,20 @@ def build_ass_styles(style, secondary_srt: Optional[str], fa_style: Optional[str
 
 
 def build_ass_header(styles_block: str, secondary_srt: Optional[str], video_width: int = 0, video_height: int = 0) -> str:
-    """Compose full ASS header text."""
-    wrap_style = "2" if secondary_srt else "0"
+    """Compose full ASS header text.
+    
+    WrapStyle:
+    - 1 (no wrap) for portrait/vertical videos: subtitles must never overflow;
+      geometry is pre-calculated and text must stay on a single line.
+    - 2 (smart wrap) for landscape/bilingual: standard behaviour.
+    """
+    is_portrait = bool(video_width and video_height and video_height > video_width)
+    if is_portrait:
+        # For vertical videos: disable all player-side wrapping.
+        # Each subtitle must be a single line; wrap = overflow = bug.
+        wrap_style = "1"
+    else:
+        wrap_style = "2" if secondary_srt else "0"
     res_info = f"PlayResX: {video_width}\nPlayResY: {video_height}\n" if video_width and video_height else ""
     return f"""[Script Info]
 ScriptType: v4.00+
@@ -191,12 +203,10 @@ def build_ass_events(
     for entry in entries:
         text = _normalize_primary_text(entry["text"], secondary_srt, is_portrait)
         
-        # Ensure proper RTL formatting and punctuation for monolingual Persian output
         if lang == "fa":
             text = clean_bidi_fn(text)
             text = fix_persian_text_fn(text)
 
-        # If single-line mode is requested, enforce it at event text level.
         if max_lines <= 1:
             text = text.replace("\\N", " ").replace("\\n", " ").replace("\n", " ")
             text = " ".join(text.split())
