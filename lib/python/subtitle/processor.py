@@ -1646,6 +1646,12 @@ class SubtitleProcessor:
             is_vertical = orientation_flag
         else:
             is_vertical = limit < 30
+            
+        # Dynamically enforce narrow limits for vertical videos to prevent text overflow
+        if is_vertical:
+            limit = min(limit, seg_config.vertical_max_chars)
+            hard_limit = limit + (8 if max_lines > 1 else 4)
+            
         low_ram = getattr(self, 'low_ram_mode', False)
         # Low-RAM should reduce compute pressure, but not silently degrade subtitle
         # readability. Only use low-RAM segmentation limits when explicitly enabled.
@@ -1863,6 +1869,10 @@ class SubtitleProcessor:
         is_vertical = getattr(self, 'is_vertical_video', None)
         if not isinstance(is_vertical, bool):
             is_vertical = max_chars < 30
+            
+        if is_vertical:
+            max_chars = min(max_chars, seg_config.vertical_max_chars)
+            
         low_ram = getattr(self, 'low_ram_mode', False)
         low_ram_seg = bool(low_ram and str(os.environ.get("AMIR_LOW_RAM_SEGMENTATION", "0")).strip().lower() in {"1", "true", "yes", "on"})
         constraints = seg_config.get_constraints(is_vertical=is_vertical, low_ram=low_ram_seg)
@@ -3284,11 +3294,21 @@ class SubtitleProcessor:
         paragraph_groups: List[List[int]],
         translated_paragraphs: List[str]
     ) -> List[str]:
+        slot_max_chars = self.style_config.max_chars
+        is_vertical = getattr(self, 'is_vertical_video', None)
+        if not isinstance(is_vertical, bool):
+            is_vertical = slot_max_chars < 30
+            
+        if is_vertical:
+            from .config.segmentation import get_segmentation_config
+            seg_config = get_segmentation_config()
+            slot_max_chars = min(slot_max_chars, seg_config.vertical_max_chars)
+            
         return resegment_translation(
             entries=entries,
             paragraph_groups=paragraph_groups,
             translated_paragraphs=translated_paragraphs,
-            slot_max_chars=self.style_config.max_chars,
+            slot_max_chars=slot_max_chars,
             vis_len=self._vis_len,
         )
 
