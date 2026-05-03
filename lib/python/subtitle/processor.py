@@ -1753,17 +1753,20 @@ class SubtitleProcessor:
                 # After-period orphan absorption: peek ahead. If the remaining
                 # words before the NEXT sentence ender are ≤ 2, absorb them
                 # into this segment instead of creating a tiny orphan.
-                remaining_until_next_end = 0
-                for k in range(i + 1, min(i + 5, total)):
-                    nw = words[k].word.strip()
-                    if not nw:
-                        continue
-                    remaining_until_next_end += 1
-                    if nw.endswith(('.', '?', '!', '...')):
-                        break
-                # Only absorb if 1-2 trailing words AND we won't exceed hard limit
-                if 1 <= remaining_until_next_end <= 2 and buf_chars < hard_limit - 15:
-                    continue  # don't flush yet — absorb the trailing orphan
+                # EXCEPTION: vertical videos must ALWAYS break at sentence ends
+                # to keep each subtitle on a single visible line.
+                if not is_vertical:
+                    remaining_until_next_end = 0
+                    for k in range(i + 1, min(i + 5, total)):
+                        nw = words[k].word.strip()
+                        if not nw:
+                            continue
+                        remaining_until_next_end += 1
+                        if nw.endswith(('.', '?', '!', '...')):
+                            break
+                    # Only absorb if 1-2 trailing words AND we won't exceed hard limit
+                    if 1 <= remaining_until_next_end <= 2 and buf_chars < hard_limit - 15:
+                        continue  # don't flush yet — absorb the trailing orphan
                 _flush_buf()
                 continue
 
