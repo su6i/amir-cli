@@ -1,7 +1,120 @@
 import os
 import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any, Callable, Dict
+
+
+def _download_yt_source_srt(processor, video_path: str, source_lang: str, dest_srt: str) -> bool:
+    """Attempt to download YouTube subtitles for source_lang via yt-dlp.
+
+    Strategy:
+    1. Manual (human-curated) subtitles for source_lang
+    2. Auto-generated subtitles for source_lang as fallback
+
+    Returns True if dest_srt was written, False otherwise.
+    """
+    try:
+        import shutil as _shutil
+        yt_dlp_bin = _shutil.which("yt-dlp")
+        if not yt_dlp_bin:
+            processor.logger.warning("⚠️  yt-dlp not found in PATH; cannot fetch YouTube subtitles.")
+            return False
+
+        # Derive the video URL from the video file's .info.json sidecar if available.
+        # The info.json is written by yt-dlp alongside the video file.
+        video_path_obj = Path(video_path)
+        info_json = video_path_obj.with_suffix("").with_suffix(".mp4.info.json")
+        if not info_json.exists():
+            # Try common suffixed variants (e.g. _480p.mp4.info.json)
+            for candidate in video_path_obj.parent.glob(f"{video_path_obj.stem}*.info.json"):
+                info_json = candidate
+                break
+
+        url = None
+        if info_json.exists():
+            try:
+                import json
+                with open(info_json, "r", encoding="utf-8") as _f:
+                    _meta = json.load(_f)
+                url = _meta.get("webpage_url") or _meta.get("original_url")
+            except Exception:
+                pass
+
+        if not url:
+            processor.logger.warning(
+                "⚠️  Cannot determine YouTube URL from info.json sidecar; skipping yt-dlp subtitle fetch."
+            )
+            return False
+
+        base_no_ext = str(video_path_obj.with_suffix("").with_suffix(""))
+        # Derive the same canonical base used by the rest of the pipeline
+        # (strip resolution/quality suffixes like _480p, _720p from the basename)
+        import re as _re
+        base_no_ext = _re.sub(r'_\d{3,4}p$', '', base_no_ext)
+
+        langs_to_try = [source_lang, f"{source_lang}-orig"]
+        langs_csv = ",".join(langs_to_try)
+
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            tmp_base = os.path.join(_tmpdir, "sub")
+
+            # Pass 1: manual (human-curated) subtitles
+            processor.logger.info(f"📥 Trying YouTube manual subtitles for: {source_lang}")
+            _run_yt_dlp_sub_fetch(yt_dlp_bin, url, tmp_base, langs_csv, auto=False)
+
+            found = _find_best_srt(_tmpdir, source_lang)
+            if not found:
+                # Pass 2: auto-generated subtitles
+                processor.logger.info(f"📥 Manual missing; trying auto subtitles for: {source_lang}")
+                _run_yt_dlp_sub_fetch(yt_dlp_bin, url, tmp_base, langs_csv, auto=True)
+                found = _find_best_srt(_tmpdir, source_lang)
+
+            if found:
+                shutil.copy2(found, dest_srt)
+                processor.logger.info(
+                    f"✅ YouTube subtitle fetched → {Path(dest_srt).name}"
+                )
+                return True
+
+        processor.logger.warning(f"❌ No YouTube subtitles found for lang: {source_lang}")
+        return False
+
+    except Exception as e:
+        processor.logger.warning(f"⚠️  yt-dlp subtitle fetch failed: {e}")
+        return False
+
+
+def _run_yt_dlp_sub_fetch(yt_dlp_bin: str, url: str, base_out: str, langs_csv: str, auto: bool) -> None:
+    """Run yt-dlp to download subtitles into base_out directory."""
+    cmd = [
+        yt_dlp_bin,
+        "--quiet",
+        "--skip-download",
+        "--convert-subs", "srt",
+        "--sleep-subtitles", "1",
+        "-o", f"{base_out}.%(ext)s",
+    ]
+    if auto:
+        cmd += ["--write-auto-subs", "--no-write-subs"]
+    else:
+        cmd += ["--write-subs", "--no-write-auto-subs"]
+    cmd += ["--sub-langs", langs_csv, url]
+    try:
+        subprocess.run(cmd, check=False, capture_output=True, timeout=60)
+    except Exception:
+        pass
+
+
+def _find_best_srt(directory: str, lang: str) -> str:
+    """Return the best matching SRT file for lang in directory, or empty string."""
+    # Prefer exact match, then accept -orig variant
+    for pattern in [f"*.{lang}.srt", f"*.{lang}-orig.srt", f"*.{lang}*.srt"]:
+        for path in Path(directory).glob(pattern):
+            if path.stat().st_size > 50:
+                return str(path)
+    return ""
 
 
 def prepare_source_srt(
@@ -43,41 +156,56 @@ def prepare_source_srt(
 
     if not os.path.exists(src_srt):
         if yt_subs:
-            raise FileNotFoundError(
-                f"❌ YouTube subtitles requested (--yt-subs) but '{Path(src_srt).name}' not found. "
-                "Ensure they were downloaded or provided."
+            # The pre-fetcher in video.sh may not have downloaded the source-language SRT
+            # (e.g. user ran --yt-subs but the prefetch only covered target langs like 'fa').
+            # Try to fetch it directly before falling back to Whisper.
+            processor.logger.info(
+                f"⬇️  --yt-subs: source SRT not pre-fetched; attempting yt-dlp download for '{source_lang}'..."
             )
-        processor.logger.info(
-            "🎙️ Reusable source transcription not found after probe; Whisper transcription will run."
-        )
-        actual_dur = (limit_end - limit_start) if limit_end is not None else 0
-        emit_progress(5, "🎙️ Transcription with Whisper...")
-        generated_srt = processor.transcribe_video(
-            current_video_input,
-            source_lang,
-            correct,
-            detect_speakers,
-            dur=actual_dur,
-        )
-
-        processor.cleanup()
-
-        generated_is_path = isinstance(generated_srt, (str, os.PathLike)) and os.path.exists(str(generated_srt))
-        generated_is_raw_srt = isinstance(generated_srt, str) and "-->" in generated_srt and "\n" in generated_srt
-
-        if generated_is_path:
-            generated_srt_path = os.path.abspath(os.fspath(generated_srt))
-            if generated_srt_path != os.path.abspath(src_srt):
-                processor.logger.info(f"📦 Moving temp SRT to final path: {Path(src_srt).name}")
-                shutil.move(generated_srt_path, src_srt)
-        elif generated_is_raw_srt:
-            processor.logger.info(f"📝 Writing transcription content to: {Path(src_srt).name}")
-            with open(src_srt, "w", encoding="utf-8-sig") as f:
-                f.write(generated_srt)
-        else:
-            raise FileNotFoundError(
-                "transcribe_video did not return a valid SRT path or raw SRT content"
+            _yt_downloaded = _download_yt_source_srt(
+                processor=processor,
+                video_path=current_video_input,
+                source_lang=source_lang,
+                dest_srt=src_srt,
             )
+            if not _yt_downloaded:
+                processor.logger.warning(
+                    f"⚠️  No YouTube subtitles found for '{source_lang}'. Falling back to Whisper transcription."
+                )
+                yt_subs = False  # allow Whisper branch below
+
+        if not yt_subs and not os.path.exists(src_srt):
+            processor.logger.info(
+                "🎙️ Reusable source transcription not found after probe; Whisper transcription will run."
+            )
+            actual_dur = (limit_end - limit_start) if limit_end is not None else 0
+            emit_progress(5, "🎙️ Transcription with Whisper...")
+            generated_srt = processor.transcribe_video(
+                current_video_input,
+                source_lang,
+                correct,
+                detect_speakers,
+                dur=actual_dur,
+            )
+
+            processor.cleanup()
+
+            generated_is_path = isinstance(generated_srt, (str, os.PathLike)) and os.path.exists(str(generated_srt))
+            generated_is_raw_srt = isinstance(generated_srt, str) and "-->" in generated_srt and "\n" in generated_srt
+
+            if generated_is_path:
+                generated_srt_path = os.path.abspath(os.fspath(generated_srt))
+                if generated_srt_path != os.path.abspath(src_srt):
+                    processor.logger.info(f"📦 Moving temp SRT to final path: {Path(src_srt).name}")
+                    shutil.move(generated_srt_path, src_srt)
+            elif generated_is_raw_srt:
+                processor.logger.info(f"📝 Writing transcription content to: {Path(src_srt).name}")
+                with open(src_srt, "w", encoding="utf-8-sig") as f:
+                    f.write(generated_srt)
+            else:
+                raise FileNotFoundError(
+                    "transcribe_video did not return a valid SRT path or raw SRT content"
+                )
 
         src_is_fresh = True
     else:
