@@ -202,6 +202,36 @@ run_subtitle() {
             _prefetch_lang_tokens+=("fa")
         fi
 
+        # When --yt-subs is active, always prefetch the source language (default: en) too.
+        # Without this, only target langs are fetched, leaving the source SRT absent
+        # and triggering an unnecessary Whisper transcription.
+        local _has_yt_subs=false
+        for _f in "${_dl_flags[@]}"; do
+            [[ "$_f" == "--yt-subs" ]] && _has_yt_subs=true && break
+        done
+        if $_has_yt_subs; then
+            # Collect explicit source lang from sub_flags (-s / --source)
+            local _explicit_src=""
+            local _ki=0
+            while (( _ki < ${#_sub_flags[@]} )); do
+                local _tk="${_sub_flags[_ki]}"
+                if [[ "$_tk" == "-s" || "$_tk" == "--source" ]]; then
+                    local _sv="${_sub_flags[_ki+1]:-}"
+                    [[ -n "$_sv" && "$_sv" != -* && "$_sv" != "auto" ]] && _explicit_src="$_sv"
+                    (( _ki += 2 ))
+                else
+                    (( _ki++ ))
+                fi
+            done
+            # Default source lang is en when not specified
+            local _src_for_prefetch="${_explicit_src:-en}"
+            local _already_in=false
+            for _pt in "${_prefetch_lang_tokens[@]}"; do
+                [[ "$_pt" == "$_src_for_prefetch" ]] && _already_in=true && break
+            done
+            $_already_in || _prefetch_lang_tokens+=("$_src_for_prefetch")
+        fi
+
         # Download only (no --subtitle: all subtitle processing happens below via _subtitle_run)
         # stdout = final file path; stderr (progress bars, info) goes straight to terminal
         local _VIDEO_FILE
