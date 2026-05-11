@@ -86,38 +86,34 @@ async def _serve(args: argparse.Namespace) -> None:
 
                 segments, info = model.transcribe(req["path"], **kwargs)
 
-                words = []
+                # Send info first 
+                info_payload = {
+                    "type": "info",
+                    "language": str(getattr(info, "language", "") or "")
+                }
+                writer.write((json.dumps(info_payload, ensure_ascii=False) + "\n").encode("utf-8"))
+                await writer.drain()
+
                 for seg in segments:
-                    if seg.words:
+                    seg_words = []
+                    if getattr(seg, "words", None):
                         for w in seg.words:
-                            words.append({
+                            seg_words.append({
                                 "start": float(w.start),
                                 "end": float(w.end),
                                 "word": str(w.word),
                             })
+                    
+                    segment_payload = {
+                        "type": "segment",
+                        "start": float(getattr(seg, "start", 0.0)),
+                        "end": float(getattr(seg, "end", 0.0)),
+                        "text": str(getattr(seg, "text", "")),
+                        "words": seg_words
+                    }
+                    writer.write((json.dumps(segment_payload, ensure_ascii=False) + "\n").encode("utf-8"))
+                    await writer.drain()
 
-                # Server-side word-loop detection: remove runs of >3 identical words
-                if len(words) > 3:
-                    cleaned_words = []
-                    run_count = 1
-                    for i, w in enumerate(words):
-                        if i > 0 and w["word"].strip().lower() == words[i-1]["word"].strip().lower():
-                            run_count += 1
-                        else:
-                            run_count = 1
-                        if run_count <= 3:
-                            cleaned_words.append(w)
-                    if len(cleaned_words) < len(words):
-                        print(f"  ⚠️ Server: removed {len(words) - len(cleaned_words)} looped words", flush=True)
-                    words = cleaned_words
-
-                result = {
-                    "words": words,
-                    "language": str(getattr(info, "language", "") or ""),
-                }
-
-            writer.write(json.dumps(result, ensure_ascii=False).encode("utf-8"))
-            await writer.drain()
         except Exception as e:
             err = {"error": str(e)}
             try:

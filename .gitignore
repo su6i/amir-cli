@@ -25,6 +25,23 @@ temp/
 *.bak
 dummy_*
 test_*
+scratch/
+scratch_debug/
+scratch_staging/
+scratch_testing/
+refactor/
 
 # Project Specific
 Roadmap/
+commands*
+completions/*.zwc
+
+# Media Files
+*.mp3
+*.mp4
+*.mov
+*.webm
+*.wav
+*.opus
+*.m4a
+*.m4v
