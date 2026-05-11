@@ -726,34 +726,82 @@ class SubtitleProcessor:
             pass
 
         payload = json.dumps(req, ensure_ascii=False).encode("utf-8")
-        chunks = []
+        
+        words = []
+        detected_lang = ""
+        media_dur = 0.0
+        try:
+            dur = self._get_video_duration(media_path)
+            if dur:
+                media_dur = float(dur)
+        except Exception:
+            pass
+
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
                 s.settimeout(timeout_s)
                 s.connect(socket_path)
                 s.sendall(payload)
                 s.shutdown(socket.SHUT_WR)
+                
+                buffer = ""
                 while True:
-                    data = s.recv(65536)
+                    data = s.recv(8192)
                     if not data:
                         break
-                    chunks.append(data)
+                    buffer += data.decode("utf-8", errors="replace")
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        line = line.strip()
+                        if not line:
+                            continue
+                            
+                        obj = json.loads(line)
+                        if "error" in obj:
+                            raise RuntimeError(str(obj["error"]))
+                            
+                        if obj.get("type") == "info":
+                            detected_lang = obj.get("language", "")
+                            
+                        elif obj.get("type") == "segment":
+                            seg_words = obj.get("words", [])
+                            end_time = float(obj.get("end", 0.0))
+                            text = str(obj.get("text", "")).strip()
+                            
+                            for w in seg_words:
+                                words.append(WordObj(float(w["start"]), float(w["end"]), str(w["word"])))
+                                
+                            # Log progress
+                            if media_dur > 0:
+                                pct = min(100.0, (end_time / media_dur) * 100.0)
+                                time_str = f"[{end_time:.1f}s / {media_dur:.1f}s]"
+                                self.logger.info(f"⏳ Progress: {pct:.1f}% {time_str} - {text}")
+                            else:
+                                self.logger.info(f"⏳ Processed up to {end_time:.1f}s - {text}")
+                
         except socket.timeout as e:
             raise TimeoutError(
                 f"shared whisper server timed out after {timeout_s}s for: {Path(media_path).name}"
             ) from e
 
-        raw = b"".join(chunks).decode("utf-8", errors="replace").strip()
-        if not raw:
-            raise RuntimeError("empty response from whisper server")
+        if not words:
+            self.logger.warning("Empty response or no words returned from shared whisper server")
 
-        resp = json.loads(raw)
-        if isinstance(resp, dict) and resp.get("error"):
-            raise RuntimeError(str(resp.get("error")))
+        # Client-side word-loop detection (similar to old server-side one)
+        if len(words) > 3:
+            cleaned_words = []
+            run_count = 1
+            for i, w in enumerate(words):
+                if i > 0 and w.word.strip().lower() == words[i-1].word.strip().lower():
+                    run_count += 1
+                else:
+                    run_count = 1
+                if run_count <= 3:
+                    cleaned_words.append(w)
+            if len(cleaned_words) < len(words):
+                self.logger.warning(f"⚠️ Removed {len(words) - len(cleaned_words)} looped words")
+            words = cleaned_words
 
-        word_dicts = resp.get("words", []) if isinstance(resp, dict) else []
-        detected_lang = str(resp.get("language", "") or "").strip().lower() if isinstance(resp, dict) else ''
-        words = [WordObj(float(w["start"]), float(w["end"]), str(w["word"])) for w in word_dicts]
         return words, detected_lang
 
     # ==================== MODEL MANAGEMENT ====================
