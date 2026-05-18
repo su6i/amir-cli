@@ -13,7 +13,7 @@ _amir() {
             'video:Advanced video processing (compress, cut, batch)'
             'audio:Audio tools (convert, extract, concat, to-video)'
             'img:Resize images (logo and custom sizes)'
-            'pdf:Convert images to single A4 PDF'
+            'pdf:Convert images to PDF with custom sizing'
             'info:Show file technical properties'
             'transfer:Upload temporary file and get link'
             'lock:Encrypt and lock file'
@@ -51,11 +51,14 @@ _amir() {
                         '--pil[Use PIL grayscale fallback engine]' \
                         '--pandoc[Use Pandoc engine]' \
                         '(-f --free-size)'{-f,--free-size}'[Generate a single continuous PDF with custom dimensions]' \
+                        '--page-width[Set PDF width in pixels for free-size/custom layout]:width (px):(1200 1440 1600 1800 2000 2480 max-content fit-content nowrap)' \
+                        '--page-height[Set PDF height in pixels for free-size/custom layout]:height (px):(1600 2000 2480 3000 3508 4000)' \
                         {-o,--output}'[Specify output file]:filename:_files' \
                         {-r,--rotate}'[Rotate images (degrees)]:angle' \
                         {-q,--quality}'[JPEG Quality (default: 60)]:quality (0-100)' \
                         '--resize[Resize percentage (default: 50)]:percentage' \
                         '--pages[Create multi-page PDF (1 image per page) instead of collage]' \
+                        '--merge[Merge multiple files into a single PDF (alias for --pages)]' \
                         '--radius[Corner radius (px)]:pixels' \
                         '--no-round[Disable corner rounding]' \
                         '--square[Alias for --no-round]' \
@@ -900,33 +903,35 @@ _amir_bg_colors() {
 }
 
 _amir_cv_roles() {
-    # Dynamically detect roles from data/resume_profile_*.json files in CV repo
+    # Dynamically detect roles from canonical *-CV_ROLE_source.json files in CV repo
     local cv_repo="${HOME}/@-github/CV"
     local -a roles=()
-    
+
     if [[ -d "$cv_repo/data" ]]; then
-        # Extract role names from resume_profile_*.json format
+        # Canonical format: {SLUG}-CV_{Role}_source.json  →  extract Role
+        for file in "$cv_repo/data"/*-CV_*_source.json; do
+            if [[ -f "$file" ]]; then
+                local base="${file##*-CV_}"   # strip up to last -CV_
+                local role="${base%_source.json}"
+                [[ -n "$role" ]] && roles+=("${role:l}")  # lowercase
+            fi
+        done
+        # Legacy format: resume_profile_ROLE.json
         for file in "$cv_repo/data"/resume_profile_*.json; do
             if [[ -f "$file" ]]; then
-                # Extract role from filename: resume_profile_ROLE.json → ROLE
                 local role="${file##*/resume_profile_}"
                 role="${role%.json}"
-                if [[ -n "$role" ]]; then
-                    roles+=("$role")
-                fi
+                [[ -n "$role" ]] && roles+=("$role")
             fi
         done
     fi
-    
+
     # Fallback to hardcoded defaults if no files found
     if (( ${#roles[@]} == 0 )); then
-        roles=('ai' 'it' 'phd' 'python')
+        roles=('ai' 'it' 'phd' 'python' 'devops')
     fi
-    
-    # Remove duplicates and sort
+
     roles=($(printf '%s\n' "${roles[@]}" | sort -u))
-    
-    # Return as completion values
     _values 'role' "${roles[@]}"
 }
 
