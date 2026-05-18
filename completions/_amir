@@ -11,7 +11,7 @@ _amir() {
         commands=(
             'init-project:Scaffold Agent Constitution in directory'
             'video:Advanced video processing (compress, cut, batch)'
-            'audio:Audio tools (extract, concat, to-video)'
+            'audio:Audio tools (convert, extract, concat, to-video)'
             'img:Resize images (logo and custom sizes)'
             'pdf:Convert images to single A4 PDF'
             'info:Show file technical properties'
@@ -265,10 +265,16 @@ _amir() {
 
             if (( CURRENT == 3 )); then
                 _alternative \
-                    'acmds:Audio Command:((extract\:Extract\ audio\ from\ video\ file concat\:Join\ multiple\ audio\ files to-video\:Create\ video\ from\ audio\ and\ image youtube\:Download\ audio\ from\ YouTube\ link))' \
+                    'acmds:Audio Command:((extract\:Extract\ audio\ from\ video\ file convert\:Convert\ audio\ format split\:Split\ audio\ into\ chunks concat\:Join\ multiple\ audio\ files to-video\:Create\ video\ from\ audio\ and\ image youtube\:Download\ audio\ from\ YouTube\ link))' \
                     'afolders:Audio Folder:_files -/'
             else
                 case "$subcmd" in
+                    convert)
+                        case $((CURRENT)) in
+                            4) _files -g "*.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)" ;;
+                            5) _values 'format' mp3 wav ogg m4a ;;
+                        esac
+                        ;;
                     extract)
                         case $((CURRENT)) in
                             4) _files -g "*.(mp4|mov|mkv|avi|webm|flv|MP4|MOV|MKV)" ;;
