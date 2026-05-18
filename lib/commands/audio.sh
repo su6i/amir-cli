@@ -27,6 +27,9 @@ run_audio() {
         extract|mp3)
             audio_extract "$@"
             ;;
+        convert)
+            audio_convert "$@"
+            ;;
         split)
             audio_split "$@"
             ;;
@@ -40,11 +43,12 @@ run_audio() {
             audio_youtube "$@"
             ;;
         *)
-            echo "Usage: amir audio {extract|split|concat|to-video|youtube} [options]"
+            echo "Usage: amir audio {extract|convert|split|concat|to-video|youtube} [options]"
             echo "       amir audio <directory>  (Smart folder-to-video flow)"
             echo ""
             echo "Subcommands:"
             echo "  extract <video_file> [bitrate] [--split mb]  Extract MP3 from video"
+            echo "  convert <audio_file> [format]   Convert audio format (wav, mp3, ogg, m4a)"
             echo "  split <audio_file> <mb>         Split audio into ~N MB chunks"
             echo "  concat [files...] -o output     Join multiple audio files"
             echo "  to-video <audio> -i <image>     Create video from audio and image"
@@ -71,6 +75,52 @@ audio_split() {
     fi
 
     split_media_approx_by_size "$INPUT" "$split_mb"
+}
+
+audio_convert() {
+    local INPUT="$1"
+    local FORMAT="${2:-mp3}"
+    
+    if [[ -z "$INPUT" || ! -f "$INPUT" ]]; then
+        log_error "File not found: $INPUT" >&2
+        echo "Usage: amir audio convert <audio_file> [mp3|wav|ogg|m4a]" >&2
+        return 1
+    fi
+
+    local OUTPUT="${INPUT%.*}.${FORMAT}"
+    
+    if [[ "$INPUT" == "$OUTPUT" ]]; then
+        log_error "Input and target format are the same!" >&2
+        return 1
+    fi
+    
+    log_info "🔄 Converting $(basename "$INPUT") to ${FORMAT^^} format..." >&2
+    local FFMPEG_PATH=$(get_ffmpeg_path)
+    local duration_seconds=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$INPUT" 2>/dev/null | cut -d. -f1)
+    
+    local ENCODER_ARGS=()
+    case "$FORMAT" in
+        mp3) ENCODER_ARGS=(-c:a libmp3lame -b:a 192k) ;;
+        wav) ENCODER_ARGS=(-c:a pcm_s16le) ;;
+        ogg) ENCODER_ARGS=(-c:a libvorbis -q:a 4) ;;
+        m4a|aac) ENCODER_ARGS=(-c:a aac -b:a 192k) ;;
+        *) 
+            log_error "Unsupported target format: $FORMAT" >&2
+            echo "Try: mp3, wav, ogg, or m4a" >&2
+            return 1 
+            ;;
+    esac
+
+    run_ffmpeg_with_progress "$duration_seconds" \
+        "$FFMPEG_PATH" -hide_banner -loglevel info -stats -y -i "$INPUT" -vn "${ENCODER_ARGS[@]}" "$OUTPUT"
+    
+    if [[ $? -eq 0 ]]; then
+        log_success "Converted: $OUTPUT" >&2
+        echo "$OUTPUT"
+    else
+        log_error "Conversion failed." >&2
+        return 1
+    fi
 }
 
 audio_extract() {
