@@ -955,7 +955,7 @@ _apply_arguments() {
     # Custom arguments handler for apply command with dynamic role/lang completion
     _arguments -s \
         '1:action_or_url:' \
-        '--template[Choose LaTeX template layout]:template:(altacv lato classic experimental)' \
+        '--template[Choose LaTeX template layout]:template:(altacv lato tina classic experimental)' \
         '--role[Target role/variant]:role:_amir_cv_roles' \
         '--lang[Output language for CV/cover letter]:lang:_amir_cv_langs' \
         '--no-localize-preview[Preview only: skip profile text localization for faster generation]' \
