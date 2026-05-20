@@ -26,10 +26,11 @@ Claude Code provides three models. Select based on task complexity and cost:
 | Task | Model | Why |
 |---|---|---|
 | Planning, architecture, critical bug | Claude Sonnet | Anthropic quality for decision-making |
-| Bulk code generation, boilerplate | DeepSeek V3 | ~10x cheaper than Sonnet, similar code quality |
-| Complex reasoning, algorithm design | DeepSeek R1 | Strong reasoning, cheap per token |
-| Subtitle translation (per-line bulk) | DeepSeek V3 | Cost-optimized for high-volume text |
+| Bulk code generation, boilerplate | DeepSeek V4-Flash | ~20x cheaper than Sonnet, strong code quality |
+| Complex reasoning, algorithm design | DeepSeek V4-Flash (thinking ON) | Built-in CoT reasoning, cheap per token |
+| Subtitle translation (per-line bulk) | DeepSeek V4-Flash | Cost-optimized for high-volume text |
 | Sensitive code (auth, secrets handling) | Claude Sonnet | Trust + safety guarantees |
+| Deep research + complex multi-step | DeepSeek V4-Pro | Stronger than Flash, still cheaper than Sonnet |
 
 ### DeepSeek API Integration
 
@@ -43,22 +44,34 @@ client = OpenAI(
     base_url="https://api.deepseek.com",
 )
 
-# V3 — general code + text
+# V4-Flash — general code + text (non-thinking mode)
 response = client.chat.completions.create(
-    model="deepseek-chat",      # = DeepSeek V3
+    model="deepseek-v4-flash",
     messages=[{"role": "user", "content": prompt}],
-    max_tokens=2048,
+    max_tokens=4096,
 )
 
-# R1 — reasoning tasks
+# V4-Flash — reasoning mode (thinking ON)
+# DeepSeek V4 models have built-in thinking; enable via budget_tokens
 response = client.chat.completions.create(
-    model="deepseek-reasoner",  # = DeepSeek R1
+    model="deepseek-v4-flash",
     messages=[{"role": "user", "content": prompt}],
+    max_tokens=8000,
+    extra_body={"thinking": {"type": "enabled", "budget_tokens": 4000}},
 )
-# R1 exposes reasoning_content separately:
+# thinking response exposes reasoning separately:
 # response.choices[0].message.reasoning_content  ← chain-of-thought
 # response.choices[0].message.content            ← final answer
+
+# V4-Pro — stronger model for complex tasks
+response = client.chat.completions.create(
+    model="deepseek-v4-pro",
+    messages=[{"role": "user", "content": prompt}],
+    max_tokens=4096,
+)
 ```
+
+**Deprecated (avoid):** `deepseek-chat` و `deepseek-reasoner` — هر دو در 2026/07/24 بازنشست می‌شوند. از `deepseek-v4-flash` استفاده کن.
 
 ### Economy Routing Logic
 
@@ -69,25 +82,28 @@ def select_model(task_type: str, is_sensitive: bool = False) -> tuple[str, str]:
         return ("anthropic", "claude-sonnet-4-6")
 
     routing = {
-        "planning":     ("anthropic", "claude-sonnet-4-6"),
-        "code_bulk":    ("deepseek",  "deepseek-chat"),
-        "reasoning":    ("deepseek",  "deepseek-reasoner"),
-        "translation":  ("deepseek",  "deepseek-chat"),
-        "review":       ("anthropic", "claude-sonnet-4-6"),
+        "planning":     ("anthropic",  "claude-sonnet-4-6"),
+        "code_bulk":    ("deepseek",   "deepseek-v4-flash"),
+        "reasoning":    ("deepseek",   "deepseek-v4-flash"),   # use thinking=enabled
+        "translation":  ("deepseek",   "deepseek-v4-flash"),
+        "research":     ("deepseek",   "deepseek-v4-pro"),
+        "review":       ("anthropic",  "claude-sonnet-4-6"),
     }
     return routing.get(task_type, ("anthropic", "claude-sonnet-4-6"))
 ```
 
-### Cost Reference (approx. 2026)
+### Cost Reference (2026-05)
 
-| Model | Input ($/1M tokens) | Output ($/1M tokens) |
-|---|---|---|
-| Claude Opus 4.7 | ~$15 | ~$75 |
-| Claude Sonnet 4.6 | ~$3 | ~$15 |
-| DeepSeek V3 | ~$0.27 | ~$1.10 |
-| DeepSeek R1 | ~$0.55 | ~$2.19 |
+| Model | Context | Input cache miss | Output |
+|---|---|---|---|
+| Claude Opus 4.7 | 200K | ~$15/1M | ~$75/1M |
+| Claude Sonnet 4.6 | 200K | ~$3/1M | ~$15/1M |
+| DeepSeek V4-Pro | 1M | $0.435/1M | $0.87/1M |
+| DeepSeek V4-Flash | 1M | $0.14/1M | $0.28/1M |
 
-**Rule:** برای هر تسکی که DeepSeek V3 کافیه → استفاده کن. برای تصمیم‌گیری و کد حساس → Sonnet.
+DeepSeek cache hit prices are ~50x cheaper (V4-Flash: $0.0028/1M input).
+
+**Rule:** برای هر تسکی که DeepSeek V4-Flash کافیه → استفاده کن. برای تصمیم‌گیری و کد حساس → Sonnet.
 
 ### Config Pattern
 
@@ -96,9 +112,9 @@ def select_model(task_type: str, is_sensitive: bool = False) -> tuple[str, str]:
 ai:
   default: anthropic/claude-sonnet-4-6
   economy:
-    code_generation: deepseek/deepseek-chat
-    reasoning: deepseek/deepseek-reasoner
-    translation: deepseek/deepseek-chat
+    code_generation: deepseek/deepseek-v4-flash
+    reasoning: deepseek/deepseek-v4-flash   # enable thinking mode via API
+    translation: deepseek/deepseek-v4-flash
   sensitive_tasks:
     - auth
     - secrets
