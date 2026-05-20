@@ -235,7 +235,12 @@ run_subtitle() {
         # Download only (no --subtitle: all subtitle processing happens below via _subtitle_run)
         # stdout = final file path; stderr (progress bars, info) goes straight to terminal
         local _VIDEO_FILE
+        local _VD_EC=0
         _VIDEO_FILE=$(video_download "$_url" "${_dl_flags[@]}" --prefetch-yt-subs "${_prefetch_lang_tokens[@]}")
+        _VD_EC=$?
+        if [[ $_VD_EC -eq 130 ]]; then
+            return 130
+        fi
         if [[ -z "$_VIDEO_FILE" || ! -f "$_VIDEO_FILE" ]]; then
             echo "❌ Download failed or file not found." >&2
             return 1
