@@ -247,6 +247,7 @@ Notes:
 - If a sidecar thumbnail (`.jpg/.jpeg/.png`) exists near the source, subtitle render can inject it as startup frame content (first ~80ms) in the same render pass to improve client previews.
 - Branded subtitle overlays are supported in the same render pass: `--subtitle-banner-image` or `--subtitle-banner-color`, optional `--subtitle-logo` (with `--subtitle-logo-animated`), and timed guest lower-thirds via repeatable `--guest-tag`.
 - Overlay chains use `shortest=1`/`eof_action=pass` on compositing stages to prevent frozen-video outputs when static/auxiliary overlay sources are present.
+- When any banner option (`--subtitle-banner-color` or `--subtitle-banner-image`) is provided, the ASS subtitle background is forced to fully transparent (`&H00000000`) regardless of style — this ensures the banner colour is visible and not covered by the subtitle box. Implemented in `cli.py`.
 
 #### `video download` — Download + Subtitle Pipeline
 
@@ -315,7 +316,7 @@ amir video download <url> [options]
     - **Pandoc:** Vector-based conversion for document formats.
     - **PIL (Fallback):** Ultra-robust image-based renderer. Used automatically if advanced engines fail to ensure no content loss. Supports infinite vertical pagination.
 - **Key Technical Features:**
-    - **Continuous / Free-Size Rendering:** The `--free-size` (`-f`) flag bypasses A4 constraints. `render_puppeteer.js` uses `page.evaluate()` to measure the exact `scrollWidth` and `scrollHeight` of the DOM, and instructs Puppeteer to generate a single continuous PDF page matching those exact dimensions, preventing tables and blocks from wrapping or splitting.
+    - **Continuous / Free-Size Rendering:** The `--free-size` (`-f`) flag bypasses A4 constraints. `render_puppeteer.js` measures the rendered body size and can also honor `--page-width` / `--page-height` for manual sizing, so tables and blocks can stay on a single page when you give the layout enough width.
     - **Piping Support:** Accepts `stdin` if no file arguments are provided. Integrated with `mktemp` to handle content safely and provides descriptive "clipboard" logging/naming.
     - **ExFAT Robustness:** Automatically detects ExFAT filesystems (e.g., SanDisk drives) and bypasses `uv run` in favor of direct `.venv/bin/python3` execution to avoid "Operation not supported" errors caused by ExFAT's lack of file locking.
     - **Base64 Font Embedding:** To bypass browser security restrictions (`file://`), the **B Nazanin** Persian font is injected directly as a Base64 Data URI into the Puppeteer HTML stream.
