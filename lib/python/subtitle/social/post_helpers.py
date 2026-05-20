@@ -23,7 +23,7 @@ def call_llm_for_post(
             raise ImportError("OpenAI package required for DeepSeek post generation")
         ds_client = OpenAI(api_key=processor.api_key, base_url="https://api.deepseek.com/v1")
         resp = ds_client.chat.completions.create(
-            model="deepseek-chat",
+            model="deepseek-v4-flash",
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
