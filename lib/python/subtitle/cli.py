@@ -180,7 +180,30 @@ Note:
             "(default: disabled; selected model stays fixed for the whole run)"
         ),
     )
-    
+    parser.add_argument(
+        "--multilingual",
+        action="store_true",
+        help=(
+            "For non-YouTube videos with multiple spoken languages: transcribes in "
+            "90-second chunks so each chunk independently detects its language. "
+            "Use when the video has no info.json (not downloaded via yt-dlp) and "
+            "the spoken language changes mid-video. For YouTube videos, language "
+            "detection is automatic — this flag is not needed. "
+            "Also activatable via AMIR_MULTILINGUAL=1."
+        ),
+    )
+    parser.add_argument(
+        "--no-yt-auto",
+        action="store_true",
+        dest="no_yt_auto",
+        help=(
+            "Skip the automatic YouTube subtitle check and go straight to Whisper. "
+            "Useful when YouTube subs exist but you want fresh Whisper transcription."
+        ),
+    )
+    # Internal tuning — not shown prominently
+    parser.add_argument("--yt-quality-threshold", type=float, default=0.65, help=argparse.SUPPRESS)
+
     # Logic Overrides (Pro)
     parser.add_argument("--min-duration", type=float, default=1.0, help="Minimum subtitle duration (seconds)")
     parser.add_argument(
@@ -460,6 +483,7 @@ Note:
         whisper_timing=args.whisper_timing,
         native_target_lines=args.native_lines,
         allow_model_downgrade=args.allow_model_downgrade,
+        multilingual=args.multilingual,
     )
     limit_start, limit_end = _parse_limit_args(args.limit)
     result = processor.run_workflow(
@@ -497,6 +521,8 @@ Note:
         ass_input_path=args.ass_input,
         use_vad=args.use_vad,
         yt_subs=args.yt_subs,
+        yt_auto=not args.no_yt_auto,
+        yt_quality_threshold=args.yt_quality_threshold,
     )
 
     def _collect_output_paths(value, acc):
