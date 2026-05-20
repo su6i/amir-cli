@@ -419,7 +419,6 @@ def prepare_source_srt(
         if (
             yt_auto
             and not yt_subs
-            and not force
             and not is_srt_input
             and not has_limit
         ):
