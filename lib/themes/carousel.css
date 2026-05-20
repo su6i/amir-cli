@@ -1,0 +1,145 @@
+/* ═══════════════════════════════════════════════════
+   AMIR-CLI THEME: carousel
+   LinkedIn-optimized carousel / infographic slides
+   Usage: amir pdf --theme carousel file.md
+   Slide size: 1080x1080px · ## = slide · ### = city
+   ═══════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap');
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  color: #f8fafc;
+  font-size: 14px;
+  background:
+    radial-gradient(ellipse at 20% 80%, rgba(99,102,241,0.12) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(16,185,129,0.07) 0%, transparent 40%),
+    #0a0a0f;
+}
+
+/* ── H1: document title ── */
+h1 {
+  font-size: 38px;
+  font-weight: 900;
+  background: linear-gradient(135deg, #fff 30%, #a5b4fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  border-bottom: none !important;
+  padding: 0 52px;
+  margin-bottom: 12px;
+  line-height: 1.15;
+}
+
+/* ── H2: slide title ── */
+h2 {
+  font-size: 28px;
+  font-weight: 900;
+  background: linear-gradient(135deg, #fff 30%, #a5b4fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  border-bottom: none !important;
+  padding: 0 52px 0;
+  margin-bottom: 20px;
+  line-height: 1.2;
+}
+
+/* ── H3: city name ── */
+h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: #a5b4fc;
+  border-bottom: 1px solid rgba(99,102,241,0.2) !important;
+  padding: 18px 52px 8px;
+  margin-bottom: 0;
+}
+
+/* ── Paragraph ── */
+p {
+  color: #94a3b8;
+  font-size: 16px;
+  line-height: 1.6;
+  padding: 0 52px;
+  margin-bottom: 16px;
+}
+
+/* ── Tables: 100%-relative so they adapt to any page width ── */
+table {
+  /* width set by JS inline style; CSS fallback: */
+  width: calc(100% - 104px) !important;
+  margin: 6px 52px 20px !important;
+  border-collapse: collapse !important;
+  background: rgba(255,255,255,0.025);
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 15px;
+  table-layout: fixed;
+}
+
+th {
+  background: rgba(99,102,241,0.22) !important;
+  color: #818cf8 !important;
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 10px 10px !important;
+  border: none !important;
+  border-bottom: 1px solid rgba(99,102,241,0.25) !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+td {
+  padding: 10px 10px !important;
+  border: none !important;
+  border-bottom: 1px solid rgba(255,255,255,0.04) !important;
+  color: #cbd5e1 !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Column proportions (not px — ratios for table-layout:fixed) */
+table col:nth-child(1), table th:nth-child(1), table td:nth-child(1) { width: 5%;  text-align: center; }
+table col:nth-child(2), table th:nth-child(2), table td:nth-child(2) { width: 42%; white-space: normal; }
+table col:nth-child(3), table th:nth-child(3), table td:nth-child(3) { width: 12%; text-align: right; }
+table col:nth-child(4), table th:nth-child(4), table td:nth-child(4) { width: 28%; text-align: center; }
+table col:nth-child(5), table th:nth-child(5), table td:nth-child(5) { width: 10%; text-align: center; }
+
+tr:last-child td { border-bottom: none !important; }
+tr:nth-child(even) td { background: rgba(255,255,255,0.02) !important; }
+tr:nth-child(1) td { color: #e2e8f0 !important; font-weight: 600; }
+
+strong { color: #e2e8f0 !important; font-weight: 700; }
+em { color: #c4b5fd; font-style: normal; font-weight: 600; }
+
+/* ── Footer ── */
+hr {
+  border: none !important;
+  border-top: 1px solid rgba(255,255,255,0.06) !important;
+  margin: 24px 52px 10px;
+}
+
+sub { color: #334155; font-size: 11px; display: block; padding: 0 52px; }
+sub a { color: #4f46e5; text-decoration: none; }
+
+/* ── Slide containers: vertical centering ── */
+.slide {
+  width: 1080px;
+  height: 1080px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  page-break-before: always;
+  break-before: page;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+.slide-cover {
+  page-break-before: avoid !important;
+  break-before: avoid !important;
+}
