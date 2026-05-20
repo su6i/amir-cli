@@ -1,4 +1,8 @@
-# amir-cli — CLAUDE.md
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+---
 
 ## قانون امنیتی: بررسی اجباری قبل از هر کامیت
 
@@ -71,19 +75,93 @@ git diff --cached --stat   # لیست فایل‌های staged
 
 ---
 
-## چیه این پروژه
+## معماری و ساختار پروژه
 
-ابزار CLI شخصی برای تبدیل Markdown/HTML به PDF با موتور Puppeteer (headless Chrome). دستور اصلی: `amir pdf [options] file.md`.
+`amir` یک CLI ابزار شخصی چندمنظوره است: ویدیو/صوت، زیرنویس AI، PDF/carousel، مدیریت سیستم.
+
+### لایه‌های اجرا
+
+```
+amir (bash entry point)
+├── sources lib/commands/*.sh     ← ~26 command modules
+├── activates .venv automatically
+├── exports AMIR_ROOT, LIB_DIR, SCRIPT_DIR
+└── config from ~/.amir/config.yaml
+```
+
+**اجرای دستورات Python:** از طریق `uv run` یا `.venv` که توسط installer ساخته می‌شه.
+
+**اجرای PDF:** Node.js + Puppeteer (`lib/nodejs/render_puppeteer.js`) — مستقل از venv.
+
+### سیستم زیرنویس (پیچیده‌ترین بخش)
+
+```
+lib/python/subtitle/
+├── cli.py               ← argparse entry point (amir subtitle)
+├── processor.py         ← orchestrator اصلی (Whisper + translate + render)
+├── transcription/       ← Whisper (mlx-whisper / faster-whisper)
+├── translation/         ← deepseek_pipeline.py + gemini fallback
+├── social/              ← Telegram/LinkedIn post generation
+├── rendering/           ← ASS subtitle + FFmpeg burn-in
+├── segmentation/        ← speaker diarization
+├── concurrency/         ← slot management (cap=1 default)
+└── workflow/            ← pipeline orchestration
+```
+
+### API Keys (در `~/.amir/config.yaml` یا env vars)
+
+| متغیر | کاربرد |
+|---|---|
+| `DEEPSEEK_API_KEY` | ترجمه زیرنویس (deepseek-v4-flash) — اصلی |
+| `GEMINI_API_KEY` | fallback ترجمه + `amir chat` |
+| `GOOGLE_API_KEY` | Gemini TTS |
+| `OPENAI_API_KEY` | فقط برای `amir llm-lists openai` |
+
+---
+
+## دستورات توسعه
+
+```bash
+# نصب اولیه
+./install.sh
+
+# اجرای مستقیم (بدون install)
+bash amir <command>
+
+# اجرای Python subtitle مستقیماً
+uv run python -m subtitle <args>
+# یا با venv فعال:
+source .venv/bin/activate
+python lib/python/subtitle/cli.py <args>
+
+# تست subtitle (pytest)
+cd lib/python/subtitle && pytest tests/ -v
+
+# ساخت PDF carousel
+amir pdf --theme carousel FILE.md -o OUTPUT.pdf
+
+# git add برای lib/commands/ (به دلیل gitignore باید -f بزنی)
+git add -f lib/commands/specific_file.sh
+```
+
+---
 
 ## فایل‌های کلیدی
 
 | فایل | نقش |
 |---|---|
-| `lib/commands/pdf.sh` | entry point دستور `amir pdf` |
-| `lib/nodejs/render_puppeteer.js` | موتور رندر اصلی (Puppeteer) |
-| `lib/themes/carousel.css` | تم LinkedIn carousel |
-| `lib/commands/audio.sh`, `video.sh` | دستورات صوتی/تصویری |
-| `lib/python/subtitle/processor.py` | پردازش زیرنویس |
+| `amir` | bash entry point — sources commands, activates venv |
+| `lib/commands/pdf.sh` | دستور `amir pdf` |
+| `lib/commands/video.sh` | دانلود + پردازش ویدیو + SIGINT trap |
+| `lib/commands/subtitle.sh` | pipeline زیرنویس، exit code 130 propagation |
+| `lib/nodejs/render_puppeteer.js` | موتور رندر PDF (Puppeteer) |
+| `lib/themes/carousel.css` | تم LinkedIn carousel (1080×1080) |
+| `lib/python/subtitle/processor.py` | orchestrator زیرنویس |
+| `lib/python/subtitle/cli.py` | argparse + banner back_color fix |
+| `lib/python/subtitle/translation/deepseek_pipeline.py` | DeepSeek V4-Flash translation |
+| `lib/commands/init-project.sh` | `amir init-project` — کپی `.agent/` به پروژه جدید |
+
+---
 
 ## تصمیمات این session (20 مه 2026)
 
@@ -128,13 +206,6 @@ h2 { padding: 0 52px 0; }         /* was: 60px 52px 0 + page-break */
 // min-width: 0 !important  ← fix overflow
 // .slide / .slide-cover    ← vertical centering
 // DOM wrapping via page.evaluate() بعد از emoji fix
-```
-
-## دستور ساخت PDF carousel
-
-```bash
-cd /Users/su6i/@-github/CV/docs
-amir pdf --theme carousel FILE.md -o OUTPUT.pdf
 ```
 
 ## پروژه وابسته: CV / LinkedIn Content
