@@ -294,7 +294,7 @@ class SubtitleProcessor:
         
         # LLM Model names (configurable, not hardcoded)
         self.llm_models = {
-            "deepseek": os.environ.get("AMIR_MODEL_DEEPSEEK", "deepseek-chat"),
+            "deepseek": os.environ.get("AMIR_MODEL_DEEPSEEK", "deepseek-v4-flash"),
             "minimax": os.environ.get("AMIR_MODEL_MINIMAX", "abab6.5s-chat"),
             "gemini": os.environ.get("AMIR_MODEL_GEMINI", "gemini-2.5-flash"),
             "grok": os.environ.get("AMIR_MODEL_GROK", "grok-4.1")
@@ -2529,16 +2529,8 @@ class SubtitleProcessor:
                 val = response.choices[0].message.content.strip()
                 
             else:
-                # Smart Model Selection: Use the 75% discounted 'deepseek-v4-pro' until May 31, 2026.
-                import datetime
-                current_date = datetime.datetime.now(datetime.timezone.utc)
-                discount_end_date = datetime.datetime(2026, 5, 31, 15, 59, tzinfo=datetime.timezone.utc)
-                
                 selected_model = 'deepseek-v4-flash'
-                if current_date < discount_end_date:
-                    selected_model = 'deepseek-v4-pro'
-                    self.logger.info(f"🏷️ Using discounted '{selected_model}' model for deep reasoning (valid until May 31).")
-                
+
                 if not HAS_OPENAI:
                     raise ImportError("OpenAI package required for DeepSeek translation. Please install with 'pip install openai'")
                 
