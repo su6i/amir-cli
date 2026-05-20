@@ -4,6 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## قانون کامیت: فرمت پیام
+
+**هیچ‌گاه خط `Co-Authored-By:` به پیام کامیت اضافه نکن.** این پروژه شخصی است و نسبت دادن کامیت به AI غیرحرفه‌ای به نظر می‌رسد.
+
+```bash
+# فرمت صحیح:
+git commit -m "type(scope): description"
+
+# ممنوع:
+# Co-Authored-By: Claude ... <noreply@anthropic.com>
+```
+
+---
+
 ## قانون امنیتی: بررسی اجباری قبل از هر کامیت
 
 **قبل از هر `git commit`، با دقت و وسواس بررسی کن که هیچ‌کدام از موارد زیر در staged files وجود ندارد:**
