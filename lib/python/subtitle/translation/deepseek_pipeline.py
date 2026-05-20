@@ -61,16 +61,8 @@ def run_deepseek_translation_pipeline(
 
             if not HAS_OPENAI:
                 raise ImportError("OpenAI package required for DeepSeek translation. Please install with 'pip install openai'")
-        
-            # Smart Model Selection: Use the 75% discounted 'deepseek-v4-pro' until May 31, 2026.
-            import datetime
-            current_date = datetime.datetime.now(datetime.timezone.utc)
-            discount_end_date = datetime.datetime(2026, 5, 31, 15, 59, tzinfo=datetime.timezone.utc)
-            
+
             selected_model = 'deepseek-v4-flash'
-            if current_date < discount_end_date:
-                selected_model = 'deepseek-v4-pro'
-                processor.logger.info(f"🏷️ Using discounted '{selected_model}' model for deep reasoning (valid until May 31).")
             
             try:
                 response = client.chat.completions.create(
