@@ -200,6 +200,11 @@ git add -f lib/commands/specific_file.sh
 
 **فایل‌های تغییریافته:** `quality.py` (جدید)، `processor.py`، `workflow/source_stage.py`، `cli.py`
 
+### نکته مهم — رفتار `--force` با YouTube auto-pipeline
+
+`--force` یعنی «SRT قدیمی را پاک کن و از صفر پردازش کن». **نباید** YouTube auto-pipeline را skip کند.
+در `source_stage.py`، شرط `not force` از condition اجرای `_auto_yt_check` حذف شد — حالا `--force` همچنان YouTube را چک می‌کند و فقط `--no-yt-auto` آن را skip می‌کند.
+
 ---
 
 ## تصمیمات این session (20 مه 2026)
