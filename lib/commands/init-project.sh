@@ -89,41 +89,37 @@ run_init_project() {
     }
 
     # Create target structure
-    mkdir -p "$TARGET_DIR/.cursor/rules"
-    mkdir -p "$TARGET_DIR/.cursor/workflows"
-    
+    mkdir -p "$TARGET_DIR/.agent/rules"
+    mkdir -p "$TARGET_DIR/.agent/workflows"
+
     # --- SELECTIVE COPY LOGIC ---
-    
-    # Rules: Copy specific rules, rename global.mdc.md -> global.mdc if needed
-    # We explicitly look for the correct file at source
-    
-    # Global Constitution
-    if [[ -f "$SOURCE_ROOT/.cursor/rules/global.mdc" ]]; then
-         copy_file "$SOURCE_ROOT/.cursor/rules/global.mdc" "$TARGET_DIR/.cursor/rules/global.mdc"
-    elif [[ -f "$SOURCE_ROOT/.cursor/rules/global.mdc.md" ]]; then
-         # Fix double extension on copy
-         copy_file "$SOURCE_ROOT/.cursor/rules/global.mdc.md" "$TARGET_DIR/.cursor/rules/global.mdc"
+
+    # Rules: Copy entire rules directory
+    if [[ -d "$SOURCE_ROOT/.agent/rules" ]]; then
+        for rule_file in "$SOURCE_ROOT/.agent/rules/"*; do
+            [[ -f "$rule_file" ]] && copy_file "$rule_file" "$TARGET_DIR/.agent/rules/$(basename "$rule_file")"
+        done
     fi
 
-    # Workflows: Copy essential workflows ONLY (avoid copying unrelated agent prompts)
-    # Define the whitelist of workflows to copy
+    # Workflows: Copy essential workflows only
     ESSENTIAL_WORKFLOWS=(
         "init-project.md"
         "documentation.md"
         "ai-optimization.md"
         "quality-assurance.md"
+        "communication.md"
         "social-media-showcase.md"
     )
 
     for wf in "${ESSENTIAL_WORKFLOWS[@]}"; do
-        if [[ -f "$SOURCE_ROOT/.cursor/workflows/$wf" ]]; then
-             copy_file "$SOURCE_ROOT/.cursor/workflows/$wf" "$TARGET_DIR/.cursor/workflows/$wf"
+        if [[ -f "$SOURCE_ROOT/.agent/workflows/$wf" ]]; then
+             copy_file "$SOURCE_ROOT/.agent/workflows/$wf" "$TARGET_DIR/.agent/workflows/$wf"
         fi
     done
 
     # Skills: Copy ALL skills
-    if [[ -d "$SOURCE_ROOT/.cursor/skills" ]]; then
-         copy_file "$SOURCE_ROOT/.cursor/skills" "$TARGET_DIR/.cursor/skills"
+    if [[ -d "$SOURCE_ROOT/.agent/skills" ]]; then
+         copy_file "$SOURCE_ROOT/.agent/skills" "$TARGET_DIR/.agent/skills"
     fi
 
     # 4. Scaffold Standard Directories
@@ -188,7 +184,7 @@ run_init_project() {
         cd "$TARGET_DIR" || return 1
         
         if command -v git &> /dev/null; then
-            git add .cursor/ .gitignore src/ tests/ docs/ assets/ lib/ Roadmap/
+            git add .agent/ .gitignore src/ tests/ docs/ assets/ lib/ Roadmap/
             echo "   ✅ Files flagged for commit."
         else
              echo "⚠️  Git not found, skipping stage."
@@ -199,5 +195,5 @@ run_init_project() {
     fi
 
     echo "🎉 Constitution Installed! This project is now strictly Agent-Governed."
-    echo "📜 Please review the Workflows in .cursor/workflows/"
+    echo "📜 Please review the Workflows in .agent/workflows/"
 }
