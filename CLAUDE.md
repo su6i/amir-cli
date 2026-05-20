@@ -158,8 +158,33 @@ git add -f lib/commands/specific_file.sh
 | `lib/themes/carousel.css` | تم LinkedIn carousel (1080×1080) |
 | `lib/python/subtitle/processor.py` | orchestrator زیرنویس |
 | `lib/python/subtitle/cli.py` | argparse + banner back_color fix |
+| `lib/python/subtitle/quality.py` | کیفیت‌سنج SRT + ساخت language timeline چندزبانه |
+| `lib/python/subtitle/workflow/source_stage.py` | تهیه SRT منبع + YouTube auto-pipeline |
 | `lib/python/subtitle/translation/deepseek_pipeline.py` | DeepSeek V4-Flash translation |
 | `lib/commands/init-project.sh` | `amir init-project` — کپی `.agent/` به پروژه جدید |
+
+---
+
+## تصمیمات این session (21 مه 2026)
+
+### مشکل ۶: ویدیوهای چندزبانه — هذیان Whisper هنگام تغییر زبان
+**علت:** Whisper زبان را فقط یک‌بار از ۳۰ ثانیه اول detect می‌کند و برای کل ویدیو قفل می‌کند. وقتی `language='he'` ست بود و صدا به انگلیسی تغییر می‌کرد، Whisper هذیان عبری تولید می‌کرد (مثل "על קריטיקה" loop در Tucker Carlson).
+
+**راه‌حل — سه لایه:**
+
+1. **`quality.py` (جدید):** کیفیت‌سنج SRT با ۵ metric: coverage، WPM، exact-repetition، **near-duplicate loop** (Jaccard similarity > 0.6 بین خطوط متوالی — این hallucination رو با score=0.50 گرفت)، و gap analysis. آستانه پیش‌فرض: 0.65.
+
+2. **YouTube auto-pipeline در `source_stage.py`:** قبل از هر Whisper، اگر `info.json` کنار ویدیو باشد، track‌های `iw`/`he` و `en` رو دانلود و quality-check می‌کند:
+   - یه track با quality≥0.65 و coverage≥72% → مستقیم استفاده (بدون Whisper)
+   - دو track مکمل (مثل he=5% + en=95%) → `build_language_timeline()` → `transcribe_by_language_timeline()`
+   - هیچ‌کدام → Whisper معمولی
+   - با `--no-yt-auto` غیرفعال می‌شود
+
+3. **`transcribe_by_language_timeline()` در `processor.py`:** هر segment ویدیو را با FFmpeg جدا می‌کند و Whisper را با زبان درست آن segment فراخوانی می‌کند. timestamps مطلق را نگه می‌دارد.
+
+4. **`--multilingual` flag:** برای ویدیوهای **غیر YouTube** (بدون info.json) — chunk را از 420-600s به **90s** کاهش می‌دهد تا هر chunk مستقلاً زبانش را detect کند. برای YouTube ها نیازی نیست.
+
+**فایل‌های تغییریافته:** `quality.py` (جدید)، `processor.py`، `workflow/source_stage.py`، `cli.py`
 
 ---
 
