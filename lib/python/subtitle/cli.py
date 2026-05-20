@@ -358,15 +358,11 @@ Note:
         args.alignment = 2
 
     # Banner workflows should not keep ASS black box unless explicitly requested.
+    # When a banner color/image is used with any style, make the subtitle
+    # background transparent so the banner is actually visible.
     if (
         args.back_color is None
         and (args.subtitle_banner_image or args.subtitle_banner_color)
-        and args.style in {
-            SubtitleStyle.SHORT_FORM.value,
-            SubtitleStyle.CHANNEL_BRAND_BLUE.value,
-            SubtitleStyle.SHORTS_BRAND_BLUE.value,
-            SubtitleStyle.NEWS_GUEST_BLUE.value,
-        }
     ):
         args.back_color = "&H00000000"
 
