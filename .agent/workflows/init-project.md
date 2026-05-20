@@ -8,7 +8,7 @@ description: Initialize a new professional project following the Agent Protocol 
 
 1.  **Scaffold Directory Structure**
     - Create `src/`, `tests/`, `docs/`, `assets/`, `lib/`, `prompts/`.
-    - Create `.cursor/workflows/` (Standard Rules Location).
+    - Create `.agent/workflows/` (Standard Rules Location).
     - Create `.storage/`, `.storage/temp/`, and `.storage/data/` (For local datasets/logs).
     - Ensure root is clean.
 

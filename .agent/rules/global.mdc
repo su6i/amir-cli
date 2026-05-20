@@ -6,12 +6,11 @@
 ## 1. The "Workflow First" Rule
 You are strictly bound by the defined Workflows. You simply CANNOT execute a task without consulting its corresponding workflow first.
 
-- **Initialization:** ALWAYS follow `.cursor/workflows/init-project.md` for new projects.
-- **Architect First:** Before writing code, check `.cursor/instructions/`. If empty/missing, you MUST assume the role of **Architect** (Strongest Model) to plan the work first.
-- **Documentation:** ALWAYS follow `.cursor/workflows/documentation.md` for writing docs.
-- **AI Logic:** ALWAYS follow `.cursor/workflows/ai-optimization.md` for implementing AI features.
-- **QA & Git:** ALWAYS follow `.cursor/workflows/quality-assurance.md` for testing and commits.
-- **Showcase:** ALWAY follow `.cursor/workflows/social-media-showcase.md` after completion.
+- **Initialization:** ALWAYS follow `.agent/workflows/init-project.md` for new projects.
+- **Architect First:** Before writing code, enter Plan Mode (`/plan`) to design the approach. For complex tasks, use the `Plan` subagent. Only exit plan mode after user approval.
+- **Documentation:** ALWAYS follow `.agent/workflows/documentation.md` for writing docs.
+- **AI Logic:** ALWAYS follow `.agent/workflows/ai-optimization.md` for implementing AI/ML features.
+- **QA & Git:** ALWAYS follow `.agent/workflows/quality-assurance.md` for testing and commits.
 
 ## 2. Professional Standards (Non-Negotiable)
 - **Unified Entry:** Every project has exactly ONE `main.py` entry point.
@@ -23,7 +22,7 @@ You are strictly bound by the defined Workflows. You simply CANNOT execute a tas
     - Secrets -> `.env` (with `.env.example`)
     - **No hardcoding.** Ever.
 - **Automatic Dependency Resolution (Self-Healing):** Every CLI tool/entry-point MUST automatically check for required system and language dependencies upon execution. If missing, it must call the project's `install.sh` in an automated, non-interactive mode.
-- **Centralized Configuration (Single Source of Truth):** For multi-language projects (Bash + Python), encoding parameters, media standards, and shared constants MUST be stored in `lib/config/*.json`. Both languages read from the SAME file via language-specific API layers (`media_config.py` for Python, `get_media_config()` in Bash). This prevents code duplication and maintains DRY principles. See `.cursor/skills/centralized-config-pattern.md` for implementation details.
+- **Centralized Configuration (Single Source of Truth):** For multi-language projects (Bash + Python), encoding parameters, media standards, and shared constants MUST be stored in `lib/config/*.json`. Both languages read from the SAME file via language-specific API layers (`media_config.py` for Python, `get_media_config()` in Bash). This prevents code duplication and maintains DRY principles. See `.agent/skills/centralized-config-pattern.md` for implementation details.
 
 ## 3. Storage & Cleanliness
 - **Root:** Keep the root directory clean (`src/`, `docs/`, `install.sh`).
@@ -69,8 +68,8 @@ You are strictly bound by the defined Workflows. You simply CANNOT execute a tas
 
 ## 9. Research-First & "No Invention of the Wheel" Protocol
 **Rule:** You are FORBIDDEN from "reinventing the wheel." You MUST exhaustively review existing internal code and documented skills BEFORE starting any new implementation.
-- **Phase 1 (Internal Review):** Read all relevant `.cursor/skills/*.md` files and existing codebase logic. If a working pattern exists (e.g., Zsh completion patterns, Python data processing), you MUST adapt it instead of creating a new one.
-- **Phase 2 (Deep Search 2026):** If internal knowledge is insufficient, perform a "Deep Search" on the internet. Focus on:
+- **Phase 1 (Internal Review):** Read all relevant `.agent/skills/*.md` files and existing codebase logic. If a working pattern exists (e.g., Zsh completion patterns, Python data processing), you MUST adapt it instead of creating a new one.
+- **Phase 2 (Deep Search 2026):** If internal knowledge is insufficient, use the `WebSearch` tool. Focus on:
     - **Current Best Practices (2026):** The most modern, performance-optimized standards.
     - **Corporate Standards:** Research how world-class tech companies (e.g., Google, Meta, Apple) implement similar logic.
 - **Phase 3 (Learning & Planning):** Do NOT write code until you have fully understood the researched material and best practices.
