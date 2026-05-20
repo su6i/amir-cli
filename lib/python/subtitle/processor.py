@@ -283,6 +283,7 @@ class SubtitleProcessor:
         whisper_timing: bool = False,
         native_target_lines: str = "keep",
         allow_model_downgrade: bool = False,
+        multilingual: bool = False,
     ):
         self.api_key = api_key or self.load_api_key()
         # Support both naming conventions
@@ -304,6 +305,7 @@ class SubtitleProcessor:
         self.use_bert = use_bert
         self.bert_model = bert_model or os.environ.get('AMIR_BERT_MODEL')
         self.use_vad = use_vad
+        self.multilingual = bool(multilingual) or str(os.environ.get("AMIR_MULTILINGUAL", "")).strip().lower() in {"1", "true", "yes", "on"}
         # When enabled, bypass only timing-normalization rules and keep
         # Whisper-derived cue starts/ends as-is after segmentation.
         self.whisper_timing = whisper_timing
@@ -1072,17 +1074,19 @@ class SubtitleProcessor:
         """
         return all_words
 
-    def _run_faster_whisper_full(self, video_path: str, language: str = '') -> Tuple[List[WordObj], str]:
+    def _run_faster_whisper_full(self, video_path: str, language: str = '', force_chunked: bool = False) -> Tuple[List[WordObj], str]:
         """Full-video transcription using faster-whisper + VAD.
-        
+
         This is the production-grade, hallucination-free transcription path.
         - Uses VAD to cleanly skip silence/non-speech sections that cause MLX 30s lock bugs.
         - Processes audio in 10-minute chunks (overlapping by 5s) so progress is shown.
         - Falls back gracefully to an empty list on error (caller handles fallback).
+        - force_chunked=True skips the shared server (which locks a single language for the
+          full video) and uses per-chunk language auto-detection for multilingual content.
         """
         import tempfile
         from faster_whisper import WhisperModel
-        
+
         _lang = (language or 'auto').strip().lower()
         _lang_for_engine = None if _lang in ('auto', 'detect', '') else _lang
         low_ram = bool(getattr(self, 'low_ram_mode', False))
@@ -1090,8 +1094,14 @@ class SubtitleProcessor:
         if low_ram and self._disable_shared_whisper_server:
             self.logger.info("🧠 Low-RAM mode: skipping shared whisper server, using local chunked transcription.")
 
+        if force_chunked:
+            self.logger.info("🌐 Multilingual mode: using per-chunk language detection (server bypassed).")
+
         # Preferred path: shared whisper server (single model shared across processes).
-        if self._whisper_server_enabled():
+        # Bypassed in multilingual mode because the server transcribes the full video with
+        # a single language setting, which causes hallucinations when language changes.
+        if self._whisper_server_enabled() and not force_chunked:
+
             try:
                 server_words, server_lang = self._transcribe_via_server(
                     video_path,
@@ -1146,13 +1156,20 @@ class SubtitleProcessor:
             self.logger.warning(f"⚠️ faster-whisper model load failed: {e}. Falling back to MLX.")
             return [], ''
 
-        if low_ram:
+        if force_chunked:
+            # Per-chunk language detection: small chunks so each detects its own language.
+            # 90s = 3× Whisper's 30s window; enough context, fine enough granularity.
+            CHUNK = 90
+            OVERLAP = 5
+        elif low_ram:
             CHUNK = 300
+            OVERLAP = 4
         elif self.model_size in ("large-v3", "large-v2", "large"):
             CHUNK = 420
+            OVERLAP = 5
         else:
             CHUNK = 600
-        OVERLAP = 4 if low_ram else 5     # overlap to avoid cutting mid-word at boundaries
+            OVERLAP = 5
         all_words: List[WordObj] = []
         detected_lang = ''
         seen_ends: set = set()
@@ -1266,16 +1283,18 @@ class SubtitleProcessor:
     ) -> str:
         """Transcribe video with Whisper (Standard Torch)"""
         from faster_whisper import WhisperModel
-        
+
         _lang = (language or 'auto').strip().lower()
         _lang_for_engine = None if _lang in ('auto', 'detect', '') else _lang
+        _multilingual = getattr(self, 'multilingual', False)
         self.logger.info(f"Transcription process initiated (ISO: {(_lang_for_engine or 'AUTO').upper()})")
 
         if self.low_ram_mode:
             self.logger.info("🧠 Low-RAM mode: using chunked faster-whisper path.")
             all_words, detected_lang = self._run_faster_whisper_full(
                 video_path,
-                language=_lang_for_engine or '',
+                language='' if _multilingual else (_lang_for_engine or ''),
+                force_chunked=_multilingual,
             )
             if all_words:
                 out_lang = _lang if _lang_for_engine else (detected_lang if re.fullmatch(r"[a-z]{2,3}", detected_lang) else 'en')
@@ -1292,29 +1311,46 @@ class SubtitleProcessor:
                 return srt_path
 
         # Preferred path: shared server to avoid per-process model duplication.
-        try:
-            all_words, detected_lang = self._transcribe_via_server(
+        # Bypassed in multilingual mode: server locks language for the full video.
+        if not _multilingual:
+            try:
+                all_words, detected_lang = self._transcribe_via_server(
+                    video_path,
+                    language=_lang_for_engine or '',
+                    use_vad=True,
+                    min_silence_duration_ms=700,
+                    speech_pad_ms=400,
+                )
+                if all_words:
+                    out_lang = _lang if _lang_for_engine else (detected_lang if re.fullmatch(r"[a-z]{2,3}", detected_lang) else 'en')
+                    if _lang_for_engine is None and out_lang:
+                        self.logger.info(f"🌐 Whisper detected source language: {out_lang}")
+
+                    entries = self.resegment_to_sentences(all_words, None)
+                    srt_path = os.path.splitext(video_path)[0] + f"_{out_lang}.srt"
+                    with open(srt_path, 'w', encoding='utf-8-sig') as f:
+                        for i, entry in enumerate(entries, 1):
+                            f.write(f"{i}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
+
+                    self.logger.info(f"Asset preservation complete: {Path(srt_path).name}")
+                    return srt_path
+            except Exception as e:
+                self.logger.warning(f"⚠️ Shared whisper server unavailable, loading local model: {e}")
+        else:
+            all_words, detected_lang = self._run_faster_whisper_full(
                 video_path,
-                language=_lang_for_engine or '',
-                use_vad=True,
-                min_silence_duration_ms=700,
-                speech_pad_ms=400,
+                language='',
+                force_chunked=True,
             )
             if all_words:
                 out_lang = _lang if _lang_for_engine else (detected_lang if re.fullmatch(r"[a-z]{2,3}", detected_lang) else 'en')
-                if _lang_for_engine is None and out_lang:
-                    self.logger.info(f"🌐 Whisper detected source language: {out_lang}")
-
                 entries = self.resegment_to_sentences(all_words, None)
                 srt_path = os.path.splitext(video_path)[0] + f"_{out_lang}.srt"
                 with open(srt_path, 'w', encoding='utf-8-sig') as f:
                     for i, entry in enumerate(entries, 1):
                         f.write(f"{i}\n{entry['start']} --> {entry['end']}\n{entry['text']}\n\n")
-
                 self.logger.info(f"Asset preservation complete: {Path(srt_path).name}")
                 return srt_path
-        except Exception as e:
-            self.logger.warning(f"⚠️ Shared whisper server unavailable, loading local model: {e}")
         
         model = self.model
         if not hasattr(model, "transcribe"):
@@ -1376,10 +1412,20 @@ class SubtitleProcessor:
         with MLX subprocess as fallback for speed on Apple Silicon."""
         _lang = (language or 'auto').strip().lower()
         _lang_for_worker = '' if _lang in ('auto', 'detect', '') else _lang
-        self.logger.info(f"☢️ Initiating Transcription (Primary: faster-whisper VAD, Fallback: MLX | ISO: {(_lang_for_worker or 'AUTO').upper()})")
+        _multilingual = getattr(self, 'multilingual', False)
+        if _multilingual:
+            self.logger.info(f"☢️ Initiating Multilingual Transcription (per-chunk auto-detect | source label: {(_lang_for_worker or 'AUTO').upper()})")
+        else:
+            self.logger.info(f"☢️ Initiating Transcription (Primary: faster-whisper VAD, Fallback: MLX | ISO: {(_lang_for_worker or 'AUTO').upper()})")
 
         # --- PRIMARY PASS: full-video faster-whisper + VAD ---
-        vad_words, vad_lang = self._run_faster_whisper_full(video_path, language=_lang_for_worker)
+        # In multilingual mode: force chunked path with language=None so each chunk
+        # independently detects its language (Hebrew chunk → he, English chunk → en).
+        vad_words, vad_lang = self._run_faster_whisper_full(
+            video_path,
+            language='' if _multilingual else _lang_for_worker,
+            force_chunked=_multilingual,
+        )
         if not _lang_for_worker and vad_lang:
             _lang_for_worker = vad_lang
             self.logger.info(f"🌐 VAD auto-detected language: {_lang_for_worker}")
@@ -1553,6 +1599,81 @@ class SubtitleProcessor:
 
         self.logger.info(f"MLX asset preservation complete: {Path(srt_path).name}")
         return srt_path
+
+    # ==================== LANGUAGE-TIMELINE TRANSCRIPTION ====================
+
+    def transcribe_by_language_timeline(
+        self,
+        video_path: str,
+        timeline: list,  # List[LangSegment] from subtitle.quality
+    ) -> List[WordObj]:
+        """Transcribe a video by splitting it into per-language segments.
+
+        Each segment is transcribed with Whisper forced to its detected language,
+        eliminating cross-language hallucinations for multilingual content.
+        Returns a merged list of WordObj with absolute timestamps.
+        """
+        if not timeline:
+            return []
+
+        all_words: List[WordObj] = []
+
+        for seg_idx, seg in enumerate(timeline):
+            seg_dur = seg.end - seg.start
+            if seg_dur < 1.0:
+                continue
+
+            self.logger.info(
+                f"🌐 Timeline segment {seg_idx + 1}/{len(timeline)}: "
+                f"[{seg.start:.1f}s - {seg.end:.1f}s] lang={seg.lang} ({seg_dur:.0f}s)"
+            )
+
+            # Extract audio segment
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                seg_wav = f.name
+
+            try:
+                cmd = [
+                    "ffmpeg", "-y", "-i", video_path,
+                    "-ss", str(seg.start), "-t", str(seg_dur),
+                    "-q:a", "0", "-vn", "-f", "wav", seg_wav,
+                ]
+                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+
+                # Transcribe segment with forced language
+                seg_words, _ = self._run_faster_whisper_full(
+                    seg_wav,
+                    language=seg.lang,
+                    force_chunked=False,   # this segment is already in one language
+                )
+
+                # Adjust timestamps to absolute video time
+                for w in seg_words:
+                    all_words.append(WordObj(
+                        w.start + seg.start,
+                        w.end + seg.start,
+                        w.word,
+                    ))
+
+                self.logger.info(
+                    f"  ✅ Segment {seg_idx + 1}: {len(seg_words)} words"
+                )
+
+            except Exception as e:
+                self.logger.warning(
+                    f"  ⚠️  Segment {seg_idx + 1} failed: {e}. Skipping."
+                )
+            finally:
+                try:
+                    os.remove(seg_wav)
+                except Exception:
+                    pass
+
+        self.logger.info(
+            f"✅ Language-timeline transcription complete: "
+            f"{len(all_words)} words across {len(timeline)} segment(s)."
+        )
+        return all_words
 
     def _remove_whisper_artifacts(self, text: str) -> str:
         """Remove Whisper transcription artifacts like \\h (hard breaks)"""
@@ -2844,6 +2965,8 @@ class SubtitleProcessor:
         ass_input_path: Optional[str] = None,
         use_vad: bool = True,
         yt_subs: bool = False,
+        yt_auto: bool = True,
+        yt_quality_threshold: float = 0.65,
         progress_callback=None,
     ) -> Dict[str, Any]:
         """Complete workflow with fixed path handling and memory management"""
@@ -3085,6 +3208,8 @@ class SubtitleProcessor:
                 migrate_legacy_resolution_srt_fn=_migrate_legacy_resolution_srt,
                 emit_progress=_emit_progress,
                 yt_subs=yt_subs,
+                yt_auto=yt_auto,
+                yt_quality_threshold=yt_quality_threshold,
             )
             
             # Release heavy CPU/RAM slot during network-bound translation stage
