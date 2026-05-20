@@ -3095,6 +3095,12 @@ class SubtitleProcessor:
                 yt_subs=yt_subs,
             )
             
+            # Release heavy CPU/RAM slot during network-bound translation stage
+            if global_slot_path:
+                self.logger.info("🔓 Releasing global slot during translation to allow next video to transcribe.")
+                self._release_global_workflow_slot(global_slot_path)
+                global_slot_path = None
+            
             # 2. Translation
             run_translation_stage(
                 self,
@@ -3127,6 +3133,11 @@ class SubtitleProcessor:
             
             # 3. RENDERING (skip when input is SRT-only — no video source available)
             if render and not _is_srt_input:
+                # Re-acquire slot for heavy FFmpeg rendering
+                if not global_slot_path:
+                    self.logger.info("🔒 Re-acquiring global slot for video rendering.")
+                    global_slot_path = self._acquire_global_workflow_slot(video_path)
+
                 _render_ok = run_rendering_stage(
                     self,
                     result=result,
