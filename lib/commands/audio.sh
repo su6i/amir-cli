@@ -94,7 +94,8 @@ audio_convert() {
         return 1
     fi
     
-    log_info "🔄 Converting $(basename "$INPUT") to ${FORMAT^^} format..." >&2
+    local UPPER_FORMAT=$(echo "$FORMAT" | tr '[:lower:]' '[:upper:]')
+    log_info "🔄 Converting $(basename "$INPUT") to ${UPPER_FORMAT} format..." >&2
     local FFMPEG_PATH=$(get_ffmpeg_path)
     local duration_seconds=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$INPUT" 2>/dev/null | cut -d. -f1)
     

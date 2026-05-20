@@ -9,8 +9,9 @@ run_pdf() {
     local SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     local LIB_DIR="$(dirname "$SCRIPT_DIR")"
     
-    local inputs=() output="" engine="puppeteer"
+    local inputs=() output="" engine="puppeteer" theme=""
     local raw_output="" free_size=false
+    local page_width="" page_height=""
     local multi_page=false
     local do_deskew=true
     local CLEANUP_FILES=()
@@ -23,9 +24,12 @@ run_pdf() {
             --pil) engine="pil"; shift ;;
             --pandoc) engine="pandoc"; shift ;;
             --free-size|-f) free_size=true; shift ;;
+            --page-width) page_width="$2"; shift; shift ;;
+            --page-height) page_height="$2"; shift; shift ;;
             --pages|--merge) multi_page=true; shift ;;
             --deskew|--straighten) do_deskew=true; shift ;;
             --no-deskew|--no-straighten) do_deskew=false; shift ;;
+            --theme) theme="$2"; shift; shift ;;
             *) [[ -f "$1" ]] && inputs+=("$1"); shift ;;
         esac
     done
@@ -97,12 +101,14 @@ run_pdf() {
 
             local success=false
             if [[ "$engine" == "puppeteer" ]]; then
-                node "${LIB_DIR}/nodejs/render_puppeteer.js" "$abs_file" "$tmp_out" "$font_fa" "$chrome_profile" "$free_size" &>/dev/null && success=true
+                node "${LIB_DIR}/nodejs/render_puppeteer.js" "$abs_file" "$tmp_out" "$font_fa" "$chrome_profile" "$free_size" "$page_width" "$page_height" "$theme" &>/dev/null && success=true
             elif [[ "$engine" == "weasyprint" ]]; then
                 if [[ "$free_size" == "true" ]]; then echo "⚠️  --free-size is only fully supported on Puppeteer. Output may vary."; fi
+                if [[ -n "$page_width" || -n "$page_height" ]]; then echo "⚠️  --page-width/--page-height are only supported on Puppeteer. Output may vary."; fi
                 $python_cmd "${LIB_DIR}/python/render_weasy.py" "$abs_file" "$tmp_out" "$font_fa" &>/dev/null && success=true
             elif [[ "$engine" == "pandoc" ]]; then
                 if [[ "$free_size" == "true" ]]; then echo "⚠️  --free-size is only fully supported on Puppeteer. Output may vary."; fi
+                if [[ -n "$page_width" || -n "$page_height" ]]; then echo "⚠️  --page-width/--page-height are only supported on Puppeteer. Output may vary."; fi
                 pandoc "$abs_file" -o "$tmp_out" --pdf-engine=pdfkit &>/dev/null && success=true
             fi
 
@@ -212,12 +218,38 @@ run_pdf() {
             local abs_output=$(python3 -c "import os; print(os.path.abspath('$output'))")
             echo "✅ PDF Created: $abs_output"
         else
-            if $cmd -density 300 "${final_ready[@]}" -compress jpeg -quality 100 "$output"; then
-                touch "$output"
-                local abs_output=$(python3 -c "import os; print(os.path.abspath('$output'))")
-                echo "✅ PDF Created: $abs_output"
+            # Smart Merge: Use Ghostscript if all inputs are PDFs to avoid rasterization bloat
+            local all_pdfs=true
+            local gs_inputs=()
+            for f in "${final_ready[@]}"; do
+                if [[ "$f" == *.pdf* ]]; then
+                    gs_inputs+=("${f%\[*\]}")
+                else
+                    all_pdfs=false
+                    break
+                fi
+            done
+
+            if [[ "$all_pdfs" == "true" ]] && command -v gs &>/dev/null; then
+                if gs -dNOPAUSE -sDEVICE=pdfwrite -sOUTPUTFILE="$output" -dBATCH "${gs_inputs[@]}" &>/dev/null; then
+                    touch "$output"
+                    local abs_output=$(python3 -c "import os; print(os.path.abspath('$output'))")
+                    echo "✅ PDF Created (Vector Merge): $abs_output"
+                else
+                    all_pdfs=false # Fallback to ImageMagick if GS fails
+                fi
             else
-                echo "❌ Final assembly failed."
+                all_pdfs=false
+            fi
+
+            if [[ "$all_pdfs" == "false" ]]; then
+                if $cmd -density 300 "${final_ready[@]}" -compress jpeg -quality 100 "$output"; then
+                    touch "$output"
+                    local abs_output=$(python3 -c "import os; print(os.path.abspath('$output'))")
+                    echo "✅ PDF Created (Rasterized): $abs_output"
+                else
+                    echo "❌ Final assembly failed."
+                fi
             fi
         fi
     else
