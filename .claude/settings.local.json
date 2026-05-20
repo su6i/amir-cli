@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(amir *)",
+      "Bash(ffmpeg *)",
+      "Bash(ffprobe *)",
+      "Bash(yt-dlp *)",
+      "Bash(node *)",
+      "Bash(python3 *)",
+      "Bash(python *)",
+      "Bash(uv run *)",
+      "Bash(pip install *)",
+      "Bash(pip3 install *)",
+      "Bash(brew install *)",
+      "Bash(git *)",
+      "Bash(gh *)",
+      "Bash(grep -E \"\\\\.md$\")"
+    ]
+  }
+}

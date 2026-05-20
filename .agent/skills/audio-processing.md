@@ -139,7 +139,7 @@ YouTube exposes 4 audio-only streams per video:
 | 251 | ~129 kbps | webm | opus | target 128k (webm) |
 | **140** | **~130 kbps** | **m4a** | **aac-lc** | **target ≥ 128k (recommended)** |
 
-> See `.cursor/skills/yt-dlp-web-download.md` for the complete smart stream selection implementation.
+> See `.agent/skills/yt-dlp-web-download.md` for the complete smart stream selection implementation.
 
 ---
 [Back to README](../../README.md)
