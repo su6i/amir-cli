@@ -1,5 +1,64 @@
 # amir-cli — CLAUDE.md
 
+## قانون امنیتی: بررسی اجباری قبل از هر کامیت
+
+**قبل از هر `git commit`، با دقت و وسواس بررسی کن که هیچ‌کدام از موارد زیر در staged files وجود ندارد:**
+
+| چه چیزی | نمونه |
+|---|---|
+| نام و نام خانوادگی واقعی | Amir Shirali-Pour، هر اسم شخصی |
+| آدرس ایمیل | هر ایمیل واقعی |
+| شماره تلفن | هر شماره واقعی |
+| token و API key | هر رشته‌ای که شبیه secret باشد |
+| مسیر فایل‌های شخصی | مسیرهایی که به فایل‌های خصوصی اشاره می‌کنند |
+| داده hardcode شده از پروژه CV | محتوای `master_cv.json`، اطلاعات شغلی |
+
+**روش بررسی:**
+```bash
+git diff --cached          # همه staged changes را بخوان
+git diff --cached --stat   # لیست فایل‌های staged
+```
+
+اگر حتی یک مورد مشکوک دیدی → `git restore --staged <file>` و از کاربر بپرس.
+در صورت شک، کامیت نکن.
+
+---
+
+## سیستم Agent: قوانین، Workflow‌ها، و Skill‌ها
+
+پروژه یک سیستم دانش در `.agent/` دارد. **قبل از هر پیاده‌سازی** باید از آن استفاده کنی:
+
+### قانون ۱: Workflow First
+هر تسک یه workflow مشخص داره — قبل از نوشتن کد بخوانش:
+
+| تسک | Workflow |
+|---|---|
+| پروژه جدید | `.agent/workflows/init-project.md` |
+| پیاده‌سازی AI/ML | `.agent/workflows/ai-optimization.md` |
+| تست و commit | `.agent/workflows/quality-assurance.md` |
+| مستندسازی | `.agent/workflows/documentation.md` |
+
+### قانون ۲: Skill First (No Reinventing the Wheel)
+قبل از هر پیاده‌سازی، skill مربوطه را بخوان:
+
+| حوزه | Skill |
+|---|---|
+| FFmpeg | `.agent/skills/ffmpeg.md`, `.agent/skills/ffmpeg-recipes.md` |
+| زیرنویس و Whisper | `.agent/skills/subtitle-generator.md`, `.agent/skills/mlx-whisper.md` |
+| دانلود ویدیو | `.agent/skills/yt-dlp-web-download.md` |
+| Python | `.agent/skills/python-core-standards.md` |
+| Bash/Zsh پیشرفته | `.agent/skills/zsh-scripting-advanced.md` |
+| PDF رندر | `.agent/skills/pdf-rendering-engines.md` |
+| Claude Code | `.agent/skills/claude-code-integration.md` |
+| کیفیت کد | `.agent/skills/github-code-quality.md` |
+
+قوانین کلی: `.agent/rules/global.mdc` — بخوان و رعایت کن.
+
+### قانون ۳: Plan Before Code
+برای هر تسکی که بیش از ۳ فایل را لمس می‌کند، ابتدا Plan Mode را فعال کن (`/plan`) یا از `Plan` subagent استفاده کن.
+
+---
+
 ## قانون طلایی: مستندسازی اتوماتیک
 
 **بعد از هر تغییر در کد، دستورات، یا ساختار پروژه:**
@@ -25,6 +84,18 @@
 | `lib/themes/carousel.css` | تم LinkedIn carousel |
 | `lib/commands/audio.sh`, `video.sh` | دستورات صوتی/تصویری |
 | `lib/python/subtitle/processor.py` | پردازش زیرنویس |
+
+## تصمیمات این session (20 مه 2026)
+
+### مشکل ۴: Ctrl+C در pipeline دانلود+زیرنویس کار نمی‌کرد
+**علت:** تابع `video_download` در `video.sh` هیچ trap‌ای برای `SIGINT` نداشت. وقتی Ctrl+C زده می‌شد، `yt-dlp` می‌مرد ولی bash ادامه می‌داد: retry دانلود، ساخت زیرنویس، ایجاد `_link.txt` و ...  
+**راه‌حل:** در ابتدای `video_download` یک trap تنظیم شد: `trap '_DL_ABORTED=1' INT`. بعد از هر مرحله کلیدی (دانلود اول، retry، شروع subtitle) مقدار `_DL_ABORTED` و exit code 130 چک می‌شه. در `subtitle.sh` هم exit code 130 از `video_download` تشخیص داده و propagate می‌شه.
+
+### مشکل ۵: `--subtitle-banner-color` بی‌اثر بود
+**علت:** در `cli.py` کد مربوط به transparent کردن پس‌زمینه subtitle فقط برای ۴ style خاص اجرا می‌شد (`channel_brand_blue` و ...). برای `lecture` (default style) که `back_color="&H80000000"` داشت، این اتفاق نمی‌افتاد. نتیجه: پس‌زمینه‌ی نیمه‌شفاف subtitle روی banner می‌نشست و رنگ banner دیده نمی‌شد.  
+**راه‌حل:** شرط style‌های خاص حذف شد. حالا برای **هر style‌ای** که `--subtitle-banner-color` یا `--subtitle-banner-image` ست باشه، `back_color` به `&H00000000` (کاملاً transparent) تغییر می‌کنه (`cli.py` خط ۳۶۱).
+
+---
 
 ## تصمیمات این session (18 مه 2026)
 
