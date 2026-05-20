@@ -1503,11 +1503,11 @@ run_video_cut() {
         if $use_cover_frame; then
             local _fc=""
             if [[ -n "$overlay_fc" ]]; then
-                _fc="${overlay_fc};[${overlay_out_label}]null[vmain];[${cover_input_idx}:v][vmain]scale2ref[cover][vref];[vref][cover]overlay=0:0:enable='lte(t,0.08)':eof_action=pass[vout]"
+                _fc="${overlay_fc};[${overlay_out_label}]null[vmain];[${cover_input_idx}:v][vmain]scale2ref=w=main_w:h=main_h:force_original_aspect_ratio=decrease[cover_scaled][vref];[cover_scaled]scale=w='iw*min(1\,sar)':h='ih*min(1\,1/sar)',setsar=1[cover_fixed];[vref]drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill:enable='lte(t,0.08)'[vref_bg];[vref_bg][cover_fixed]overlay=(W-w)/2:(H-h)/2:enable='lte(t,0.08)':eof_action=pass[vout]"
             else
                 local _vprep="null"
                 [[ -n "$final_filter" ]] && _vprep="$final_filter"
-                _fc="[0:v]${_vprep}[vmain];[${cover_input_idx}:v][vmain]scale2ref[cover][vref];[vref][cover]overlay=0:0:enable='lte(t,0.08)':eof_action=pass[vout]"
+                _fc="[0:v]${_vprep}[vmain];[${cover_input_idx}:v][vmain]scale2ref=w=main_w:h=main_h:force_original_aspect_ratio=decrease[cover_scaled][vref];[cover_scaled]scale=w='iw*min(1\,sar)':h='ih*min(1\,1/sar)',setsar=1[cover_fixed];[vref]drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill:enable='lte(t,0.08)'[vref_bg];[vref_bg][cover_fixed]overlay=(W-w)/2:(H-h)/2:enable='lte(t,0.08)':eof_action=pass[vout]"
             fi
             cmd+=("-filter_complex" "$_fc" "-map" "[vout]" "-map" "0:a?" "-c:v" "libx264" "-crf" "$crf_val" "${bitrate_flags[@]}" "-preset" "medium" "-pix_fmt" "yuv420p" "-c:a" "copy")
         elif [[ -n "$overlay_fc" ]]; then
@@ -2102,6 +2102,11 @@ video_download() {
     local EXTREME_DL=false
     local -a _LANG_POSITIONALS=()
     local -a SUB_LANG_TOKENS=()
+
+    # Ctrl+C abort flag: set by SIGINT trap so every pipeline step can check it
+    local _DL_ABORTED=0
+    trap '_DL_ABORTED=1' INT
+
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --subtitle|-s)   DO_SUBTITLE=true; DO_RENDER=true; shift ;;  # whisper+burn
@@ -2506,6 +2511,14 @@ PY
             2> >(awk '/\[download\]|^ERROR|^WARNING:/{print; fflush()}' >&2)
         local _DL_EXIT=$?
 
+        # Abort immediately if Ctrl+C was pressed during download (exit 130 = SIGINT)
+        if [[ $_DL_ABORTED -eq 1 || $_DL_EXIT -eq 130 ]]; then
+            rm -f "$_PATHFILE"
+            trap - INT
+            log_error "⛔ Download cancelled." >&2
+            return 130
+        fi
+
         # Resilient YouTube fallback:
         # In some environments, auth/browser/session flags can trigger transient 403.
         # If user did not explicitly request cookies/browser, retry once with bare yt-dlp args.
@@ -2531,6 +2544,12 @@ PY
                 "$URL" > "$_PATHFILE" \
                 2> >(awk '/\[download\]|^ERROR|^WARNING:/{print; fflush()}' >&2)
             _DL_EXIT=$?
+            if [[ $_DL_ABORTED -eq 1 || $_DL_EXIT -eq 130 ]]; then
+                rm -f "$_PATHFILE"
+                trap - INT
+                log_error "⛔ Download cancelled." >&2
+                return 130
+            fi
         fi
 
         _VID_TITLE=$(sed -n '1p' "$_PATHFILE" 2>/dev/null | tr -d '\r')
@@ -2539,6 +2558,7 @@ PY
 
         if [[ $_DL_EXIT -ne 0 && -z "$VIDEO_FILE" ]]; then
             log_error "Download failed (yt-dlp exit $_DL_EXIT)." >&2
+            trap - INT
             return 1
         fi
 
@@ -2818,6 +2838,13 @@ PY
         return 0
     fi
 
+    # ── Abort check before subtitle stage ───────────────────────────────────
+    if [[ $_DL_ABORTED -eq 1 ]]; then
+        trap - INT
+        log_error "⛔ Operation cancelled." >&2
+        return 130
+    fi
+
     # ── Subtitle generation ─────────────────────────────────────────────────
     if $DO_SUBTITLE; then
         local AMIR_BIN
@@ -2918,7 +2945,8 @@ PY
     local URL_FILE="${VIDEO_FILE%.*}_link.txt"
     echo "$URL" > "$URL_FILE"
     log_info "📝 URL saved: $(basename "$URL_FILE")" >&2
-    
+
+    trap - INT
     echo "$VIDEO_FILE"
 }
 
