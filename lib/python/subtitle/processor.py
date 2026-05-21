@@ -1074,7 +1074,7 @@ class SubtitleProcessor:
         """
         return all_words
 
-    def _run_faster_whisper_full(self, video_path: str, language: str = '', force_chunked: bool = False) -> Tuple[List[WordObj], str]:
+    def _run_faster_whisper_full(self, video_path: str, language: str = '', force_chunked: bool = False, chunk_override: int = 0) -> Tuple[List[WordObj], str]:
         """Full-video transcription using faster-whisper + VAD.
 
         This is the production-grade, hallucination-free transcription path.
@@ -1156,7 +1156,10 @@ class SubtitleProcessor:
             self.logger.warning(f"⚠️ faster-whisper model load failed: {e}. Falling back to MLX.")
             return [], ''
 
-        if force_chunked:
+        if chunk_override > 0:
+            CHUNK = chunk_override
+            OVERLAP = 5
+        elif force_chunked:
             # Per-chunk language detection: small chunks so each detects its own language.
             # 90s = 3× Whisper's 30s window; enough context, fine enough granularity.
             CHUNK = 90
@@ -1640,11 +1643,17 @@ class SubtitleProcessor:
                 ]
                 subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
 
-                # Transcribe segment with forced language
+                # Long segments must use chunked path to prevent Whisper hallucination
+                # (e.g. "It's not a good thing" looping for 10 minutes on a 17-min segment).
+                # Short segments (<300s) use the shared server for speed.
+                # chunk_override=300 (not 90) since language is already known — no need
+                # for extra-fine granularity, just avoid the single-shot server call.
+                use_chunked = seg_dur > 300
                 seg_words, _ = self._run_faster_whisper_full(
                     seg_wav,
                     language=seg.lang,
-                    force_chunked=False,   # this segment is already in one language
+                    force_chunked=use_chunked,
+                    chunk_override=300 if use_chunked else 0,
                 )
 
                 # Adjust timestamps to absolute video time
