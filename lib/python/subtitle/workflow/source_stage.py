@@ -109,12 +109,22 @@ def _run_yt_dlp_sub_fetch(yt_dlp_bin: str, url: str, base_out: str, langs_csv: s
 
 
 def _find_best_srt(directory: str, lang: str) -> str:
-    """Return the best matching SRT file for lang in directory, or empty string."""
-    # Prefer exact match, then accept -orig variant
-    for pattern in [f"*.{lang}.srt", f"*.{lang}-orig.srt", f"*.{lang}*.srt"]:
-        for path in Path(directory).glob(pattern):
-            if path.stat().st_size > 50:
-                return str(path)
+    """Return the best matching SRT file for lang in directory, or empty string.
+
+    Also searches for the canonical ISO form of legacy YT codes (e.g. iw → he),
+    because yt-dlp normalises language codes in output filenames.
+    """
+    from subtitle.quality import normalize_yt_lang
+    search_codes = [lang]
+    normalized = normalize_yt_lang(lang)
+    if normalized != lang:
+        search_codes.append(normalized)
+
+    for code in search_codes:
+        for pattern in [f"*.{code}.srt", f"*.{code}-orig.srt", f"*.{code}*.srt"]:
+            for path in Path(directory).glob(pattern):
+                if path.stat().st_size > 50:
+                    return str(path)
     return ""
 
 
@@ -297,8 +307,10 @@ def _auto_yt_check(
             return True
 
         # ── Decision 2: complementary tracks → language timeline ───────────
+        # For language-map purposes (Whisper will do the actual transcription)
+        # we only need coverage, not high quality score.
         total_coverage = sum(q.coverage for q in qualities.values())
-        decent_tracks = {l: downloaded[l] for l, q in qualities.items() if q.score >= 0.35}
+        decent_tracks = {l: downloaded[l] for l, q in qualities.items() if q.coverage >= 0.10}
 
         if len(decent_tracks) >= 2 and total_coverage >= 0.75:
             processor.logger.info(
@@ -333,23 +345,53 @@ def _auto_yt_check(
                 return True
 
         # ── Decision 3: partial/low-quality tracks → one as language map ──
-        # Use the source_lang track (even if low coverage) to get language
-        # boundaries, and let Whisper handle the full transcription using those
-        # boundaries in multilingual mode.  But only if we detected a real
-        # secondary language and source_lang coverage is meaningful (>5%).
-        if source_lang in qualities and "en" in qualities:
-            src_q = qualities[source_lang]
+        # Use available tracks (even if low coverage/score) to get language
+        # boundaries for Whisper. Works even if source_lang track failed to
+        # download — English-only at high coverage still signals "mostly English"
+        # and the source_lang segment can be inferred from the gap.
+        has_src = source_lang in qualities
+        has_en = "en" in qualities
+        if has_en and source_lang not in ("en",):
             en_q = qualities["en"]
-            if src_q.coverage > 0.05 and en_q.coverage > 0.20 and not src_q.coverage > 0.80:
+            src_q = qualities.get(source_lang)
+            # Trigger if: English covers substantial portion AND either source
+            # track has real coverage OR English doesn't cover everything
+            # (implying another language fills the gap).
+            src_coverage = src_q.coverage if src_q else 0.0
+            en_triggers = en_q.coverage > 0.20 and en_q.coverage < 0.98
+            src_triggers = src_coverage > 0.05 and src_coverage < 0.80
+            if en_triggers or src_triggers:
+                src_cov_str = f"{src_q.coverage:.0%}" if src_q else "n/a"
                 processor.logger.info(
                     f"🗺️  Low-coverage multilingual hint "
-                    f"({source_lang}={src_q.coverage:.0%}, en={en_q.coverage:.0%}). "
+                    f"({source_lang}={src_cov_str}, en={en_q.coverage:.0%}). "
                     "Building language timeline for Whisper..."
                 )
-                timeline = build_language_timeline(
-                    {source_lang: downloaded[source_lang], "en": downloaded["en"]},
-                    video_duration,
-                )
+                map_tracks: Dict[str, str] = {"en": downloaded["en"]}
+                if source_lang in downloaded:
+                    map_tracks[source_lang] = downloaded[source_lang]
+                timeline = build_language_timeline(map_tracks, video_duration)
+
+                # Fallback: if timeline collapsed to single language (e.g. only
+                # en track available), infer source_lang intro from the gap before
+                # the first English entry (e.g. Hebrew 0-38s, then English).
+                if not timeline_is_multilingual(timeline) and source_lang not in downloaded:
+                    from subtitle.quality import LangSegment, _parse_srt
+                    en_entries = _parse_srt(downloaded["en"])
+                    if en_entries:
+                        first_en_start = en_entries[0]["start"]
+                        if first_en_start > 15:
+                            processor.logger.info(
+                                f"🗺️  Inferred {source_lang} intro from en-track gap "
+                                f"(0–{first_en_start:.0f}s → {source_lang}, "
+                                f"{first_en_start:.0f}s–end → en)"
+                            )
+                            from subtitle.quality import LangSegment
+                            timeline = [
+                                LangSegment(0.0, first_en_start, source_lang),
+                                LangSegment(first_en_start, video_duration, "en"),
+                            ]
+
                 if timeline_is_multilingual(timeline):
                     emit_progress(5, "🌐 Multilingual transcription via language timeline...")
                     all_words = processor.transcribe_by_language_timeline(

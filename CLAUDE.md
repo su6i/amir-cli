@@ -205,6 +205,14 @@ git add -f lib/commands/specific_file.sh
 `--force` یعنی «SRT قدیمی را پاک کن و از صفر پردازش کن». **نباید** YouTube auto-pipeline را skip کند.
 در `source_stage.py`، شرط `not force` از condition اجرای `_auto_yt_check` حذف شد — حالا `--force` همچنان YouTube را چک می‌کند و فقط `--no-yt-auto` آن را skip می‌کند.
 
+### سه باگ در YouTube auto-pipeline (کشف‌شده در تست Tucker Carlson)
+
+1. **`iw` → `he` filename normalization:** yt-dlp کد `iw` (عبری قدیمی) را در نام فایل به `he` نرمال می‌کند. `_find_best_srt("iw")` فایل را پیدا نمی‌کرد. **راه‌حل:** تابع حالا هم `iw` و هم `he` را جستجو می‌کند.
+
+2. **Decision 2 threshold:** برای language map (نه استفاده مستقیم بدون Whisper)، threshold از `score >= 0.35` به `coverage >= 0.10` تغییر کرد — چون WPM یا near-dup در track یوتیوب مهم نیست، فقط پوشش زمانی مهم است.
+
+3. **Fallback برای en-only:** وقتی فقط track انگلیسی موجود است (مثل `en-orig` با 96% coverage)، gap قبل از اولین entry انگلیسی به عنوان بخش `source_lang` استنتاج می‌شود (مثل Tucker Carlson: فاصله 0 تا 38 ثانیه = عبری).
+
 ---
 
 ## تصمیمات این session (20 مه 2026)
