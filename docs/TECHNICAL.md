@@ -462,6 +462,122 @@ amir subtitle video.mp4 --sub en fa ar es
   - `create_ass_with_font()`: ASS generation with bilingual support
   - `_ingest_partial_srt()`: Resume translation recovery
 
+### `trend` / `research` (Research Toolkit Bridge)
+
+**Purpose:** Surface trending content and drive idea generation from 6 platforms — YouTube, GitHub, arXiv, Reddit, ProductHunt, Indie Hackers — without leaving the terminal.
+
+#### Architecture
+
+`trend.sh` is a thin bridge that delegates all work to the [Research Toolkit](https://github.com/su6i/research-toolkit), a separate Python project with a full Multi-Agent RAG pipeline.
+
+```
+amir trend [keyword] [--options]
+  │
+  └─ lib/commands/trend.sh → run_trend()
+       │
+       ├─ finds $RESEARCH_TOOLKIT_DIR/.venv/bin/python
+       └─ calls: python main.py query [args]
+                   │
+                   └─ research_toolkit pipeline:
+                       ├─ SQLite (metadata, sort by metric)
+                       ├─ ChromaDB + BM25 (hybrid search)
+                       ├─ RRF fusion (Reciprocal Rank Fusion)
+                       └─ cross-encoder reranker
+```
+
+**Why direct `.venv/bin/python` instead of `uv run`:**  
+The `amir` entry script activates its own `.venv`. If `uv run` is called in a subprocess, it may inherit the wrong `VIRTUAL_ENV` environment variable and pick up amir-cli's packages instead of research_toolkit's. Calling the toolkit's Python binary directly avoids this conflict entirely.
+
+#### Usage
+
+```bash
+# No keyword → global trending (most-viewed YouTube videos)
+amir trend
+
+# Search YouTube for a topic, sort by views (default)
+amir trend "AI tools"
+
+# Show 20 results
+amir trend "machine learning" --limit 20
+
+# Filter by language — Persian-language results only
+amir trend "music" --lang fa
+
+# Filter by region — trending in Iran
+amir trend --region IR
+
+# Combine: Persian-language music videos
+amir trend "آهنگ" --lang fa --limit 15
+
+# Sort by likes instead of views
+amir trend "devops" --metric likes
+
+# GitHub repos sorted by stars
+amir trend "LLM agents" --source github --metric stars --limit 10
+
+# Academic papers (arXiv), sorted by publication date
+amir trend "transformer architecture" --source arxiv --metric published_at
+
+# Reddit posts sorted by comments
+amir trend "startup ideas" --source reddit --metric comments
+
+# Semantic vector search (multilingual — works across languages)
+amir trend "climate agriculture" --semantic
+
+# Generate AI-powered ideas from collected data (calls the idea pipeline)
+amir trend "fintech" --ideas --count 15
+
+# amir research = alias for amir trend
+amir research "open source AI"
+```
+
+#### All Options
+
+| Option | Short | Values | Default | Description |
+|--------|-------|--------|---------|-------------|
+| `--source` | `-s` | `youtube` `github` `arxiv` `reddit` `producthunt` `indiehackers` | `youtube` | Platform to search |
+| `--lang` | `-l` | `fa` `en` `de` `ar` `zh` `es` `fr` `ru` `ja` `ko` `tr` `pt` `hi` | any | Language filter (YouTube only) |
+| `--region` | `-r` | `IR` `US` `GB` `DE` `FR` `JP` `KR` `AU` `CA` `IN` `TR` `SA` `AE` `BR` | global | Region for trending (YouTube only) |
+| `--metric` | `-m` | `views` `likes` `stars` `citations` `comments` `published_at` | `views` | Sort results by this metric |
+| `--limit` | `-n` | number | `10` | Number of results to show |
+| `--semantic` | | flag | keyword | Use semantic vector search |
+| `--ideas` | | flag | — | Generate AI ideas from collected data |
+| `--count` | `-c` | number | `10` | Number of ideas (with `--ideas`) |
+
+#### Autocomplete
+
+All options and their values are registered in `completions/_amir`. Press Tab at any point:
+
+```zsh
+amir trend --source <Tab>   →  youtube   github   arxiv   reddit   producthunt   indiehackers
+amir trend --lang   <Tab>   →  fa (فارسی)   en   de   ar   zh   es   ...
+amir trend --region <Tab>   →  IR (Iran)   US   GB   DE   FR   ...
+amir trend --metric <Tab>   →  views   likes   stars   citations   comments   published_at
+amir trend --limit  <Tab>   →  5   10   20   50
+```
+
+#### Configuration
+
+Set `RESEARCH_TOOLKIT_DIR` in your shell or `.env` if the toolkit lives elsewhere:
+
+```bash
+# In ~/.zshrc or ~/.bashrc
+export RESEARCH_TOOLKIT_DIR=/path/to/research_toolkit
+
+# Or in amir-cli/.env
+RESEARCH_TOOLKIT_DIR=/path/to/research_toolkit
+```
+
+Default path: `$HOME/@-github/research_toolkit`
+
+#### Data Flow
+
+1. **No keyword given** → `--trending` flag is set automatically → calls YouTube's `chart=mostPopular` endpoint with optional `regionCode`
+2. **Keyword given** → queries the local SQLite database first
+3. **No data in DB** → auto-collects from the source API (no confirmation needed in non-interactive mode)
+4. **`--semantic` flag** → bypasses SQLite, queries ChromaDB + BM25 hybrid pipeline with cross-encoder reranker
+5. **`--ideas` flag** → calls `python main.py idea --keywords [keyword]` (Multi-Agent RAG synthesis pipeline)
+
 ### `llm-lists` (LLM Model Discovery)
 **Purpose:** Fetch and export available models from AI providers for quick reference.
 
