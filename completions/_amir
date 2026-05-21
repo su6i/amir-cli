@@ -32,6 +32,8 @@ _amir() {
             'watermark:Add logo or text watermark to images/videos'
             'subtitle:Generate multi-language subtitles using AI'
             'llm-lists:Fetch model lists from LLM providers'
+            'trend:Trending content and research — YouTube, GitHub, arXiv, Reddit...'
+            'research:Alias for trend'
         )
         _describe -t commands 'amir commands' commands
         return
@@ -39,7 +41,11 @@ _amir() {
 
     # Step 2: Subcommand options
     case "${words[2]}" in
-        
+
+        trend|research)
+            _trend_arguments
+            ;;
+
         pdf)
             case $((CURRENT)) in
                 *)
@@ -960,6 +966,87 @@ _apply_arguments() {
         '--lang[Output language for CV/cover letter]:lang:_amir_cv_langs' \
         '--no-localize-preview[Preview only: skip profile text localization for faster generation]' \
         '--color[Sidebar background color highlight]:color:(blue green orange red purple gray)'
+}
+
+# ── trend / research ──────────────────────────────────────────────────────────
+
+_amir_trend_sources() {
+    local -a sources=(
+        'youtube:Videos — views, likes, comments (default)'
+        'github:Repositories — stars, forks'
+        'arxiv:Academic papers — citations'
+        'reddit:Posts — score, comments'
+        'producthunt:Products — votes, comments'
+        'indiehackers:Indie projects — upvotes'
+    )
+    _describe -t sources 'source' sources
+}
+
+_amir_trend_metrics() {
+    local -a metrics=(
+        'views:Total view count (default)'
+        'likes:Total likes / upvotes'
+        'stars:GitHub stars'
+        'citations:Academic citations'
+        'comments:Number of comments'
+        'published_at:Publication date (newest first)'
+    )
+    _describe -t metrics 'metric' metrics
+}
+
+_amir_trend_langs() {
+    local -a langs=(
+        'fa:فارسی — Persian / Farsi'
+        'en:English'
+        'ar:العربية — Arabic'
+        'de:Deutsch — German'
+        'fr:Français — French'
+        'es:Español — Spanish'
+        'zh:中文 — Chinese'
+        'ru:Русский — Russian'
+        'ja:日本語 — Japanese'
+        'ko:한국어 — Korean'
+        'tr:Türkçe — Turkish'
+        'pt:Português — Portuguese'
+        'hi:हिन्दी — Hindi'
+    )
+    _describe -t langs 'language code' langs
+}
+
+_amir_trend_regions() {
+    local -a regions=(
+        'IR:Iran'
+        'US:United States (default YouTube trending)'
+        'GB:United Kingdom'
+        'DE:Germany'
+        'FR:France'
+        'JP:Japan'
+        'KR:South Korea'
+        'CN:China'
+        'AU:Australia'
+        'CA:Canada'
+        'IN:India'
+        'TR:Turkey'
+        'SA:Saudi Arabia'
+        'AE:UAE'
+        'BR:Brazil'
+        'RU:Russia'
+    )
+    _describe -t regions 'region code' regions
+}
+
+_trend_arguments() {
+    _arguments -s \
+        '1::search keyword (omit for global trending): ' \
+        {-s,--source}'[Platform to search (default\: youtube)]:source:_amir_trend_sources' \
+        {-l,--lang}'[Language filter for results]:language code:_amir_trend_langs' \
+        {-r,--region}'[Region for trending (default\: global)]:region code:_amir_trend_regions' \
+        {-m,--metric}'[Sort results by this metric (default\: views)]:metric:_amir_trend_metrics' \
+        {-n,--limit}'[Number of results to show (default\: 10)]:count:(5 10 20 50)' \
+        '--semantic[Use semantic vector search instead of keyword matching]' \
+        '--ideas[Generate AI-powered ideas from collected data]' \
+        {-c,--count}'[Number of ideas to generate (default\: 10, use with --ideas)]:count:(5 10 15 20)' \
+        {-h,--help}'[Show help]'
 }
 
 _amir "$@"
