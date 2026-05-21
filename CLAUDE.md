@@ -213,7 +213,7 @@ git add -f lib/commands/specific_file.sh
 
 3. **Fallback برای en-only:** وقتی فقط track انگلیسی موجود است (مثل `en-orig` با 96% coverage)، gap قبل از اولین entry انگلیسی به عنوان بخش `source_lang` استنتاج می‌شود (مثل Tucker Carlson: فاصله 0 تا 38 ثانیه = عبری).
 
-4. **Whisper hallucination در segment بلند:** `transcribe_by_language_timeline` برای segmentهای کوتاه‌تر از ۳۰۰ ثانیه از shared server استفاده می‌کرد (single call). برای segment 17 دقیقه‌ای انگلیسی Tucker Carlson، Whisper در دقیقه ۸ هذیان زد («It's not a good thing» loop). **راه‌حل:** segmentهای بلند‌تر از ۳۰۰ ثانیه با `force_chunked=True, chunk_override=300` پردازش می‌شوند.
+4. **Whisper hallucination در segment بلند:** segment 17 دقیقه‌ای انگلیسی Tucker Carlson در دقیقه ۸ هذیان می‌زد («It's not a good thing» loop). علت واقعی: گوینده اسرائیلی در طول مصاحبه به عبری سوال می‌پرسد — وقتی Whisper با `language='en'` force می‌شود و عبری می‌شنود، hallucinate می‌کند. **راه‌حل:** segmentهای بلند‌تر از ۳۰۰ ثانیه با `force_chunked=True, language=''` (auto-detect per 90s chunk) پردازش می‌شوند تا زبان‌بندی مخلوط درست handle شود.
 
 ---
 
