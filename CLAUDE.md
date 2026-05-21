@@ -97,11 +97,41 @@ git diff --cached --stat   # لیست فایل‌های staged
 
 ```
 amir (bash entry point)
-├── sources lib/commands/*.sh     ← ~26 command modules
+├── sources lib/commands/*.sh     ← ~28 command modules
 ├── activates .venv automatically
 ├── exports AMIR_ROOT, LIB_DIR, SCRIPT_DIR
 └── config from ~/.amir/config.yaml
 ```
+
+### ماژول‌های کلیدی
+
+| دستور | فایل | توضیح |
+|-------|------|-------|
+| `amir trend` / `amir research` | `lib/commands/trend.sh` | Bridge به research_toolkit (YouTube, GitHub, arXiv, Reddit, ProductHunt, IndieHackers) |
+| `amir video` | `lib/commands/video.sh` | پردازش ویدیو + دانلود |
+| `amir subtitle` | `lib/commands/subtitle.sh` | زیرنویس AI چندزبانه |
+| `amir pdf` | `lib/commands/pdf.sh` | PDF با Puppeteer |
+| `amir chat` | `lib/commands/chat.sh` | چت با Gemini/Gemma |
+
+### ماژول trend — وابستگی خارجی
+
+`amir trend` یک wrapper است که research_toolkit را فراخوانی می‌کند:
+
+```
+amir trend [keyword] [--options]
+  │
+  └─ lib/commands/trend.sh → run_trend()
+       │
+       └─ $toolkit_dir/.venv/bin/python main.py query [args]
+            │
+            └─ research_toolkit: synthesizer → connector → YouTube API / GitHub / ...
+```
+
+مسیر پیش‌فرض: `$HOME/@-github/research_toolkit`  
+سفارشی‌سازی: `export RESEARCH_TOOLKIT_DIR=/path/to/toolkit`
+
+**چرا از python مستقیم به جای `uv run` استفاده می‌کنیم:**  
+`amir` اول `.venv` خودش را activate می‌کند. اگر `uv run` درون زیرپروسه فراخوانی شود، ممکن است venv اشتباه را انتخاب کند. فراخوانی مستقیم `.venv/bin/python` از مسیر toolkit این تداخل را حل می‌کند.
 
 **اجرای دستورات Python:** از طریق `uv run` یا `.venv` که توسط installer ساخته می‌شه.
 
@@ -176,6 +206,8 @@ git add -f lib/commands/specific_file.sh
 | `lib/python/subtitle/workflow/source_stage.py` | تهیه SRT منبع + YouTube auto-pipeline |
 | `lib/python/subtitle/translation/deepseek_pipeline.py` | DeepSeek V4-Flash translation |
 | `lib/commands/init-project.sh` | `amir init-project` — کپی `.agent/` به پروژه جدید |
+| `lib/commands/trend.sh` | `amir trend` / `amir research` — bridge به research_toolkit |
+| `completions/_amir` | Zsh autocompletion — شامل `trend` و تمام آپشن‌هایش |
 
 ---
 

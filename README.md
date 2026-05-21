@@ -21,6 +21,7 @@ Built with modularity and ease of use in mind, `amir` works seamlessly across **
 - **🖼️ Advanced Image Processing:** AI-powered upscaling (Real-ESRGAN), document enhancement lab (140 variations), smart stacking (front/back), and professional corner rounding.
 - **🌍 Advanced Subtitle System:** AI-powered multilingual subtitles supporting **32 languages**. Features automatic translation, multi-platform hardware encoding (Mac/Ubuntu) with 1:1 size parity, Whisper Turbo as default, and document export via `--save` (no argument defaults to `pdf`).
 - **🤖 AI Powered:** Chat with Gemini/Gemma, generate code, and fetch model lists from 5 LLM providers (Gemini, OpenAI, DeepSeek, Groq, Anthropic).
+- **📡 Research & Trends:** Multi-Agent RAG pipeline that searches YouTube, GitHub, arXiv, Reddit, ProductHunt, and Indie Hackers. Find trending content, filter by language/region, and generate cross-source ideas.
 - **🛠️ System Utilities:** One-command system cleanup, password generation, file locking/unlocking, and QR code generation.
 - **☁️ File Transfer:** Instantly upload files to temporary hosting services and get a shareable link.
 - **⚡ Super Fast:** Written in optimized Bash/Zsh with minimal overhead.
@@ -151,6 +152,41 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir watermark <file> [text]` | Add watermark to image (auto-saved or `-o output`). |
 | `amir subtitle <file/URL> [options]` | **AI-Powered Multilingual Subtitles**: Transcribe, translate (32 languages), and render. Source is auto-detected by default; practical default layout is source-top + Persian-bottom (`--sub auto fa`). Key flags: `--yt-subs` (force YouTube internal subs), `--ass-input <srt/ass>` (render from manual file; `.srt` files are automatically styled with Vazirmatn), `--resolution <h>` and `--quality <0-100>` (final render controls), `--style channel_brand_blue|shorts_brand_blue|news_guest_blue`, `--subtitle-banner-image/--subtitle-banner-color`, `--subtitle-logo [--subtitle-logo-animated]`, `--guest-tag "start,duration,name,title[,pos]"`, `--brand-kit <logo> [--brand-kit-shorts]`, `--save` (default export: `pdf`), and `--no-render` (SRT only). Default render height follows input video height when not provided. See [SUBTITLE.md](docs/SUBTITLE.md). |
 | `amir info <file>` | Show detailed technical metadata for any file. |
+
+### 📡 Research & Trends
+
+Bridge to the [Research Toolkit](https://github.com/su6i/research-toolkit) — a Multi-Agent RAG pipeline across 6 platforms.
+
+| Command | Description |
+| :--- | :--- |
+| `amir trend` | Most-viewed videos globally (YouTube trending, no keyword needed) |
+| `amir trend "AI tools"` | Search YouTube for a topic, sorted by views |
+| `amir trend --region IR` | Trending in Iran |
+| `amir trend "موزیک" --lang fa` | Filter results in Persian language |
+| `amir trend "LLM" --source github --metric stars` | Top GitHub repos by stars |
+| `amir trend "deep learning" --source arxiv` | Academic papers (arXiv) |
+| `amir trend "devops" --source reddit --metric comments` | Reddit posts by comments |
+| `amir trend "SaaS" --ideas` | Generate AI-powered ideas from collected data |
+| `amir trend "ML" --semantic` | Semantic (multilingual) vector search |
+| `amir research` | Alias for `amir trend` |
+
+**All options (Tab-complete supported):**
+
+| Option | Values | Default |
+| :--- | :--- | :--- |
+| `--source` | `youtube` `github` `arxiv` `reddit` `producthunt` `indiehackers` | `youtube` |
+| `--lang` | `fa` `en` `de` `ar` `zh` `es` `fr` `ru` `ja` `ko` `tr` `pt` `hi` | any |
+| `--region` | `IR` `US` `GB` `DE` `FR` `JP` `KR` `AU` `CA` `IN` ... | global |
+| `--metric` | `views` `likes` `stars` `citations` `comments` `published_at` | `views` |
+| `--limit` | number | `10` |
+| `--semantic` | flag | keyword search |
+| `--ideas` | flag | — |
+| `--count` | number (with `--ideas`) | `10` |
+
+**Setup:** Set `RESEARCH_TOOLKIT_DIR` in your `.env` if the toolkit is not at `~/@-github/research_toolkit`:
+```bash
+export RESEARCH_TOOLKIT_DIR=/path/to/research_toolkit
+```
 
 ### 🧠 AI & Productivity
 | Command | Description |

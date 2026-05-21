@@ -29,6 +29,16 @@ run_help() {
     echo "  weather [city]               Show weather"
     
     echo ""
+    echo -e "${BOLD}Research & Trends:${NC}"
+    echo "  trend [keyword]              Trending content & research (default: YouTube most viewed)"
+    echo "  trend [keyword] --source S   Source: youtube github arxiv reddit producthunt indiehackers"
+    echo "  trend [keyword] --lang CODE  Language filter: fa en de ar zh ... (default: any)"
+    echo "  trend [keyword] --region CC  Region: IR US GB DE ... (default: global)"
+    echo "  trend [keyword] --metric M   Sort by: views likes stars citations comments"
+    echo "  trend [keyword] --ideas      Generate AI ideas from collected data"
+    echo "  research                     Alias for trend"
+
+    echo ""
     echo -e "${BOLD}AI & Productivity:${NC}"
     echo "  chat <query>                 Ask Gemini/Gemma AI"
     echo "  code <request>               Generate/Refactor code with AI"
