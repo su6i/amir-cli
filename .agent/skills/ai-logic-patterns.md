@@ -1,11 +1,19 @@
 ---
-name: ai-logic-patterns
+title: "Ai Logic Patterns"
 description: AI Logic Patterns Technical Encyclopedia: CoT Reasoning, Plan-and-Execute, State Persistence, and Self-Correction Loops.
+location: .agent/skills/ai-logic-patterns.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
 # Skill: AI Logic Patterns (Technical Encyclopedia)
 
 [Back to README](../../README.md)
+
+**🔗 Related Ai Skills:**
+- [Ai Dubbing Localization](ai-dubbing-localization.md)
+- [Ai Logic Patterns](ai-logic-patterns.md)
+- [Ai Sfx Generation](ai-sfx-generation.md)
 
 Comprehensive technical protocols for the design and implementation of autonomous cognitive architectures for AI agents in the 2025 ecosystem. This document defines the standards for deterministic reasoning, multi-step orchestration, state management, and robust self-healing logic.
 
@@ -40,3 +48,11 @@ Maintaining high-fidelity continuity across asynchronous conversational boundari
 
 ---
 <!-- CHUNK_END_SECTION_2 -->
+## 🔗 Related Ai Skills
+
+- [Ai Dubbing Localization](ai-dubbing-localization.md)
+- [Ai Logic Patterns](ai-logic-patterns.md)
+- [Ai Sfx Generation](ai-sfx-generation.md)
+
+---
+[Back to README](../../README.md)

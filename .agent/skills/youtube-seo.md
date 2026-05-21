@@ -1,11 +1,26 @@
 ---
-name: youtube-seo
+title: "YouTube SEO"
 description: YouTube SEO Technical Encyclopedia: Semantic Keyword Mapping, Browse vs Search Optimization, Metadata Latent-Space Analysis, and Value-per-Impression.
+location: .agent/skills/youtube-seo.md
+agent_priority: Standard
+last_updated: 2026-03-08
+---
+
+**🔗 Related YouTube Skills:**
+- [yt-dlp Downloader](youtube-dlp-downloader.md) - Instagram media extraction best practices
+- [yt-dlp Web Download](youtube-dlp-web-download.md) - Cloudflare bypass, stream selection
+
+**🔗 Related Content Creation:**
+- [YouTube Scriptwriting](screenwriting-youtube.md) - Information Gaps, AVD Optimization
+- [Thumbnail Psychology](visual-thumbnail-psychology.md) - Eye-tracking, CTR optimization
+
+[Back to README](../../README.md)
+
 ---
 
 # Skill: YouTube SEO & Content Strategy (Technical Encyclopedia)
 
-[Back to README](../../README.md)
+
 
 Comprehensive technical protocols for the design, optimization, and orchestration of video content for maximum reach and engagement within the YouTube ecosystem in the 2025 ecosystem. This document defines the standards for semantic keyword mapping, "Browse" vs "Search" optimization, and the mathematical modeling of "Value-per-Impression" (VPI).
 
@@ -209,6 +224,14 @@ Google's E-E-A-T principles now apply to YouTube ranking:
 *   **Expertise:** Cite sources, show credentials.
 *   **Authoritativeness:** Build consistent channel identity.
 *   **Trustworthiness:** Accurate title/thumbnail matching content.
+
+## 🔗 Related YouTube Skills
+- **[yt-dlp Downloader](youtube-dlp-downloader.md)** - Instagram media extraction best practices
+- **[yt-dlp Web Download](youtube-dlp-web-download.md)** - Cloudflare bypass, stream selection
+
+## 🔗 Related Content Creation
+- **[YouTube Scriptwriting](screenwriting-youtube.md)** - Information Gaps, AVD Optimization
+- **[Thumbnail Psychology](visual-thumbnail-psychology.md)** - Eye-tracking, CTR optimization
 
 ---
 

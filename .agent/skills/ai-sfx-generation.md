@@ -1,11 +1,19 @@
 ---
-name: ai-sfx-generation
+title: "Ai Sfx Generation"
 description: AI SFX Generation Technical Encyclopedia: Latent Diffusion, Diffusion Transformers (DiT), Conditioning (CLAP), and 2025 Generation Standards.
+location: .agent/skills/ai-sfx-generation.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
 # Skill: AI Sound Effects Generation (Technical Encyclopedia)
 
 [Back to README](../../README.md)
+
+**🔗 Related Ai Skills:**
+- [Ai Dubbing Localization](ai-dubbing-localization.md)
+- [Ai Logic Patterns](ai-logic-patterns.md)
+- [Ai Sfx Generation](ai-sfx-generation.md)
 
 Comprehensive technical protocols for the synthesis of sound effects, foley, and ambient textures using Generative AI models in the 2025 ecosystem. This document defines the standards for Latent Diffusion models, Diffusion Transformers (DiT), and high-resolution spatial audio synthesis.
 
@@ -104,6 +112,13 @@ Ensuring the generated SFX meets industrial standards.
 *   **FID (Fréchet Inception Distance):** The standard metric for measuring the quality of generated audio vs real recordings (Lower is better).
 *   **Inference Speed:** Target < 5.0s for 30s of high-quality audio on a single RTX 4090.
 *   **Dynamic Fidelity:** Targeted signal-to-noise ratio in generations > 60dB.
+
+---
+## 🔗 Related Ai Skills
+
+- [Ai Dubbing Localization](ai-dubbing-localization.md)
+- [Ai Logic Patterns](ai-logic-patterns.md)
+- [Ai Sfx Generation](ai-sfx-generation.md)
 
 ---
 [Back to README](../../README.md)

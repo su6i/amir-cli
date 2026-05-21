@@ -45,3 +45,4 @@ completions/*.zwc
 *.opus
 *.m4a
 *.m4v
+.storage/

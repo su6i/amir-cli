@@ -1,9 +1,18 @@
 ---
-name: llm-ml-workflow
+title: "Llm Ml Workflow"
 description: LLM & ML Engineering Technical Encyclopedia: DSPy Optimization, QLoRA NF4 Math, vLLM PagedAttention, and FlashAttention-3 Standards.
+location: .agent/skills/llm-ml-workflow.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
 # Skill: LLM & ML Engineering (Technical Encyclopedia)
+
+**🔗 Related Skills:**
+- [Prompt Engineering](prompt-engineering.md) — System prompts, persona design, and chain-of-thought patterns
+- [Multi-Agentic RAG](multi-rag-orchestration.md) — Stateful memory and semantic retrieval orchestration
+- [PyTorch & Scikit-learn](python-pytorch-sklearn.md) — Low-level training loops and ONNX export
+- [Reinforcement Learning](reinforcement-learning.md) — SB3/SBX agents and reward engineering
 
 [Back to README](../../README.md)
 

@@ -1,11 +1,24 @@
 ---
-name: python-containerization
+title: "Python Containerization"
 description: Python Containerization Technical Encyclopedia: Multi-Stage Docker, Distroless Images, 'uv' Integration, and Security Hardening.
+location: .agent/skills/python-containerization.md
+agent_priority: Standard
+last_updated: 2026-03-08
+---
+
+**🔗 Related Python Skills:**
+- [Python Core Standards](python-core-standards.md) - CPython Internals, Memory Optimization, Security
+- [Python GitHub Setup](python-github-setup.md) - CI/CD Workflows, Secret Management, Branch Protection
+- [Pandas & Scikit-learn](python-pandas-sklearn.md) - Memory Optimization, Pipeline Orchestration
+- [PyTorch & Sklearn Integration](python-pytorch-sklearn.md) - TorchDynamo, ONNX, Skorch
+
+[Back to README](../../README.md)
+
 ---
 
 # Skill: Python Containerization (Technical Encyclopedia)
 
-[Back to README](../../README.md)
+
 
 Comprehensive technical protocols for the efficient, secure, and reproducible containerization of Python applications in the 2025 ecosystem. This document defines the standards for Dockerfile optimization, multi-stage building, and production-grade image hardening.
 
@@ -110,6 +123,12 @@ Reducing the "Attack Surface" and improving pull/push performance via layer mana
 *   **Image Size:** Target < 500MB for standard web apps; < 2GB for ML apps.
 *   **Build Time:** Target < 2m for warm-cache builds.
 *   **Layer Count:** Target < 15 layers for a production image.
+
+## 🔗 Related Python Skills
+- **[Python Core Standards](python-core-standards.md)** - CPython Internals, Memory Optimization, Security
+- **[Python GitHub Setup](python-github-setup.md)** - CI/CD Workflows, Secret Management, Branch Protection
+- **[Pandas & Scikit-learn](python-pandas-sklearn.md)** - Memory Optimization, Pipeline Orchestration
+- **[PyTorch & Sklearn Integration](python-pytorch-sklearn.md)** - TorchDynamo, ONNX, Skorch
 
 ---
 [Back to README](../../README.md)
