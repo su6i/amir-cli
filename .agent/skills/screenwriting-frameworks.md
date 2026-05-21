@@ -1,11 +1,26 @@
 ---
-name: screenwriting-frameworks
+title: "Screenwriting Frameworks"
 description: Screenwriting Frameworks Technical Encyclopedia: Structural DNA, 3-Act Design, Tension Arcs, and Character Modeling.
+location: .agent/skills/screenwriting-frameworks.md
+agent_priority: Standard
+last_updated: 2026-03-08
+---
+
+**🔗 Related Screenwriting Skills:**
+- [Automated Scriptwriting](screenwriting-automated.md) - Moltbot Integration, CLIL Story Generation
+- [YouTube Scriptwriting](screenwriting-youtube.md) - Information Gaps, AVD Optimization, Zeigarnik Effect
+
+**🔗 Related Content Creation:**
+- [Storytelling TTS System](storytelling-tts-m4-system.md) - Multi-model voice orchestration
+- [Narrative Frameworks](storytelling-narrative-frameworks.md) - Character arcs & emotional DNA
+
+[Back to README](../../README.md)
+
 ---
 
 # Skill: Screenwriting Frameworks (Technical Encyclopedia)
 
-[Back to README](../../README.md)
+
 
 Comprehensive technical protocols for the structural design and engineering of narratives for film, video, and automated media in the 2025 ecosystem. This document defines the standards for Structural DNA (3-Act, Hero's Journey), beat-level pacing, and the mathematical modeling of tension arcs.
 
@@ -101,6 +116,14 @@ Ensuring that character behavior never violates the established "Character DNA" 
 ## 10. Benchmarks & Performance Standards (2025)
 *   **Structural Integrity:** 100% adherence to milestone timestamps in production.
 *   **Retention Correlation:** > 0.85 correlation between "Story Beats" and user engagement hot-spots.
+
+## 🔗 Related Screenwriting Skills
+- **[Automated Scriptwriting](screenwriting-automated.md)** - Moltbot Integration, CLIL Story Generation
+- **[YouTube Scriptwriting](screenwriting-youtube.md)** - Information Gaps, AVD Optimization, Zeigarnik Effect
+
+## 🔗 Related Content Creation
+- **[Storytelling TTS System](storytelling-tts-m4-system.md)** - Multi-model voice orchestration
+- **[Narrative Frameworks](storytelling-narrative-frameworks.md)** - Character arcs & emotional DNA
 
 ---
 [Back to README](../../README.md)

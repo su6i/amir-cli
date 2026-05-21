@@ -1,6 +1,9 @@
 ---
-name: episode-structure-45min
+title: "Episode Structure 45Min"
 description: 45-Minute Episode Structure Technical Encyclopedia: 3-Part Format, Cognitive Load Management, and Daily Content Production Pipeline.
+location: .agent/skills/episode-structure-45min.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
 # Skill: 45-Minute Episode Structure

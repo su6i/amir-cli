@@ -3,6 +3,13 @@ name: pdf-rendering-engines
 description: Multi-Engine PDF Rendering Technical Encyclopedia: Headless Browsers (Puppeteer), RTL Optimization, Base64 Font Embedding, and Robust Fallback logic.
 ---
 
+[Back to README](../../README.md)
+
+**🔗 Related Pdf Skills:**
+- [Pdf Form Filling](pdf-form-filling.md)
+- [Pdf Rendering Engines](pdf-rendering-engines.md)
+
+
 # Skill: Multi-Engine PDF Rendering (Technical Encyclopedia)
 
 Comprehensive technical protocols for generating high-fidelity PDF documents from Markdown, HTML, and images using heterogeneous rendering engines in the 2026 ecosystem.
@@ -60,3 +67,14 @@ Ensuring content survival when advanced rendering engines fail.
 
 ---
 *Updated: 2026-02-17 - Added ExFAT robustness, Piped Stdin protocols, and RTL Base64 embedding.*
+
+---
+
+
+## 🔗 Related Pdf Skills
+
+- [Pdf Form Filling](pdf-form-filling.md)
+- [Pdf Rendering Engines](pdf-rendering-engines.md)
+
+---
+[Back to README](../../README.md)

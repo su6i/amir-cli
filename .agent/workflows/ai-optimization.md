@@ -1,211 +1,130 @@
 ---
-description: Protocol for AI model selection, multi-agent task decomposition, and prompt engineering within Claude Code.
-updated: 2026-05-20
+title: "Ai Optimization"
+description: Protocol for AI Model Routing, Fallback logic, and Quota Management.
+location: .agent/workflows/ai-optimization.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
-# AI Optimization Workflow (Claude Code)
+# AI Model Optimization Workflow
 
-## 1. Model Selection Strategy
+[Back to README](../../README.md)
 
-Claude Code provides three models. Select based on task complexity and cost:
+## 1. Smart Routing Strategy (Architect vs Executor)
+**Concept:** Use the "Best Model" to plan and the "Fast Model" to build.
 
-| Model | ID | Use When |
-|---|---|---|
-| **Opus** | `claude-opus-4-7` | Architecture decisions, complex debugging, code review, planning |
-| **Sonnet** | `claude-sonnet-4-6` | Default for most tasks — implementation, refactoring, analysis |
-| **Haiku** | `claude-haiku-4-5-20251001` | Bulk operations, simple lookups, fast iteration |
+### A. The Architect Protocol (Strongest Model)
+**Role:** Planning, Auditing, Prompt Engineering.
+**Model:** **Dynamic - Highest Available Priority.**
+*   The "Architect" is NOT a specific model (e.g., DeepSeek).
+*   It is whichever model is ranked **#1** in `config.yaml` that also has a valid API Key in `.env`.
+*   *Example:* If `Claude Opus` is #1 and `Gemini Pro` is #2, and user has keys for both, `Claude Opus` is the Architect.
+**Triggers:**
+1.  **New Project:** Architect MUST generate the entire project structure and create detailed **Task Prompts** for lighter agents.
+2.  **Existing Project:** Architect MUST audit the codebase first. If structure is poor, it refactors it. Then, it generates **Task Prompts** for the next steps.
 
-**Rule:** Default to Sonnet. Only escalate to Opus when the task requires deep reasoning across many files or when a Sonnet attempt fails.
+### B. The Executor Protocol (Cost-Effective)
+**Role:** Implementation, Writing Code, Generating Docs.
+**Model:** `DeepSeek V4-Flash` or `Claude Haiku` (cheapest capable model).
+**Rule:** Executors MUST strictly follow the **Task Prompts** created by the Architect. They do NOT make high-level decisions.
 
-## 1.5 Economy Mode: Sonnet + DeepSeek
+### C. Task Prompt Storage
+**Action:** The Architect saves instructions in:
+- `.agent/instructions/` (e.g., `01_scaffold.md`, `02_auth_module.md`).
+- **File Format:** Clear, step-by-step prompts optimized for lighter models.
 
-برای کدنویسی اقتصادی‌تر وقتی Opus لازم نیست، از ترکیب **Claude Sonnet + DeepSeek** استفاده کن.
+### D. Model Selection Logic (How to find the Architect)
+**1. API Mode (Background/Automated):**
+*   **Logic:** Deterministic Fallback.
+*   **Algorithm:**
+    ```python
+    def get_architect_model():
+        priority_list = config.yaml['models']
+        for model in priority_list:
+            if os.getenv(model.required_env_key): # Check if Key exists in .env
+                return model # Found the strongest ENABLED model
+        raise Error("No API Keys found for Architect models!")
+    ```
 
-### Model Selection Matrix (Economy)
+**2. Chat Mode (Interactive/IDE):**
+*   **Logic:** Dynamic Discovery.
+*   **Algorithm:**
+    *   **Step 1:** App queries the Provider's API (e.g., `list_models()`) to see *what is actually supported*.
+    *   **Step 2:** Compare supported models against the `config.yaml` priority list.
+    *   **Step 3:** Select the highest-ranked model that "Reasoning" or "Pro" capabilities.
+    *   **Top-Down Rule:** If multiple Pro models exist (e.g., Gemini 3 Pro vs Claude Opus), the one listed higher in `config.yaml` WINS.
 
-| Task | Model | Why |
-|---|---|---|
-| Planning, architecture, critical bug | Claude Sonnet | Anthropic quality for decision-making |
-| Bulk code generation, boilerplate | DeepSeek V4-Flash | ~20x cheaper than Sonnet, strong code quality |
-| Complex reasoning, algorithm design | DeepSeek V4-Flash (thinking ON) | Built-in CoT reasoning, cheap per token |
-| Subtitle translation (per-line bulk) | DeepSeek V4-Flash | Cost-optimized for high-volume text |
-| Sensitive code (auth, secrets handling) | Claude Sonnet | Trust + safety guarantees |
-| Deep research + complex multi-step | DeepSeek V4-Pro | Stronger than Flash, still cheaper than Sonnet |
+### E. Configuration UX Rules
+**1. `.env` Sorting:**
+When generating `.env.example` or prompting the user, you MUST order keys by Priority:
+1.  Architect Models (Most Expensive/Capable) - TOP
+2.  Executor Models (Balance)
+3.  Fallback/Local Models - BOTTOM
+*This helps the user understand the hierarchy.*
 
-### DeepSeek API Integration
+### F. Chat Mode Configuration Strategy (Hybrid)
+Since available models vary by user/region, we use a **"Seed & Sort"** approach:
 
-DeepSeek API is OpenAI-compatible — use `openai` SDK with base URL override:
+1.  **Seed (Expert Defaults):** The project ships with a `config.default.yaml` containing the **ideal** priority list (as defined by us developers).
+2.  **Auto-Discovery (First Run):**
+    *   App fetches available models via API.
+    *   It generates a local `config.yaml` by taking the Default list and **filtering out** unavailable models, while preserving the expert order.
+3.  **Manual Override:** The user can edit their local `config.yaml` to reorder models (e.g., move `Claude` above `Gemini`), and the "Architect" logic will respect this new user-defined order.
 
+## 2. Prompt Engineering & Storage Standard
+**Rule:** Prompts are Code. Treat them as such.
+1.  **Storage:** ALL prompts must be stored in the `prompts/` directory.
+    *   `prompts/system_architect.txt`
+    *   `prompts/task_linkedin_post.txt`
+    *   `prompts/gen_project_logo.txt`
+2.  **Format:** Use a structured, modular format (Role, Task, Constraints, Output Format).
+3.  **No Hardcoding:** Never bury a prompt inside a Python string. Load it from the file.
+
+## 3. Fallback Hierarchy (Config.yaml)
+**Action:** Implement this exact priority queue in `config.yaml`.
+
+**Last updated: 2026-05-20 — verify model IDs before using in production.**
+
+| Priority | Model (Text) | Type | Role |
+| :--- | :--- | :--- | :--- |
+| 1 | `claude-opus-4-7` | Text | Architect (planning, critical) |
+| 2 | `claude-sonnet-4-6` | Text | Standard (default) |
+| 3 | `deepseek-v4-pro` | Text | Economy Pro (research, complex) |
+| 4 | `deepseek-v4-flash` | Text | Economy (bulk, translation, boilerplate) |
+| 5 | `claude-haiku-4-5-20251001` | Text | Fast/cheap (simple lookups) |
+| 6 | `gemma-3-27b` | Local | Offline fallback |
+
+| Priority | Model (Audio) | Type | Role |
+| :--- | :--- | :--- | :--- |
+| 1 | `gemini-2.5-flash-tts` | Audio | Quality |
+| 2 | `gemini-2.5-flash-native` | Audio | Live |
+| 3 | `microsoft-edge-tts` | Audio | Free Fallback |
+
+**DeepSeek API** (OpenAI-compatible, `base_url="https://api.deepseek.com"`):
+- `deepseek-v4-flash` — $0.14/$0.28 per 1M tokens (input/output), 1M ctx, thinking mode supported
+- `deepseek-v4-pro` — $0.435/$0.87 per 1M tokens, 1M ctx
+- ~~`deepseek-chat`~~ / ~~`deepseek-reasoner`~~ — deprecated 2026-07-24, use `deepseek-v4-flash`
+
+**Thinking mode** (DeepSeek V4-Flash/Pro, replaces old deepseek-reasoner):
 ```python
-from openai import OpenAI
-
-client = OpenAI(
-    api_key=os.environ["DEEPSEEK_API_KEY"],
-    base_url="https://api.deepseek.com",
-)
-
-# V4-Flash — general code + text (non-thinking mode)
 response = client.chat.completions.create(
     model="deepseek-v4-flash",
     messages=[{"role": "user", "content": prompt}],
-    max_tokens=4096,
-)
-
-# V4-Flash — reasoning mode (thinking ON)
-# DeepSeek V4 models have built-in thinking; enable via budget_tokens
-response = client.chat.completions.create(
-    model="deepseek-v4-flash",
-    messages=[{"role": "user", "content": prompt}],
-    max_tokens=8000,
     extra_body={"thinking": {"type": "enabled", "budget_tokens": 4000}},
 )
-# thinking response exposes reasoning separately:
 # response.choices[0].message.reasoning_content  ← chain-of-thought
 # response.choices[0].message.content            ← final answer
-
-# V4-Pro — stronger model for complex tasks
-response = client.chat.completions.create(
-    model="deepseek-v4-pro",
-    messages=[{"role": "user", "content": prompt}],
-    max_tokens=4096,
-)
 ```
 
-**Deprecated (avoid):** `deepseek-chat` و `deepseek-reasoner` — هر دو در 2026/07/24 بازنشست می‌شوند. از `deepseek-v4-flash` استفاده کن.
+## 3. Quota Management (Circuit Breaker)
+**Logic:**
+- **On 429 Error:** Mark model as `EXHAUSTED` in `~/.app/state.json`.
+- **Action:** Skip this model for the rest of the day (24h).
+- **Next Day:** Reset `EXHAUSTED` status on first run.
 
-### Economy Routing Logic
+## 4. Safety
+- **Rule:** NEVER send Text tasks to Audio models.
+- **Check:** `if model.type == 'audio' and task.type == 'text': raise Error`.
 
-```python
-def select_model(task_type: str, is_sensitive: bool = False) -> tuple[str, str]:
-    """Returns (provider, model_id)"""
-    if is_sensitive:
-        return ("anthropic", "claude-sonnet-4-6")
-
-    routing = {
-        "planning":     ("anthropic",  "claude-sonnet-4-6"),
-        "code_bulk":    ("deepseek",   "deepseek-v4-flash"),
-        "reasoning":    ("deepseek",   "deepseek-v4-flash"),   # use thinking=enabled
-        "translation":  ("deepseek",   "deepseek-v4-flash"),
-        "research":     ("deepseek",   "deepseek-v4-pro"),
-        "review":       ("anthropic",  "claude-sonnet-4-6"),
-    }
-    return routing.get(task_type, ("anthropic", "claude-sonnet-4-6"))
-```
-
-### Cost Reference (2026-05)
-
-| Model | Context | Input cache miss | Output |
-|---|---|---|---|
-| Claude Opus 4.7 | 200K | ~$15/1M | ~$75/1M |
-| Claude Sonnet 4.6 | 200K | ~$3/1M | ~$15/1M |
-| DeepSeek V4-Pro | 1M | $0.435/1M | $0.87/1M |
-| DeepSeek V4-Flash | 1M | $0.14/1M | $0.28/1M |
-
-DeepSeek cache hit prices are ~50x cheaper (V4-Flash: $0.0028/1M input).
-
-**Rule:** برای هر تسکی که DeepSeek V4-Flash کافیه → استفاده کن. برای تصمیم‌گیری و کد حساس → Sonnet.
-
-### Config Pattern
-
-```yaml
-# config.yaml — economy mode
-ai:
-  default: anthropic/claude-sonnet-4-6
-  economy:
-    code_generation: deepseek/deepseek-v4-flash
-    reasoning: deepseek/deepseek-v4-flash   # enable thinking mode via API
-    translation: deepseek/deepseek-v4-flash
-  sensitive_tasks:
-    - auth
-    - secrets
-    - payment
-```
-
-```bash
-# .env
-ANTHROPIC_API_KEY=sk-ant-...
-DEEPSEEK_API_KEY=sk-...
-```
-
-## 2. Multi-Agent Task Decomposition
-
-For complex tasks, decompose into parallel subagents rather than a single long conversation.
-
-### Available Subagent Types
-
-| Type | When to Use |
-|---|---|
-| `Plan` | Design implementation strategy before writing code. Use `/plan` or spawn Plan agent. |
-| `Explore` | Read-only codebase search. Protect main context from large grep/read operations. |
-| `general-purpose` | Multi-step tasks, research + implementation, anything spanning multiple tools. |
-| `claude-code-guide` | Questions about Claude Code API, SDK, CLI features, hooks, MCP. |
-
-### Decomposition Rules
-
-1. **Plan before code:** For any task touching >3 files, enter Plan Mode first.
-2. **Parallel reads:** Spawn Explore agents for independent search tasks (e.g., "where is X defined" + "find all callers of Y" → two parallel Explore agents).
-3. **Context protection:** If a subtask will generate >500 lines of output (logs, test results, large file reads), run it via a subagent so it doesn't pollute the main context.
-4. **Sequential dependency:** If step B needs step A's output, run them sequentially. Never pass placeholder values.
-
-### Task Prompt Format (for subagents)
-
-When creating task prompts for subagents, always include:
-```
-Goal: [what needs to be done]
-Context: [relevant files, recent changes, constraints]
-Output: [expected format and length of response]
-Do NOT: [common mistakes to avoid]
-```
-
-## 3. Prompt Engineering Standards
-
-**Rule:** Prompts are code. Store reusable prompts in `lib/python/subtitle/prompts/` (Python) or document them in the relevant `.agent/skills/*.md`.
-
-### Prompt Structure (for AI-calling code)
-```
-Role: [specific role]
-Task: [concrete, measurable action]
-Constraints: [hard limits — format, length, language]
-Output Format: [exact structure of the expected response]
-```
-
-### Anti-Patterns (Forbidden)
-- Vague instructions: "translate this well" → use "translate to informal Tehran Persian, output JSON only"
-- Nested instructions: keep prompts flat and single-purpose
-- Buried prompts inside Python f-strings → load from `.txt` file via `Path(prompts_dir / "task.txt").read_text()`
-
-## 4. Context Management
-
-Claude Code context degrades with length. Apply these rules:
-
-1. **CLAUDE.md is the anchor.** Keep it updated so any new session can start cold without losing project context.
-2. **Subagents for exploration.** Never grep 70 files in the main context — spawn Explore.
-3. **Compact summaries.** After a long debug session, summarize the root cause in CLAUDE.md before closing.
-4. **Memory system.** Use `/Users/su6i/.claude/projects/*/memory/` for facts that must survive across sessions (user preferences, architectural decisions, feedback).
-
-## 5. Whisper / LLM Integration (amir-cli specific)
-
-For subtitle translation and transcription tasks in this project:
-
-- **Transcription:** faster-whisper (CPU) or mlx-whisper (Apple Silicon). See `.agent/skills/mlx-whisper.md`.
-- **Translation:** Anthropic Claude API via `lib/python/subtitle/workflow/translation_stage.py`.
-- **Prompt storage:** Translation prompts live in `lib/python/subtitle/processor.py → get_translation_prompt()`.
-- **Model for translation:** Default `claude-haiku-4-5-20251001` (cost-optimized for per-line bulk translation). Escalate to Sonnet only for low-confidence lines.
-
-## 6. API Quota & Error Handling
-
-```python
-# Standard retry pattern for Anthropic API calls
-import anthropic
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-
-@retry(
-    retry=retry_if_exception_type(anthropic.RateLimitError),
-    wait=wait_exponential(multiplier=1, min=4, max=60),
-    stop=stop_after_attempt(5)
-)
-def call_claude(client, messages, model="claude-haiku-4-5-20251001"):
-    return client.messages.create(model=model, max_tokens=1024, messages=messages)
-```
-
-**On persistent 429:** Log to `~/.amir_cli/api_state.json` and surface to user with retry-after time. Do NOT silently skip lines.
+---
+[Back to README](../../README.md)

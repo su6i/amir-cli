@@ -1,6 +1,9 @@
 ---
-name: financial-data-science
+title: "Financial Data Science"
 description: Financial Data Science Technical Encyclopedia: OpenBB v4, VectorBT Pro, Technical Alpha, and Risk Management.
+location: .agent/skills/financial-data-science.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
 # Skill: Financial Data Science (Technical Encyclopedia)

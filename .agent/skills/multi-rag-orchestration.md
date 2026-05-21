@@ -1,9 +1,18 @@
 ---
-name: multi-rag-orchestration
+title: "Multi Rag Orchestration"
 description: Multi-Agentic RAG Orchestration Technical Encyclopedia: Stateful Memory, Vocabulary Tracking, Leitner Systems, and Semantic Grounding.
+location: .agent/skills/multi-rag-orchestration.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
 # Skill: Multi-Agentic RAG Orchestration (Technical Encyclopedia)
+
+**🔗 Related Skills:**
+- [LLM & ML Workflow](llm-ml-workflow.md) — Fine-tuning and inference stack that powers RAG retrieval models
+- [Moltbot Orchestration](moltbot-orchestration.md) — Multi-agent coordinator that consumes RAG outputs
+- [Prompt Engineering](prompt-engineering.md) — System prompt design for RAG context injection
+- [CLIL Screenwriting](storytelling-clil-education.md) — Leitner SRS integration that mirrors RAG vocabulary tracking
 
 [Back to README](../../README.md)
 

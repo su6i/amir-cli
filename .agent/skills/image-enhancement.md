@@ -2,6 +2,8 @@
 description: Complete pipeline for enhancing scanned official documents (ID cards, passports, etc.)
 ---
 
+[Back to README](../../README.md)
+
 # Document Quality Enhancement Skill
 
 > [!CAUTION]
@@ -135,3 +137,7 @@ Do not use "Face" or "Anime" models for text.
 If the user provides multiple poor photos of the same card:
 1.  **Frame Alignment:** Sub-pixel alignment of all frames.
 2.  **Statistical SR:** Reconstruct one high-res frame from the redundant information in multiple low-res frames.
+
+
+---
+[Back to README](../../README.md)
