@@ -1,6 +1,9 @@
 ---
-name: linux-cuda-python
+title: "Linux Cuda Python"
 description: Linux, CUDA & Python Optimization Technical Encyclopedia: CUDA vMM, Kernel Tuning, eBPF Profiling, and Nsight Systems Standards.
+location: .agent/skills/linux-cuda-python.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
 # Skill: Linux, CUDA & Python Optimization (Technical Encyclopedia)

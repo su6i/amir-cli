@@ -1,9 +1,18 @@
 ---
-name: moltbot-orchestration
+title: "Moltbot Orchestration"
 description: Moltbot Orchestration Technical Encyclopedia: Multi-Agent DAGs, Stateful Handoffs, and Cross-Modal Sync Protocols.
+location: .agent/skills/moltbot-orchestration.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
 # Skill: Moltbot Orchestration (Technical Encyclopedia)
+
+**🔗 Related Skills:**
+- [Automated Scriptwriting](screenwriting-automated.md) — LLM-driven script production pipeline feeding into Moltbot
+- [Multi-Agentic RAG](multi-rag-orchestration.md) — Stateful memory and vocabulary tracking used by agents
+- [AI Logic Patterns](ai-logic-patterns.md) — Architect vs. Executor model routing principles
+- [Voice Orchestration](voice-orchestration-multi-model.md) — Multi-model TTS pipeline integrated with Moltbot
 
 [Back to README](../../README.md)
 

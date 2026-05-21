@@ -1,11 +1,18 @@
 ---
-name: data-visualization
+title: "Data Visualization"
 description: Data Visualization Technical Encyclopedia: Matplotlib/Seaborn Standards, Interactive Plotly/D3, Vector Graphics (SVG), and 'CIELAB' Color Accuracy.
+location: .agent/skills/data-visualization.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
 # Skill: Data Visualization (Technical Encyclopedia)
 
 [Back to README](../../README.md)
+
+**🔗 Related Data Skills:**
+- [Data Science Workflow](data-science-workflow.md)
+- [Data Visualization](data-visualization.md)
 
 Comprehensive technical protocols for the design and construction of publication-quality, interactive, and high-fidelity data visualizations in the 2025 ecosystem. This document defines the standards for Matplotlib/Seaborn scientific plots, Plotly-based interactive dashboards, and Unicode-saturated vector graphics.
 
@@ -103,6 +110,12 @@ Ensuring that color represents data with maximum accuracy.
 ## 10. Benchmarks & Performance Standards (2025)
 *   **Render Speed:** Target < 500ms for static publication plots.
 *   **Memory Efficiency:** Target < 100MB for interactive browser-based visualizations of datasets with 10k+ points.
+
+---
+## 🔗 Related Data Skills
+
+- [Data Science Workflow](data-science-workflow.md)
+- [Data Visualization](data-visualization.md)
 
 ---
 [Back to README](../../README.md)

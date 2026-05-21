@@ -1,13 +1,16 @@
 ---
-name: cli-table-alignment
+title: "Cli Table Alignment"
 description: CLI Table Alignment Technical Encyclopedia: Padding Math, ANSI Escapes, Unicode Normalization, and Professional Data Visualization.
+location: .agent/skills/cli-table-alignment.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
-# Skill: Scientific CLI Table Alignment
-
-Comprehensive technical protocols for the design and construction of aligned, readable, and professional tables within a Command Line Interface (CLI) in the 2025 ecosystem. This document defines the standards for padding calculations, Unicode-safe width normalization, and ANSI-compatible formatting.
+# Skill: CLI Table Alignment (Technical Encyclopedia)
 
 [Back to README](../../README.md)
+
+Comprehensive technical protocols for the design and construction of aligned, readable, and professional tables within a Command Line Interface (CLI) in the 2025 ecosystem. This document defines the standards for padding calculations, Unicode-safe width normalization, and ANSI-compatible formatting.
 
 ---
 
@@ -31,91 +34,78 @@ printf "ID|NAME|STATUS\n1|System|ON\n2|Disk|OFF" | column -t -s "|"
 
 ---
 
-## 2. 🛑 The Problem: Emojis & Unicode Breakage
-Standard Bash tools (`printf`, `wc -m`, `wc -c`) and even basic Python `len()` calls fail to calculate the correct **visual width** of strings in modern terminals for two reasons:
+## 2. Unicode & ANSI-Escape Handling
+Fixing the most common "Table Breakage" bugs in modern terminals.
 
-1.  **Double-Width Characters:** Emojis like `📂` or `🚀` often take up 2 columns visually, but count as 1 character in simple string length logic.
-2.  **Zero-Width Modifiers:** Emojis often have hidden "Variation Selectors" (e.g., `VS16`) or combining marks (e.g., skin tone) that add to the character count but *do not* consume extra visual space.
+### 2.1 Unicode Normalization (NFC/NFD)
+*   **Problem:** Multi-byte characters (e.g., Emojis, Persian/CJK characters) appearing as a single "Cell" but taking 2-3 visual spaces, breaking alignment.
+*   **Protocol:** Utilizing the `wcwidth` library or the `unicodedata` module in Python to calculate the **Visual Width** rather than the byte count.
 
-**Result:** A table that looks aligned in code (`printf "%-20s"`) breaks visually when Emojis are involved.
-
----
-
-## 3. ✅ The Solution: Standard Unicode Width Calculation
-The only reliable, cross-platform way to calculate visual width is to use the **Unicode East Asian Width** standard, while explicitly ignoring zero-width categories.
-
-### 3.1 The Python Logic (One-Liner)
-This logic iterates through characters and:
-- Adds **2** if East Asian Width is 'W' (Wide) or 'F' (Fullwidth).
-- Adds **0** if category is `Mn` (Non-spacing Mark), `Me` (Enclosing Mark), or `Cf` (Format).
-- Adds **1** otherwise.
-
-```python
-import unicodedata, sys
-s = sys.argv[1]
-width = sum(
-    2 if unicodedata.east_asian_width(c) in 'WF' else 
-    0 if unicodedata.category(c) in ('Mn', 'Me', 'Cf') else 
-    1 for c in s
-)
-print(width)
-```
-
-### 3.2 Robust Bash Implementation
-Copy this function to ensure pixel-perfect alignment in shell scripts.
-
-```bash
-# Calcuates strict visual width
-get_visual_width() {
-    python3 -c "import unicodedata, sys; s=sys.argv[1]; print(sum(2 if unicodedata.east_asian_width(c) in 'WF' else 0 if unicodedata.category(c) in ('Mn','Me','Cf') else 1 for c in s))" "$1"
-}
-
-# Pads/Truncates text to exact visual width
-pad_to_width() {
-    local text="$1"
-    local target_width="$2"
-    local vis_len=$(get_visual_width "$text")
-    local pad_len=$((target_width - vis_len))
-    
-    if [[ $pad_len -lt 0 ]]; then
-        local truncated="$text"
-        while [[ $(get_visual_width "$truncated") -gt $((target_width - 2)) ]]; do
-            truncated="${truncated%?}"
-        done
-        echo -n "${truncated}.."
-        vis_len=$(get_visual_width "${truncated}..")
-        pad_len=$((target_width - vis_len))
-    else
-        echo -n "$text"
-    fi
-    
-    if [[ $pad_len -gt 0 ]]; then
-        printf "%${pad_len}s" ""
-    fi
-}
-```
+### 2.2 ANSI-Strip Alignment
+*   **Problem:** Color codes (e.g., `\033[31m`) having character length but zero visual width, causing columns to shift.
+*   **Protocol:** Always stripping ANSI codes before calculating column widths, then re-applying them after the final table construction.
 
 ---
 
-## 4. ANSI-Escape Handling & Performance
-Fixing common "Table Breakage" bugs in modern terminals.
+## 3. High-Performance Data Visualization (`rich`)
+The 2025 Python standard for complex, feature-rich CLI tables.
 
-### 4.1 ANSI-Strip Alignment
-*   **Problem:** Color codes (e.g., `\033[31m`) have length but zero visual width.
-*   **Protocol:** Always strip ANSI codes before calculating widths, then re-apply them.
+### 3.1 `rich.table` Configuration Standard
+*   **Box Styles:** Standardizing on `box.ROUNDED` or `box.SIMPLE` for professional aesthetics.
+*   **Overflow Management:** Configuring `truncate` or `fold` behavior for rows exceeding the terminal's width (`Console().width`).
 
-### 4.2 High-Performance Visualization (`rich`)
-The 2025 Python standard for complex tables. Use `box.ROUNDED` for professional aesthetics.
+### 3.2 Automated Color Coding
+Targeting specific "Status" patterns (e.g., "ERROR" = Red, "SUCCESS" = Green) using centralized theme manifests.
 
 ---
 
-## 5. Technical Appendix: Table Alignment Reference
+## 4. Technical Appendix: Table Alignment Reference
 | Attribute | Technical Implementation | Purpose |
 | :--- | :--- | :--- |
 | **Header** | Uppercase + Bold | Hierarchy |
 | **Separators** | `-`, `|`, `+` (Unicode) | Structuring |
 | **Padding** | `str.ljust()` / `rjust()` | Spacing |
 | **Sorting** | `sort -k2` | Order |
+
+---
+
+## 5. Industrial Case Study: The "System Health" Dashboard
+**Objective:** Building a real-time disk and process monitor.
+1.  **Data Extraction:** Ingesting `df -h` and `ps aux`.
+2.  **Normalization:** Converting all sizes to GB/MB with 2 decimal places.
+3.  **Color Injection:** Highlight usage > 90% in Red.
+4.  **Table Generation:** Utilizing a Python script that calculates the final terminal width and adjusts the "Name" column length dynamically.
+
+---
+
+## 6. Glossary of CLI Table Terms
+*   **Gutter:** The whitespace between two columns.
+*   **Truncation:** Cutting off text that is too long for the allocated column width.
+*   **Delimiter:** The character used to separate raw data fields (e.g., `,`, `|`, `\t`).
+*   **Cell:** The intersection of a row and a column.
+
+---
+
+## 7. Mathematical Foundations: Proportional Column Scaling
+*   **Algorithm:** If $\sum \text{ColWidths} > \text{TermWidth}$, how much should each column be shrunk?
+*   **Formula:** $\text{NewWidth}_i = \text{ColWidth}_i \cdot (\text{TermWidth} / \sum \text{ColWidths})$, ensuring no column drops below a "Minimum Readable" threshold.
+
+---
+
+## 8. Troubleshooting & Performance Verification
+*   **Staggered Columns:** Occurs when a single cell contains a newline character. *Fix: Strip `\n` or replace with space during normalization.*
+*   **Broken Boxes:** Occurs when the terminal font doesn't support the Unicode "Box Drawing" characters. *Fix: Fallback to ASCII `+`, `-`, `|`.*
+
+---
+
+## 9. Appendix: Future "Active" Tables
+*   **Interactive Row Selection:** Utilizing `curses` or `textual` to allow users to navigate and "Select" a row within a generated table for further action.
+
+---
+
+## 10. Benchmarks & Performance Standards (2025)
+*   **Generation Time:** Target < 10ms for a 100-row table.
+*   **Visual Integrity:** 100% alignment across iTerm2, Kitty, and VSCode Integrated Terminals.
 
 ---
 [Back to README](../../README.md)

@@ -1,12 +1,16 @@
 ---
-name: github-code-quality
-description: GitHub Code Quality Technical Encyclopedia: Automated Linting, Pre-commit Hooks, Code Review Standards, and Claude Code Rule Orchestration.
-updated: 2026-05-20
+title: "Github Code Quality"
+description: GitHub Code Quality Technical Encyclopedia: Automated Linting, Pre-commit Hooks, Code Review Standards, and Cursor Rule Orchestration.
+location: .agent/skills/github-code-quality.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
 # Skill: GitHub Code Quality (Technical Encyclopedia)
 
-Comprehensive technical protocols for the design and orchestration of automated code quality systems within the GitHub ecosystem (2026). This document defines the standards for linting, pre-commit hooks, automated code reviews, and the integration of `.agent/rules/` for project-wide AI consistency.
+[Back to README](../../README.md)
+
+Comprehensive technical protocols for the design and orchestration of automated code quality systems within the GitHub ecosystem in the 2025 ecosystem. This document defines the standards for linting, pre-commit hooks, automated code reviews, and the integration of Cursor-specific `.cursorrules` for project-wide consistency.
 
 ---
 
@@ -40,17 +44,15 @@ Mandatory standard for the `PULL_REQUEST_TEMPLATE.md`, requiring sections for:
 
 ---
 
-## 3. Claude Code Rules & Project Orchestration
-Utilizing `.agent/rules/` and `CLAUDE.md` to provide project-specific AI guidance for Claude Code.
+## 3. Cursor Rules & Project Orchestration
+Utilizing `.cursorrules` (and `.mdc` files in 2025) to provide project-specific "AI Intelligence."
 
-### 3.1 Claude Code Architecture
-*   **Global Rules:** `.agent/rules/global.mdc` — identity, workflow-first protocol, professional standards.
-*   **Project Context:** `CLAUDE.md` (project root) — security rules, file map, architectural decisions.
-*   **Skills:** `.agent/skills/*.md` — domain-specific implementation guides.
-*   **Permissions:** `.claude/settings.local.json` — allowed Bash commands (not committed to git).
+### 3.1 `.cursorrules` Standard Architecture
+*   **Context Injection:** Defining "Global Rules" for project structure (e.g., `src/` layout) and "Specific Rules" for complex modules.
+*   **Naming Conventions:** Enforcing strict PascalCase for classes and snake_case for functions through AI-guided correction.
 
 ### 3.2 Automated Rule Enforcement
-Utilizing a custom script to verify that every file in the project adheres to the **Agent Constitution** (`.agent/rules/global.mdc`) and project-specific `.agent/rules/`. The Agent Constitution is the single source of truth for AI behavior rules — it defines identity, workflow protocols, code preservation rules, and git standards.
+Utilizing a custom script to verify that every file in the project adheres to the `agent-constitution` and project-specific `.agent/rules`.
 
 ---
 

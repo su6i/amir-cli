@@ -1,16 +1,22 @@
 ---
+title: "Init Project"
 description: Initialize a new professional project following the Agent Protocol standards.
+location: .agent/workflows/init-project.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
 # Project Initialization Workflow
 
+[Back to README](../../README.md)
+
 > **💡 Automation Tip:** Setup the global alias `init-project` (instructions in `bin/scaffold.sh`) and simply run `init-project` in your new empty folder.
 
 1.  **Scaffold Directory Structure**
-    - Create `src/`, `tests/`, `docs/`, `assets/`, `lib/`, `prompts/`.
+    - Create `src/`, `tests/`, `docs/`, `assets/`, `scripts/`.
     - Create `.agent/workflows/` (Standard Rules Location).
-    - Create `.storage/`, `.storage/temp/`, and `.storage/data/` (For local datasets/logs).
-    - Ensure root is clean.
+    - **Storage Policy:** DO NOT create storage folders in root. Code must use `~/.project_name/` for persistent data/logs.
+    - Ensure root is strictly clean (max 5-7 core files).
 
 2.  **Setup Logic & Config**
     - Initialize `uv init`.
@@ -25,19 +31,22 @@ description: Initialize a new professional project following the Agent Protocol 
 
 4.  **Generate Documentation Artifacts**
     - **Logo Generation (Mandatory Protocol):**
-        1.  Read `prompts/template_project_logo.txt` from the Constitution.
-        2.  Create `prompts/gen_[project]_logo.txt` in the new project.
+        1.  Read `.agent/prompts/template_project_logo.txt` from the Constitution.
+        2.  Create `.agent/prompts/gen_[project]_logo.txt` in the new project.
         3.  Fill in the `[INSERT THEME]`, `[COLORS]`, etc., with extreme detail.
         4.  Use this prompt to generate the SVG/Image. save to `assets/project_logo.svg`.
     - **README.md (Mandatory Protocol):**
-        1.  Read `prompts/template_readme.txt`.
-        2.  Create/Fill `prompts/gen_readme.txt` with project specifics.
+        1.  Read `.agent/prompts/template_readme.txt`.
+        2.  Create/Fill `.agent/prompts/gen_readme.txt` with project specifics.
         3.  Generate `README.md` using the "Standard Header" + content from the prompt.
     - **docs/TECHNICAL.md (Mandatory Protocol):**
-        1.  Read `prompts/template_technical.txt`.
-        2.  Create/Fill `prompts/gen_technical.txt`.
+        1.  Read `.agent/prompts/template_technical.txt`.
+        2.  Create/Fill `.agent/prompts/gen_technical.txt`.
         3.  Generate `docs/TECHNICAL.md` focusing on "Zero-to-Hero" extension guide.
 
 5.  **Final Verification**
     - Run `./install.sh` to test the onboarding flow.
     - Check if `README.md` links correctly to `TECHNICAL.md`.
+
+---
+[Back to README](../../README.md)

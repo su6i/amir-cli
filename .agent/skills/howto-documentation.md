@@ -1,6 +1,9 @@
 ---
-name: howto-documentation
+title: "Howto Documentation"
 description: How-To Documentation Technical Encyclopedia: Diátaxis Framework, Semantic Markdown, Automated Testing, and Style-as-Code.
+location: .agent/skills/howto-documentation.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
 # Skill: How-To Documentation (Technical Encyclopedia)

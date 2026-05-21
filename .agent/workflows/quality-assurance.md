@@ -1,8 +1,14 @@
 ---
+title: "Quality Assurance"
 description: Standards for Testing, Security, and Version Control (Git).
+location: .agent/workflows/quality-assurance.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
 # Quality Assurance & DevOps Workflow
+
+[Back to README](../../README.md)
 
 ## 1. Testing Protocol (Zero Bugs)
 **Rule:** No code is "Done" until it has tests.
@@ -29,18 +35,6 @@ description: Standards for Testing, Security, and Version Control (Git).
 1.  **Secrets:** Scan for hardcoded API keys or passwords. (Move to `.env`).
 2.  **Deps:** Check `requirements.txt` for known vulnerable versions.
 3.  **Input:** Validation logic exists for all user inputs.
-
-## 3.1 Installer & Environment Verification (New)
-**Rule:** `install.sh` MUST fully verify and be able to provision runtime requirements for a new developer/user machine.
-- **Scope:** System packages (ffmpeg, ffprobe, bc, qrencode, uv), Python runtime (python3), virtualenv, and project Python packages from `requirements.txt`.
-- **Behavior:** On first CLI run (or when `./install.sh --auto` is invoked), the installer should check for missing pieces and attempt automated provisioning where possible. Any failures must be surfaced clearly with remediation steps.
-- **Verification:** QA workflow must include an automated smoke test that runs `./install.sh --auto` in a clean environment (e.g., CI job or disposable container) and validates:
-    - Virtualenv created at `./.venv`.
-    - `pip` available inside the venv and `pip install -r requirements.txt` completed (or errors captured).
-    - CLI (`amir`) runs and imports core Python modules without raising `ModuleNotFoundError`.
-    - If git-only or private packages are referenced in `requirements.txt`, the installer must skip with a clear notice and the QA checklist must include manual steps to provision those.
-
-**Note:** This ensures "zero-setup" for end users: running `amir` should either work out-of-the-box after `install.sh --auto` or provide explicit actions to complete installation.
 
 ## 4. Release Strategy (Semantic Versioning)
 - **Major (X.0.0):** Breaking changes.
@@ -75,3 +69,6 @@ description: Standards for Testing, Security, and Version Control (Git).
 1.  **Search Best Practices:** Before writing complex logic (like Table Alignment, Zsh Completion), search for standard, scientific methods (e.g., Unicode Standards, Official Specs).
 2.  **No Trial & Error:** "Guessing" flags or magic numbers is forbidden. If you don't know, find the documentation or a proven algorithm first.
 3.  **Standard Libraries over Hacks:** Always prefer Python's standard library (e.g., `unicodedata`) or robust CLI tools over manual parsing/regex hacks.
+
+---
+[Back to README](../../README.md)

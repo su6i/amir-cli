@@ -1,6 +1,9 @@
 ---
-name: copywriting
+title: "Copywriting"
 description: Copywriting Technical Encyclopedia: Conversion Logic, AIDA/PAS Frameworks, NLP Techniques, and Friction Reduction.
+location: .agent/skills/copywriting.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
 # Skill: Copywriting (Technical Encyclopedia)

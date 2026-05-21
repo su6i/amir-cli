@@ -1,11 +1,24 @@
 ---
-name: python-core-standards
+title: "Python Core Standards"
 description: Python Core Standards Encyclopedia: CPython Internals, Distributed Concurrency, Memory Optimization, and Security Synthesis.
+location: .agent/skills/python-core-standards.md
+agent_priority: Standard
+last_updated: 2026-03-08
+---
+
+**🔗 Related Python Skills:**
+- [Python Containerization](python-containerization.md) - Docker, Distroless Images, Security Hardening
+- [Python GitHub Setup](python-github-setup.md) - CI/CD Workflows, Secret Management, Branch Protection
+- [Pandas & Scikit-learn](python-pandas-sklearn.md) - Memory Optimization, Pipeline Orchestration
+- [PyTorch & Sklearn Integration](python-pytorch-sklearn.md) - TorchDynamo, ONNX, Skorch
+
+[Back to README](../../README.md)
+
 ---
 
 # Skill: Python Core Standards (Technical Encyclopedia)
 
-[Back to README](../../README.md)
+
 
 Comprehensive technical protocols for industrial-grade Python engineering in the 2025 ecosystem. This document defines the standards for professional project architecture, CPython-level memory optimization, deterministic concurrency, and high-fidelity security patterns.
 
@@ -424,6 +437,12 @@ Utilizing `.pyx` files to compile Python-like code into C for $10-100$x speedups
 ### 15.3 Hardware-Specific Acceleration (SIMD)
 Utilizing libraries like `NumPy` and `PyTorch` that leverage SIMD (Single Instruction, Multiple Data) instructions on modern x86 (AVX-512) and ARM (NEON) architectures.
 *   **Alignment Standard:** Ensuring data arrays are 64-byte aligned to maximize the efficiency of hardware cache lines and vector registers.
+
+## 🔗 Related Python Skills
+- **[Python Containerization](python-containerization.md)** - Docker, Distroless Images, Security Hardening
+- **[Python GitHub Setup](python-github-setup.md)** - CI/CD Workflows, Secret Management, Branch Protection
+- **[Pandas & Scikit-learn](python-pandas-sklearn.md)** - Memory Optimization, Pipeline Orchestration
+- **[PyTorch & Sklearn Integration](python-pytorch-sklearn.md)** - TorchDynamo, ONNX, Skorch
 
 ---
 [Back to README](../../README.md)

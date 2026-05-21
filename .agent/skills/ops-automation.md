@@ -1,6 +1,9 @@
 ---
-name: ops-automation
+title: "Ops Automation"
 description: Ops Automation Technical Encyclopedia: Self-Healing Systems, Backup Verification, Health Checks, and Log Aggregation.
+location: .agent/skills/ops-automation.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
 # Skill: Ops Automation (Technical Encyclopedia)

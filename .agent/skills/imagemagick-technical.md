@@ -1,11 +1,24 @@
 ---
-name: imagemagick-technical
+title: "ImageMagick Technical"
 description: ImageMagick Technical Encyclopedia: PDF Conversion Math, Color Space Transformation, Complex Masking (FX/Evaluate), and Batch Orchestration.
+location: .agent/skills/imagemagick-technical.md
+agent_priority: Standard
+last_updated: 2026-03-08
+---
+
+**🔗 Related Media Tools:**
+- [ImageMagick Reference](imagemagick-reference.md) - Technical reference for v7 operations
+
+**🔗 Related Visual Production:**
+- [Thumbnail Psychology](visual-thumbnail-psychology.md) - Eye-tracking & CTR optimization
+
+[Back to README](../../README.md)
+
 ---
 
 # Skill: ImageMagick (Technical Encyclopedia)
 
-[Back to README](../../README.md)
+
 
 Comprehensive technical protocols for the automated manipulation and processing of raster and vector imagery using the ImageMagick toolchain in the 2025 ecosystem. This document defines the standards for density-based PDF conversion, CIELAB color transformations, and complex pixel-math using the `fx` operator.
 
@@ -25,11 +38,6 @@ magick -density 300 input.png \
        -background white -alpha remove \
        -gravity center -extent 2480x3508 \
        output.pdf
-
-# 1.2.2 Multi-Page Assembly
-# Always specify [0-999] or [0--1] to ensure all pages are collected from PDF inputs
-$cmd -density 300 page1.pdf[0-999] page2.png ... -compress jpeg -quality 100 final.pdf
-touch final.pdf # Refresh Finder metadata on macOS
 ```
 
 ---
@@ -106,6 +114,12 @@ Automated generation of responsive image sets (WebP/AVIF) using optimized quanti
 ## 10. Benchmarks & Performance Standards (2025)
 *   **Conversion Speed:** Target < 100ms for 1080p raster transformation.
 *   **Color Accuracy:** Delta-E < 2.0 for all colorspace conversions in the CIELAB pipeline.
+
+## 🔗 Related Media Tools
+- **[ImageMagick Reference](imagemagick-reference.md)** - Technical reference for v7 operations
+
+## 🔗 Related Visual Production
+- **[Thumbnail Psychology](visual-thumbnail-psychology.md)** - Eye-tracking & CTR optimization
 
 ---
 [Back to README](../../README.md)

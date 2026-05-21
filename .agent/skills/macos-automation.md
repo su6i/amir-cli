@@ -1,6 +1,9 @@
 ---
-name: macos-automation
+title: "Macos Automation"
 description: macOS Automation Technical Encyclopedia: AppleScript, JXA, 'launchd', 'defaults' Domains, and 'osascript' Integration.
+location: .agent/skills/macos-automation.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
 # Skill: macOS Automation (Technical Encyclopedia)

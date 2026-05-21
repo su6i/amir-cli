@@ -1,6 +1,9 @@
 ---
-name: js-ts-code-quality
+title: "Js Ts Code Quality"
 description: JS/TS Code Quality Technical Encyclopedia: The industrial standard for TypeScript 5.7+ and Node.js 22+ development.
+location: .agent/skills/js-ts-code-quality.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
 # Skill: JS/TS Code Quality (Technical Encyclopedia)
