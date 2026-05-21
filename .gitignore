@@ -46,3 +46,5 @@ completions/*.zwc
 *.m4a
 *.m4v
 .storage/
+.agent/skills.bak/
+*.bak
