@@ -1,199 +1,175 @@
 #!/bin/bash
 
 run_init_project() {
-    # 1. Determine Paths
-    # We want to link to the LIVE constitution repo.
-    # Logic: Check Env Var -> Check Sibling Directory -> Error
-    
-    local LIVE_SOURCE=""
-    
-    # Check 1: AMIR_CONSTITUTION_PATH env var
+
+    # ── 1. Locate agent-constitution repo ─────────────────────────────────────
+    local SOURCE_ROOT=""
+
     if [[ -n "$AMIR_CONSTITUTION_PATH" && -d "$AMIR_CONSTITUTION_PATH" ]]; then
-        LIVE_SOURCE="$AMIR_CONSTITUTION_PATH"
-    fi
-    
-    # Check 2: Sibling directory (assuming amir-cli and agent-constitution are in the same folder)
-    if [[ -z "$LIVE_SOURCE" ]]; then
+        SOURCE_ROOT="$AMIR_CONSTITUTION_PATH"
+    else
         local SIBLING="$SCRIPT_DIR/../agent-constitution"
-        if [[ -d "$SIBLING" ]]; then
-            LIVE_SOURCE="$(cd "$SIBLING" && pwd)"
-        fi
+        [[ -d "$SIBLING" ]] && SOURCE_ROOT="$(cd "$SIBLING" && pwd)"
     fi
 
-    if [[ -z "$LIVE_SOURCE" ]]; then
-        echo "❌ Error: Could not locate 'agent-constitution' repository."
-        echo "   Checked: \$AMIR_CONSTITUTION_PATH and ../agent-constitution"
+    if [[ -z "$SOURCE_ROOT" ]]; then
+        echo "❌ Could not locate 'agent-constitution' repository."
+        echo "   Set AMIR_CONSTITUTION_PATH or place it alongside amir-cli."
         return 1
     fi
-    
-    local SOURCE_ROOT="$LIVE_SOURCE"
-    
-    local TARGET_DIR=""
-    local MODE=""
 
-    if [[ -n "$1" ]]; then
-        TARGET_DIR="$1"
-        if [[ "$TARGET_DIR" == "." || "$TARGET_DIR" == "./" ]]; then
-            MODE="UPDATE"
-        else
-            MODE="NEW"
-        fi
+    # ── 2. Determine target & mode ─────────────────────────────────────────────
+    local TARGET_DIR="${1:-.}"
+    [[ "$TARGET_DIR" == "." || "$TARGET_DIR" == "./" ]] && TARGET_DIR="$(pwd)"
+    TARGET_DIR="$(cd "$(dirname "$TARGET_DIR")" 2>/dev/null && pwd)/$(basename "$TARGET_DIR")" || TARGET_DIR="$(pwd)/$1"
+
+    local PROJECT_NAME
+    PROJECT_NAME="$(basename "$TARGET_DIR")"
+
+    # Detect mode
+    local MODE
+    if [[ ! -d "$TARGET_DIR" ]]; then
+        MODE="NEW"              # directory doesn't exist → brand new project
+    elif [[ ! -d "$TARGET_DIR/.agent" ]]; then
+        MODE="SCAFFOLD"         # dir exists, no .agent yet → existing project, first time
     else
-        TARGET_DIR="sample-project"
-        MODE="DEFAULT"
+        MODE="UPDATE"           # .agent already there → refresh/update
     fi
 
-    echo "⚡ Initiating Agent Constitution Injection..."
-    echo "📍 Source Constitution: $SOURCE_ROOT"
-    
-    if [[ "$MODE" == "UPDATE" ]]; then
-        echo "🔄 Mode: Update/Scaffold Current Directory"
-        echo "🎯 Target: $(pwd)"
-    else
-        echo "✨ Mode: New Project"
-        echo "🎯 Target: $TARGET_DIR"
-    fi
+    echo ""
+    echo "⚡ amir init-project"
+    echo "   Source  : $SOURCE_ROOT"
+    echo "   Target  : $TARGET_DIR"
+    case "$MODE" in
+        NEW)      echo "   Mode    : ✨ New project (will create dir + git init)" ;;
+        SCAFFOLD) echo "   Mode    : 🏗  Scaffold existing project (first time)" ;;
+        UPDATE)   echo "   Mode    : 🔄 Update existing constitution" ;;
+    esac
+    echo ""
 
-    # 2. Safety Checks & Creation
-    if [ ! -d "$TARGET_DIR" ]; then
-        echo "📂 Creating new project directory: $TARGET_DIR"
+    # ── 3. Create dir + git init for new projects ──────────────────────────────
+    if [[ "$MODE" == "NEW" ]]; then
         mkdir -p "$TARGET_DIR"
+        echo "   ➕ Created $PROJECT_NAME/"
+        cd "$TARGET_DIR" || return 1
+        git init -q
+        echo "   ✅ git init"
+    else
+        cd "$TARGET_DIR" || return 1
+        if [[ ! -d ".git" ]]; then
+            echo "   ⚠️  Not a git repo. Running git init..."
+            git init -q
+            echo "   ✅ git init"
+        fi
     fi
 
-    if [ ! -d "$TARGET_DIR/.git" ]; then
-        echo "⚠️  Warning: Target is not a git repository. Proceeding anyway..."
-    fi
+    # ── 4. Copy constitution artifacts ────────────────────────────────────────
+    echo "📂 Installing constitution..."
 
-    # 3. Intelligent File Copy (Selective)
-    echo "📂 Copying essential protocols..."
-
-    # Function to copy specific files safely
-    copy_file() {
-        local src="$1"
-        local dst="$2"
-        
-        # Ensure parent dir exists
+    _copy() {
+        local src="$1" dst="$2"
         mkdir -p "$(dirname "$dst")"
-
-        if [ -e "$dst" ]; then
-            echo "   🔸 Backing up existing $(basename "$dst")..."
-            mv "$dst" "$dst.bak"
-        fi
-        
-        if [ -e "$src" ]; then
-            cp -R "$src" "$dst"
-            echo "   ✅ Installed $(basename "$dst")"
-        else
-            echo "   ⚠️  Source not found: $(basename "$src")"
-        fi
+        [[ -e "$dst" ]] && mv "$dst" "$dst.bak"
+        [[ -e "$src" ]] && cp -R "$src" "$dst" && echo "   ✅ $(basename "$dst")" || echo "   ⚠️  Not found: $(basename "$src")"
     }
 
-    # Create target structure
-    mkdir -p "$TARGET_DIR/.agent/rules"
-    mkdir -p "$TARGET_DIR/.agent/workflows"
+    # Rules (always full copy)
+    mkdir -p ".agent/rules"
+    for f in "$SOURCE_ROOT/.agent/rules/"*; do
+        [[ -f "$f" ]] && _copy "$f" ".agent/rules/$(basename "$f")"
+    done
 
-    # --- SELECTIVE COPY LOGIC ---
+    # Workflows (essential only)
+    mkdir -p ".agent/workflows"
+    for wf in init-project.md documentation.md ai-optimization.md quality-assurance.md communication.md; do
+        [[ -f "$SOURCE_ROOT/.agent/workflows/$wf" ]] && _copy "$SOURCE_ROOT/.agent/workflows/$wf" ".agent/workflows/$wf"
+    done
 
-    # Rules: Copy entire rules directory
-    if [[ -d "$SOURCE_ROOT/.agent/rules" ]]; then
-        for rule_file in "$SOURCE_ROOT/.agent/rules/"*; do
-            [[ -f "$rule_file" ]] && copy_file "$rule_file" "$TARGET_DIR/.agent/rules/$(basename "$rule_file")"
+    # Skills (full library)
+    _copy "$SOURCE_ROOT/.agent/skills" ".agent/skills"
+
+    # ── 5. Generate CLAUDE.md ─────────────────────────────────────────────────
+    if [[ ! -f "CLAUDE.md" ]]; then
+        # Auto-detect tech stack
+        local STACK="<!-- e.g. Python 3.12, FastAPI, PostgreSQL -->"
+        local SKILLS_HINT="<!-- e.g. python-core-standards, fastapi-best-practices -->"
+
+        if [[ -f "pyproject.toml" || -f "requirements.txt" || -f "setup.py" ]]; then
+            STACK="Python"
+            SKILLS_HINT="python-core-standards, python-containerization"
+        elif [[ -f "package.json" ]]; then
+            STACK="Node.js / TypeScript"
+            SKILLS_HINT="js-ts-code-quality, modern-web-ui"
+        elif [[ -f "go.mod" ]]; then
+            STACK="Go"
+            SKILLS_HINT="github-code-quality, ops-automation"
+        elif [[ -f "Cargo.toml" ]]; then
+            STACK="Rust"
+            SKILLS_HINT="github-code-quality, ops-automation"
+        fi
+
+        cat > "CLAUDE.md" << CLAUDEOF
+# CLAUDE.md — ${PROJECT_NAME}
+
+## Project
+<!-- TODO: describe what this project does in 1-2 sentences -->
+
+## Tech Stack
+${STACK}
+
+## Relevant Skills
+Read these from \`.agent/skills/\` before implementing domain-specific logic:
+${SKILLS_HINT}
+
+## Key Constraints
+<!-- TODO: any project-specific rules -->
+
+## Rules & Workflows
+- Rules     : \`.agent/rules/\` — read 000-core.md, global.md, 040-git.md before every task
+- Workflows : \`.agent/workflows/\` — pick the relevant one per task type
+- Skills    : \`.agent/skills/\` — 75 domain knowledge modules
+
+## Global Rules
+Git protocol, cost control, and code quality are in ~/.claude/CLAUDE.md (auto-loaded).
+CLAUDEOF
+        echo "   ✅ CLAUDE.md (fill in the TODOs)"
+    else
+        echo "   🔸 CLAUDE.md already exists, skipping"
+    fi
+
+    # ── 6. Standard directories ────────────────────────────────────────────────
+    echo "🏗️  Creating standard directories..."
+    for dir in src tests docs assets lib .storage/temp .storage/data; do
+        [[ ! -d "$dir" ]] && mkdir -p "$dir" && echo "   ➕ $dir/" || echo "   🔸 $dir/ exists"
+    done
+
+    # ── 7. .gitignore ──────────────────────────────────────────────────────────
+    local GITIGNORE_TEMPLATE="$SOURCE_ROOT/templates/gitignore.template"
+    if [[ ! -f ".gitignore" ]]; then
+        if [[ -f "$GITIGNORE_TEMPLATE" ]]; then
+            cp "$GITIGNORE_TEMPLATE" ".gitignore"
+            echo "   ✅ .gitignore from template"
+        else
+            printf ".storage/\n.env\n__pycache__/\n*.pyc\n.venv/\n" > ".gitignore"
+            echo "   ✅ .gitignore (minimal fallback)"
+        fi
+    else
+        # Ensure critical ignores are present
+        for rule in ".storage/" ".env" "__pycache__/"; do
+            grep -qF "$rule" ".gitignore" || echo "$rule" >> ".gitignore"
         done
+        echo "   🔸 .gitignore exists, critical rules verified"
     fi
 
-    # Workflows: Copy essential workflows only
-    ESSENTIAL_WORKFLOWS=(
-        "init-project.md"
-        "documentation.md"
-        "ai-optimization.md"
-        "quality-assurance.md"
-        "communication.md"
-        "social-media-showcase.md"
-    )
+    # ── 8. Git stage ───────────────────────────────────────────────────────────
+    echo "💾 Staging..."
+    git add .agent/ CLAUDE.md .gitignore src/ tests/ docs/ assets/ lib/ 2>/dev/null
+    echo "   ✅ Staged"
 
-    for wf in "${ESSENTIAL_WORKFLOWS[@]}"; do
-        if [[ -f "$SOURCE_ROOT/.agent/workflows/$wf" ]]; then
-             copy_file "$SOURCE_ROOT/.agent/workflows/$wf" "$TARGET_DIR/.agent/workflows/$wf"
-        fi
-    done
-
-    # Skills: Copy ALL skills
-    if [[ -d "$SOURCE_ROOT/.agent/skills" ]]; then
-         copy_file "$SOURCE_ROOT/.agent/skills" "$TARGET_DIR/.agent/skills"
+    echo ""
+    echo "🎉 Done! ${PROJECT_NAME} is now agent-governed."
+    if grep -q "TODO" "CLAUDE.md" 2>/dev/null; then
+        echo "   ✏️  Open CLAUDE.md and fill in the TODOs before your first session."
     fi
-
-    # 4. Scaffold Standard Directories
-    echo "🏗️  Creating standard directory structure..."
-    DIRS=(
-        "src"
-        "tests"
-        "docs"
-        "assets"
-        "lib"
-        "Roadmap"  # Added Roadmap
-        ".storage/temp"
-        ".storage/data"
-    )
-
-    for dir in "${DIRS[@]}"; do
-        TARGET_PATH="$TARGET_DIR/$dir"
-        if [ ! -d "$TARGET_PATH" ]; then
-            mkdir -p "$TARGET_PATH"
-            echo "   ➕ Created $dir/"
-        else
-            echo "   🔸 Exists $dir/"
-        fi
-    done
-    
-    # Copy generic assets from Amir CLI itself (not Constitution repo)
-    LOCAL_ASSETS="$LIB_DIR/../assets"
-    if [[ -f "$LOCAL_ASSETS/linkedin_su6i.svg" ]]; then
-        copy_file "$LOCAL_ASSETS/linkedin_su6i.svg" "$TARGET_DIR/assets/linkedin_su6i.svg"
-    fi
-
-    # 5. .gitignore Standard (Copy from Template)
-    GITIGNORE_TEMPLATE="$SOURCE_ROOT/templates/gitignore.template"
-    TARGET_GITIGNORE="$TARGET_DIR/.gitignore"
-    
-    if [[ -f "$GITIGNORE_TEMPLATE" ]]; then
-        echo "🛡️  Installing standard .gitignore from template..."
-        if [[ "$MODE" == "NEW" || ! -f "$TARGET_GITIGNORE" ]]; then
-            copy_file "$GITIGNORE_TEMPLATE" "$TARGET_GITIGNORE"
-        else
-            echo "   🛡️  Appending project rules to existing .gitignore..."
-            # For updates, we just ensure critical ignores are there
-            # Since gitignore is now a template, we can also choose to overwrite or append
-            # Adding Roadmap/ as a project specific rule just in case
-            if ! grep -qF "Roadmap/" "$TARGET_GITIGNORE"; then
-                echo -e "\n# Project Specific\nRoadmap/" >> "$TARGET_GITIGNORE"
-                echo "   ➕ Added Roadmap/"
-            fi
-        fi
-    else
-        echo "   ⚠️  Warning: gitignore.template not found at $GITIGNORE_TEMPLATE"
-        # Fallback to minimal if template missing
-        if [[ ! -f "$TARGET_GITIGNORE" ]]; then
-            echo "Roadmap/" > "$TARGET_GITIGNORE"
-        fi
-    fi
-
-    # 6. Git Add
-    if [ -d "$TARGET_DIR/.git" ]; then
-        echo "💾 Staging changes..."
-        local CURRENT_PWD=$(pwd)
-        cd "$TARGET_DIR" || return 1
-        
-        if command -v git &> /dev/null; then
-            git add .agent/ .gitignore src/ tests/ docs/ assets/ lib/ Roadmap/
-            echo "   ✅ Files flagged for commit."
-        else
-             echo "⚠️  Git not found, skipping stage."
-        fi
-        cd "$CURRENT_PWD"
-    else
-        echo "ℹ️  Skipped git add (not a repo)."
-    fi
-
-    echo "🎉 Constitution Installed! This project is now strictly Agent-Governed."
-    echo "📜 Please review the Workflows in .agent/workflows/"
+    echo ""
 }
