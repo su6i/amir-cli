@@ -1,11 +1,24 @@
 ---
-name: python-github-setup
+title: "Python GitHub Setup"
 description: Python GitHub Setup Technical Encyclopedia: CI/CD Workflows, Secret Management (OIDC), Branch Protection, and Template Orchestration.
+location: .agent/skills/python-github-setup.md
+agent_priority: Standard
+last_updated: 2026-03-08
+---
+
+**🔗 Related Python Skills:**
+- [Python Core Standards](python-core-standards.md) - CPython Internals, Memory Optimization, Security
+- [Python Containerization](python-containerization.md) - Docker, Distroless Images, Security Hardening
+- [Pandas & Scikit-learn](python-pandas-sklearn.md) - Memory Optimization, Pipeline Orchestration
+- [PyTorch & Sklearn Integration](python-pytorch-sklearn.md) - TorchDynamo, ONNX, Skorch
+
+[Back to README](../../README.md)
+
 ---
 
 # Skill: Python GitHub Setup (Technical Encyclopedia)
 
-[Back to README](../../README.md)
+
 
 Comprehensive technical protocols for the design and orchestration of Python-centric GitHub repositories in the 2025 ecosystem. This document defines the standards for CI/CD pipeline engineering, OIDC-based secret management, and deterministic repository state management.
 
@@ -106,6 +119,12 @@ Ensuring consistency across multiple projects using standardized manifests.
 ## 10. Benchmarks & Performance Standards (2025)
 *   **CI Execution Time:** Target < 5m for standard test suites.
 *   **Security Compliance:** 100% resolution rate for "Critical" Dependabot alerts within 24 hours.
+
+## 🔗 Related Python Skills
+- **[Python Core Standards](python-core-standards.md)** - CPython Internals, Memory Optimization, Security
+- **[Python Containerization](python-containerization.md)** - Docker, Distroless Images, Security Hardening
+- **[Pandas & Scikit-learn](python-pandas-sklearn.md)** - Memory Optimization, Pipeline Orchestration
+- **[PyTorch & Sklearn Integration](python-pytorch-sklearn.md)** - TorchDynamo, ONNX, Skorch
 
 ---
 [Back to README](../../README.md)

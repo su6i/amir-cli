@@ -1,6 +1,9 @@
 ---
-name: prompt-engineering
+title: "Prompt Engineering"
 description: Prompt Engineering Mastery Technical Encyclopedia: CoT, ToT, APE, Least-to-Most, and Security Protocols.
+location: .agent/skills/prompt-engineering.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
 # Skill: Prompt Engineering (Technical Encyclopedia)
@@ -348,7 +351,7 @@ Moving from "Chatbots" to "Self-Directed Systemic Engines."
 
 ### 23.1 High-Entropy System Composition
 *   **Logic:** Instead of specific instructions, provide the model with a "State Manifest" and a "Set of Goals." Allow the model's internal probability distribution to navigate the path to the goal autonomously.
-*   **Constraint:** This requires a high-intelligence model (e.g., GPT-4o, Claude 3.5 Sonnet, Gemini 1.5 Pro) to function reliably without collapsing into repetitive loops.
+*   **Constraint:** This requires a high-intelligence model (e.g., GPT-4o, Claude 4.5 Sonnet, Gemini 1.5 Pro) to function reliably without collapsing into repetitive loops.
 
 ### 23.2 Recursion & Meta-Prompting
 Designing prompts that instruct the model to "Generate a Better Version of this Prompt" at the end of its turn. This creates a self-improving cognitive loop for long-running autonomous research tasks.

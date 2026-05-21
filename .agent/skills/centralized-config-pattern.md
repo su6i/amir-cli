@@ -1,4 +1,5 @@
 # Centralized Configuration Pattern (Best Practice 2026)
+[Back to README](../../README.md)
 
 ## Problem Context
 When building CLI tools with mixed technology stacks (Bash + Python), maintaining encoding standards across different modules leads to code duplication and inconsistency. Previously, bitrate multipliers, CRF values, and encoding parameters were hardcoded in multiple locations:
@@ -121,10 +122,13 @@ When adding a new encoding parameter:
 
 ### References
 - [Netflix Tech Blog - Configuration Management](https://netflixtechblog.com/)
-- [Google SRE Book - Configuration Design](https://sre.google/sre-book/configuration-design/)
+- [Google SRE Book - Configuration](https://sre.google/sre-book/)
 - [12-Factor App - Configuration](https://12factor.net/config)
 
 ---
 **Implemented:** 2026-02-16  
 **Pattern Type:** Cross-Language Configuration Management  
 **Complexity:** Medium
+
+---
+[Back to README](../../README.md)

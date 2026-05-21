@@ -1,11 +1,19 @@
 ---
-name: ai-dubbing-localization
+title: "Ai Dubbing Localization"
 description: AI Dubbing & Localization Technical Encyclopedia: RVC Training, Pitch Alignment, Lip-Sync Automation, and Multilingual Signal Processing.
+location: .agent/skills/ai-dubbing-localization.md
+agent_priority: Standard
+last_updated: 2026-02-22
 ---
 
 # Skill: AI Dubbing & Localization (Technical Encyclopedia)
 
 [Back to README](../../README.md)
+
+**🔗 Related Ai Skills:**
+- [Ai Dubbing Localization](ai-dubbing-localization.md)
+- [Ai Logic Patterns](ai-logic-patterns.md)
+- [Ai Sfx Generation](ai-sfx-generation.md)
 
 Comprehensive technical protocols for the automated translation, voice-cloning, and lip-synchronization of video content in the 2025 ecosystem. This document defines the standards for RVC (Retrieval-based Voice Conversion) fine-tuning, pitch-invariant time-stretching, and sub-frame lip-sync accuracy.
 
@@ -99,6 +107,12 @@ Utilizing "Gaussian Blur Masks" around the mouth region to hide seams between th
 ## 10. Benchmarks & Performance Standards (2025)
 *   **Synthesis Latency:** Target < 1.0s for 10s of high-quality localized audio.
 *   **Likeness Persistence:** 100% consistency across all 10 target languages.
+
+## 🔗 Related Ai Skills
+
+- [Ai Dubbing Localization](ai-dubbing-localization.md)
+- [Ai Logic Patterns](ai-logic-patterns.md)
+- [Ai Sfx Generation](ai-sfx-generation.md)
 
 ---
 [Back to README](../../README.md)

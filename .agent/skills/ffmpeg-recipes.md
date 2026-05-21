@@ -1,11 +1,25 @@
 ---
-name: ffmpeg-recipes
+title: "FFmpeg Recipes"
 description: FFmpeg Recipes Technical Encyclopedia: SVT-AV1, Hardware Acceleration, HDR10/HLG, and Professional Transcoding Standards.
+location: .agent/skills/ffmpeg-recipes.md
+agent_priority: Standard
+last_updated: 2026-03-08
+---
+
+**🔗 Related Media Tools:**
+- [FFmpeg Reference](ffmpeg-reference.md) - Technical reference & standard flags
+
+**🔗 Related Video Production:**
+- [Video Production Automation](video-production-automation.md) - Complete rendering pipeline
+- [yt-dlp Web Download](youtube-dlp-web-download.md) - Media download integration
+
+[Back to README](../../README.md)
+
 ---
 
 # Skill: FFmpeg Recipes (Technical Encyclopedia)
 
-[Back to README](../../README.md)
+
 
 Comprehensive technical protocols for industrial-grade media processing, transcoding, and stream orchestration using FFmpeg in the 2025 ecosystem. This document defines the standards for high-efficiency codecs (AV1), hardware-accelerated pipelines, and professional color-space management.
 
@@ -114,10 +128,6 @@ Handling HDR10, HLG, and Dolby Vision metadata and tonemapping.
 ## 9. Appendix: Advanced Complex Filters
 *   **Overlaying:** Putting a logo over a video using `[0:v][1:v]overlay=W-w-10:H-h-10`.
 *   **Concatenation:** Using the `concat` protocol for seamless merging of clips with identical parameters.
-*   **Robust Audio Concat:** When merging audio files with embedded images/metadata (common in MP3s), use re-encode and `-vn` to avoid "Invalid audio stream" errors.
-    ```bash
-    ffmpeg -f concat -safe 0 -i list.txt -vn -c:a libmp3lame -b:a 192k output.mp3
-    ```
 
 ---
 
@@ -128,6 +138,13 @@ Handling HDR10, HLG, and Dolby Vision metadata and tonemapping.
 | **H.265** | x265 | 90% | 0.4x |
 | **AV1** | SVT-AV1 | 95% | 0.2x |
 | **H.265 (NV)**| NVENC | 85% | 5.0x |
+
+## 🔗 Related Media Tools
+- **[FFmpeg Reference](ffmpeg-reference.md)** - Technical reference & standard flags
+
+## 🔗 Related Video Production
+- **[Video Production Automation](video-production-automation.md)** - Complete rendering pipeline
+- **[yt-dlp Web Download](youtube-dlp-web-download.md)** - Media download integration
 
 ---
 [Back to README](../../README.md)

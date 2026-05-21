@@ -1,13 +1,15 @@
 ---
 description: Guide to programmatic PDF form filling using Python (ReportLab + PyPDF + PDFPlumber)
 ---
+[Back to README](../../README.md)
+
+**🔗 Related Pdf Skills:**
+- [Pdf Form Filling](pdf-form-filling.md)
+- [Pdf Rendering Engines](pdf-rendering-engines.md)
 
 # PDF Form Filling Automation
 
-This skill documents the process of programmatically filling non-interactive PDF forms (flat PDFs) by generating a text overlay and merging it with the original document.
-
 ## Core Concepts
-
 1.  **Coordinate Discovery**: Inspecting the PDF to find exact X,Y coordinates for text fields.
 2.  **Overlay Generation**: Creating a transparent PDF containing only the inserted text/images at the correct positions.
 3.  **Merging**: Overlaying the generated data onto the original PDF pages.
@@ -106,3 +108,12 @@ def merge_pdf(original_path, overlay_packet, output_path):
 *   **Visual Debugging**: Draw a grid or red dots at target coordinates to verify alignment during development.
 *   **Font Matching**: Use standard PDF fonts (Helvetica, Times-Roman, Courier) to avoid embedding issues and reduce file size, unless specific branding is required.
 *   **Coordinates**: Remember that `ReportLab` uses a bottom-left origin (standard Cartesian), while many extraction tools (and screen readers) might use top-left. Always standardise to bottom-left for generation.
+
+---
+## 🔗 Related Pdf Skills
+
+- [Pdf Form Filling](pdf-form-filling.md)
+- [Pdf Rendering Engines](pdf-rendering-engines.md)
+
+---
+[Back to README](../../README.md)
