@@ -153,13 +153,37 @@ run_sync_constitution() {
     done
     echo "   ✅ workflows: $wf_count files synced"
 
-    # ── 7. Summary ────────────────────────────────────────────────────────────
+    # ── 7. Detect project-exclusive skills (not in agent-constitution) ──────────
+    local exclusive_skills=()
+    for f in ".agent/skills/"*.md; do
+        [[ -f "$f" ]] || continue
+        local skill_name
+        skill_name="$(basename "$f")"
+        if [[ ! -f "$SOURCE_ROOT/.agent/skills/$skill_name" ]]; then
+            exclusive_skills+=("$skill_name")
+        fi
+    done
+
+    # ── 8. Summary ────────────────────────────────────────────────────────────
     echo ""
     echo "✅ Done."
     echo "   • CLAUDE.md, .gitignore, and project-specific files: untouched"
     if [[ ${#LEGACY_DIRS[@]} -gt 0 && ! -d ".agent" ]]; then
         echo "   • Legacy dirs migrated — review .agent/rules/ before committing"
     fi
+
+    if [[ ${#exclusive_skills[@]} -gt 0 ]]; then
+        echo ""
+        echo "💡 Project-exclusive skills found (not in agent-constitution):"
+        for s in "${exclusive_skills[@]}"; do
+            echo "   ➕ $s"
+        done
+        echo ""
+        echo "   Consider adding them to agent-constitution:"
+        echo "   cp .agent/skills/<skill> /path/to/agent-constitution/.agent/skills/"
+        echo "   Then: amir sync-constitution /path/to/agent-constitution  # (or commit manually)"
+    fi
+
     echo ""
     echo "Review changes:  git diff .agent/"
     echo ""
