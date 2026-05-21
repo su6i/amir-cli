@@ -66,27 +66,40 @@ run_init_project() {
     # ── 4. Copy constitution artifacts ────────────────────────────────────────
     echo "📂 Installing constitution..."
 
-    _copy() {
+    # Copy a single file (no .bak, just overwrite)
+    _copy_file() {
         local src="$1" dst="$2"
         mkdir -p "$(dirname "$dst")"
-        [[ -e "$dst" ]] && mv "$dst" "$dst.bak"
-        [[ -e "$src" ]] && cp -R "$src" "$dst" && echo "   ✅ $(basename "$dst")" || echo "   ⚠️  Not found: $(basename "$src")"
+        if [[ -f "$src" ]]; then
+            cp -f "$src" "$dst" && echo "   ✅ $(basename "$dst")"
+        else
+            echo "   ⚠️  Not found: $(basename "$src")"
+        fi
     }
 
-    # Rules (always full copy)
-    mkdir -p ".agent/rules"
-    for f in "$SOURCE_ROOT/.agent/rules/"*; do
-        [[ -f "$f" ]] && _copy "$f" ".agent/rules/$(basename "$f")"
-    done
+    # Sync a directory: copy files FROM src INTO dst (never deletes dst-only files)
+    _sync_dir() {
+        local src_dir="$1" dst_dir="$2"
+        mkdir -p "$dst_dir"
+        for f in "$src_dir"/*; do
+            [[ -f "$f" ]] && _copy_file "$f" "$dst_dir/$(basename "$f")"
+        done
+    }
+
+    # Rules: sync file-by-file (project-specific rule files are preserved)
+    echo "   📋 Rules..."
+    _sync_dir "$SOURCE_ROOT/.agent/rules" ".agent/rules"
 
     # Workflows (essential only)
+    echo "   🔄 Workflows..."
     mkdir -p ".agent/workflows"
     for wf in init-project.md documentation.md ai-optimization.md quality-assurance.md communication.md; do
-        [[ -f "$SOURCE_ROOT/.agent/workflows/$wf" ]] && _copy "$SOURCE_ROOT/.agent/workflows/$wf" ".agent/workflows/$wf"
+        _copy_file "$SOURCE_ROOT/.agent/workflows/$wf" ".agent/workflows/$wf"
     done
 
-    # Skills (full library)
-    _copy "$SOURCE_ROOT/.agent/skills" ".agent/skills"
+    # Skills: sync file-by-file (preserves project-specific skills)
+    echo "   🧠 Skills (76)..."
+    _sync_dir "$SOURCE_ROOT/.agent/skills" ".agent/skills"
 
     # ── 5. Generate CLAUDE.md ─────────────────────────────────────────────────
     if [[ ! -f "CLAUDE.md" ]]; then
