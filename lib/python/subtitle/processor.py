@@ -2719,6 +2719,15 @@ class SubtitleProcessor:
 
         entries = self.parse_srt(srt_path)
 
+        # Split entries that exceed max_chars before rendering.
+        # Uses proportional time interpolation so each sub-entry covers its
+        # fair share of the original timestamp range.
+        render_max_chars = getattr(self.style_config, 'max_chars', 42)
+        split_entries: List[Dict] = []
+        for entry in entries:
+            split_entries.extend(self._split_at_best_point(entry, render_max_chars))
+        entries = split_entries
+
         events = build_ass_events(
             entries=entries,
             secondary_map=secondary_map,
