@@ -2,7 +2,7 @@
 
 run_apply() {
     # Base directory for the CV generator project
-    local CV_DIR="$HOME/@-github/CV"
+    local CV_DIR="${APPLYFORGE_DIR:-$HOME/@-github/ApplyForge}"
     
     if [[ ! -d "$CV_DIR" ]]; then
         echo "❌ Error: CV project directory not found at $CV_DIR" >&2
