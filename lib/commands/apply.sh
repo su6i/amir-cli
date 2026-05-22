@@ -23,6 +23,11 @@ run_apply() {
         (cd "$CV_DIR" && uv run main.py preview "$@")
     else
         echo "🚀 Forwarding command to CV Generator at $CV_DIR..."
-        (cd "$CV_DIR" && uv run main.py apply "$@")
+        # Inject --color blue as default if no --color flag is already present
+        local args=("$@")
+        if [[ ! " $* " =~ " --color " ]]; then
+            args+=("--color" "blue")
+        fi
+        (cd "$CV_DIR" && uv run main.py apply "${args[@]}")
     fi
 }
