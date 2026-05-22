@@ -107,11 +107,30 @@ amir (bash entry point)
 
 | دستور | فایل | توضیح |
 |-------|------|-------|
+| `amir apply` | `lib/commands/apply.sh` | Bridge به ApplyForge — تولید رزومه + کاور لتر از URL شغلی |
 | `amir trend` / `amir research` | `lib/commands/trend.sh` | Bridge به research_toolkit (YouTube, GitHub, arXiv, Reddit, ProductHunt, IndieHackers) |
 | `amir video` | `lib/commands/video.sh` | پردازش ویدیو + دانلود |
 | `amir subtitle` | `lib/commands/subtitle.sh` | زیرنویس AI چندزبانه |
 | `amir pdf` | `lib/commands/pdf.sh` | PDF با Puppeteer |
 | `amir chat` | `lib/commands/chat.sh` | چت با Gemini/Gemma |
+
+### ماژول apply — وابستگی خارجی
+
+`amir apply` یک wrapper است که به **ApplyForge** (`$HOME/@-github/ApplyForge`) delegate می‌کند:
+
+```
+amir apply <job-url> [--template <name>] [--lang auto|fr|en] [--color <name>]
+  │
+  └─ lib/commands/apply.sh → run_apply()
+       │
+       ├─ CV_DIR = ${APPLYFORGE_DIR:-$HOME/@-github/ApplyForge}
+       ├─ اگر --color تعریف نشده → --color blue را به صورت پیش‌فرض اضافه می‌کند
+       └─ (cd "$CV_DIR" && uv run main.py apply <args>)
+```
+
+- **`APPLYFORGE_DIR`** — می‌توان override کرد: `export APPLYFORGE_DIR=/path/to/ApplyForge`
+- **`--color blue`** — پیش‌فرض برای sidebar آبی کم‌رنگ altacv (`E6F0FA`)؛ با `--color <other>` قابل override است
+- **subcommand preview:** `amir apply preview [--role ai|it|phd] [--lang fr|en] [--color ...]`
 
 ### ماژول trend — وابستگی خارجی
 
@@ -294,9 +313,18 @@ h2 { padding: 0 52px 0; }         /* was: 60px 52px 0 + page-break */
 // DOM wrapping via page.evaluate() بعد از emoji fix
 ```
 
+## تصمیمات این session (22 مه 2026)
+
+### `amir apply` — اصلاح مسیر و پیش‌فرض رنگ
+
+- **باگ مسیر:** `CV_DIR` به اشتباه به `$HOME/@-github/CV` اشاره می‌کرد (وجود ندارد). اصلاح شد به `${APPLYFORGE_DIR:-$HOME/@-github/ApplyForge}`.
+- **پیش‌فرض `--color blue`:** اگر `--color` پاس نشود، `apply.sh` خودش `--color blue` را به args اضافه می‌کند تا sidebar altacv رنگ آبی کم‌رنگ (`E6F0FA`) داشته باشد.
+
+---
+
 ## پروژه وابسته: CV / LinkedIn Content
 
-مسیر: `/Users/su6i/@-github/CV/` — مستندات کامل در `CV/CLAUDE.md`
+مسیر: `$HOME/@-github/ApplyForge` — مستندات کامل در `ApplyForge/CLAUDE.md`
 
 ### دستور ساخت carousel از CV project
 
