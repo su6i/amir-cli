@@ -2722,7 +2722,10 @@ class SubtitleProcessor:
         # Split entries that exceed max_chars before rendering.
         # Uses proportional time interpolation so each sub-entry covers its
         # fair share of the original timestamp range.
-        render_max_chars = getattr(self.style_config, 'max_chars', 42)
+        # Portrait uses the configured limit; landscape gets 2× to reflect
+        # the wider available width (same ratio as the default 30 vs 42+).
+        _base_max_chars = getattr(self.style_config, 'max_chars', 42)
+        render_max_chars = _base_max_chars if layout['is_portrait'] else _base_max_chars * 2
         split_entries: List[Dict] = []
         for entry in entries:
             split_entries.extend(self._split_at_best_point(entry, render_max_chars))
