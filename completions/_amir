@@ -241,6 +241,7 @@ _amir() {
                         '--guest-tag-pos[Default position for guest tags]:pos:(br bl tr tl bc tc)' \
                         '--raise-top[Move top subtitle upward by N pixels]:px' \
                         '--raise-bottom[Move bottom subtitle upward by N pixels]:px' \
+                        '--shift[Shift subtitles in time (seconds): positive=later, negative=earlier]:seconds' \
                     '--no-vad[Disable Voice Activity Detection]' \
                         '--yt-subs[Use YouTube built-in subtitles instead of Whisper (manual first, auto-gen fallback)]' \
                         '--fps[Final burn FPS]:fps:(6 10 12 15 20 24 25 30)' \
@@ -757,6 +758,7 @@ _amir() {
                         '--guest-tag-pos[Default position for guest tags]:pos:(br bl tr tl bc tc)' \
                         '--raise-top[Move top subtitle upward by N pixels]:px' \
                         '--raise-bottom[Move bottom subtitle upward by N pixels]:px' \
+                        '--shift[Shift subtitles in time (seconds): positive=later, negative=earlier]:seconds' \
                         '--no-vad[Disable Voice Activity Detection]' \
                         '--yt-subs[Use YouTube built-in subtitles instead of Whisper (manual first, auto-gen fallback)]' \
                         '--fps[Final burn FPS]:fps:(6 10 12 15 20 24 25 30)' \

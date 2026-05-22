@@ -288,6 +288,9 @@ Note:
                         help="Move top subtitle upward by N pixels (positive moves up)")
     parser.add_argument("--raise-bottom", type=int, default=0,
                         help="Move bottom subtitle upward by N pixels (positive moves up)")
+    parser.add_argument("--shift", type=float, default=0.0, metavar="SECONDS",
+                        help="Shift all subtitles in time. Positive = later (delay), negative = earlier. "
+                             "Example: --shift 2.5 delays by 2.5s, --shift -1 advances by 1s.")
     parser.add_argument(
         "--yt-subs",
         action="store_true",
@@ -518,6 +521,7 @@ Note:
         guest_tag_pos=args.guest_tag_pos,
         subtitle_raise_top_px=args.raise_top,
         subtitle_raise_bottom_px=args.raise_bottom,
+        subtitle_shift=args.shift,
         ass_input_path=args.ass_input,
         use_vad=args.use_vad,
         yt_subs=args.yt_subs,
