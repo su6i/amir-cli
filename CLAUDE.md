@@ -4,6 +4,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## قانون Merge: فقط بعد از تأیید کاربر
+
+**هیچ‌گاه قبل از تأیید صریح کاربر merge نکن.**
+
+روند اجباری:
+1. کد را روی feature branch بنویس و commit کن
+2. به کاربر بگو: **«آماده تست است — بعد از تأیید merge می‌کنم»**
+3. صبر کن کاربر برنامه را تست کند و به‌صراحت تأیید کند
+4. فقط بعد از تأیید: `git merge` + `git branch -d`
+
+```bash
+# ممنوع — بدون تأیید:
+git checkout main && git merge feature/xyz && git branch -d feature/xyz
+
+# درست — صبر برای تأیید، سپس merge
+```
+
+---
+
 ## قانون کامیت: فرمت پیام
 
 **هیچ‌گاه خط `Co-Authored-By:` به پیام کامیت اضافه نکن.** این پروژه شخصی است و نسبت دادن کامیت به AI غیرحرفه‌ای به نظر می‌رسد.
