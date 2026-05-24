@@ -72,7 +72,7 @@ run_clean() {
             fi
         done
         printf "══════════════════════════════════════════════════════════\n"
-        printf "  ↑↓ Move  │  Space/1-6 Toggle  │  d Delete  │  q Cancel\n"
+        printf "  ↑↓ Move  │  Space/1-6 Toggle  │  Enter/d Delete  │  q Cancel\n"
         [[ -n "$msg" ]] && printf "\n  \033[33m%s\033[0m\n" "$msg"
     }
 
@@ -99,7 +99,7 @@ run_clean() {
                 cursor=$idx
                 [[ "${SEL[$idx]}" == "1" ]] && SEL[$idx]=0 || SEL[$idx]=1
                 ;;
-            d|D)
+            ''|$'\n'|$'\r'|d|D)
                 local any=0 i
                 for i in "${!SEL[@]}"; do [[ "${SEL[$i]}" == "1" ]] && any=1; done
                 if [[ "$any" == "0" ]]; then
