@@ -6,15 +6,27 @@ run_clean() {
         return
     fi
 
+    # ── Single-keypress reader (handles ESC sequences for arrow keys) ─────────
+    _read_key() {
+        local key k2 k3
+        IFS= read -r -s -n1 key
+        if [[ "$key" == $'\x1b' ]]; then
+            IFS= read -r -s -n1 -t 0.1 k2
+            IFS= read -r -s -n1 -t 0.1 k3
+            key="${key}${k2}${k3}"
+        fi
+        printf '%s' "$key"
+    }
+
     # ── Size helpers ──────────────────────────────────────────────────────────
-    _sz() { du -sh "$@" 2>/dev/null | awk '{print $1}' | tail -1; }
+    _sz()     { du -sh "$@" 2>/dev/null | awk '{print $1}' | tail -1; }
     _sz_sum() { du -sch "$@" 2>/dev/null | tail -1 | awk '{print $1}'; }
     _sz_logs() {
         find ~/Library/Logs -type f -mtime +7 2>/dev/null \
             | xargs du -ch 2>/dev/null | tail -1 | awk '{print $1}'
     }
 
-    # ── Labels ────────────────────────────────────────────────────────────────
+    # ── Items ─────────────────────────────────────────────────────────────────
     local -a LABELS=(
         "Trash"
         "User Caches"
@@ -24,7 +36,6 @@ run_clean() {
         "Claude Desktop VM"
     )
 
-    # ── Calculate sizes once ──────────────────────────────────────────────────
     printf "\n📊 Analyzing system clutter...\n"
     local -a SIZES
     SIZES[0]="$(_sz ~/.Trash)"
@@ -38,11 +49,14 @@ run_clean() {
 
     for i in "${!SIZES[@]}"; do [[ -z "${SIZES[$i]}" ]] && SIZES[$i]="—"; done
 
-    # ── Default: standard items ON, hidden caches OFF ─────────────────────────
-    local -a SEL=(1 1 1 0 0 0)
+    # ── State ─────────────────────────────────────────────────────────────────
+    local -a SEL=(1 1 1 0 0 0)   # first 3 on by default
+    local cursor=0
+    local n=${#LABELS[@]}
+    local msg=""
 
-    # ── Toggle menu ───────────────────────────────────────────────────────────
-    while true; do
+    # ── Render ────────────────────────────────────────────────────────────────
+    _draw() {
         clear
         printf "\n🧹  amir clean — macOS\n"
         printf "══════════════════════════════════════════════════════════\n"
@@ -50,27 +64,52 @@ run_clean() {
         for i in "${!LABELS[@]}"; do
             local mark="[ ]"
             [[ "${SEL[$i]}" == "1" ]] && mark="[✓]"
-            printf "  %s  %d.  %-38s  %s\n" \
-                "$mark" "$((i+1))" "${LABELS[$i]}" "${SIZES[$i]}"
+            if [[ "$i" == "$cursor" ]]; then
+                printf "  \033[7m%s  %d.  %-36s  %s\033[0m\n" \
+                    "$mark" "$((i+1))" "${LABELS[$i]}" "${SIZES[$i]}"
+            else
+                printf "  %s  %d.  %-36s  %s\n" \
+                    "$mark" "$((i+1))" "${LABELS[$i]}" "${SIZES[$i]}"
+            fi
         done
         printf "══════════════════════════════════════════════════════════\n"
-        printf "  Toggle: 1-6  │  Delete selected: d  │  Cancel: q\n"
-        printf "  > "
-        read -r input
+        printf "  ↑↓ Move  │  Space/1-6 Toggle  │  d Delete  │  q Cancel\n"
+        [[ -n "$msg" ]] && printf "\n  \033[33m%s\033[0m\n" "$msg"
+    }
 
-        case "$input" in
-            [1-6])
-                local idx=$((input - 1))
+    # ── Main loop ─────────────────────────────────────────────────────────────
+    while true; do
+        _draw
+        msg=""
+
+        local key
+        key="$(_read_key)"
+
+        case "$key" in
+            $'\x1b[A')   # Arrow Up
+                [[ $cursor -gt 0 ]] && cursor=$((cursor - 1))
+                ;;
+            $'\x1b[B')   # Arrow Down
+                [[ $cursor -lt $((n-1)) ]] && cursor=$((cursor + 1))
+                ;;
+            ' ')          # Space — toggle highlighted row
+                [[ "${SEL[$cursor]}" == "1" ]] && SEL[$cursor]=0 || SEL[$cursor]=1
+                ;;
+            [1-6])        # Number — jump + toggle
+                local idx=$((key - 1))
+                cursor=$idx
                 [[ "${SEL[$idx]}" == "1" ]] && SEL[$idx]=0 || SEL[$idx]=1
                 ;;
             d|D)
-                local any=0
+                local any=0 i
                 for i in "${!SEL[@]}"; do [[ "${SEL[$i]}" == "1" ]] && any=1; done
                 if [[ "$any" == "0" ]]; then
-                    printf "\n  ⚠️  Nothing selected.\n"; sleep 1; continue
+                    msg="⚠️  Nothing selected — toggle items first."
+                    continue
                 fi
 
-                printf "\n🧹 Cleaning selected items...\n"
+                clear
+                printf "\n🧹 Cleaning selected items...\n\n"
 
                 [[ "${SEL[0]}" == "1" ]] && {
                     printf "  → Emptying Trash...\n"
@@ -102,7 +141,7 @@ run_clean() {
                 printf "\n✅ Done!\n"
                 break
                 ;;
-            q|Q)
+            q|Q|$'\x1b')
                 printf "\n❌ Cancelled.\n"
                 break
                 ;;
