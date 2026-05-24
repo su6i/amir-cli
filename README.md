@@ -207,7 +207,7 @@ export RESEARCH_TOOLKIT_DIR=/path/to/research_toolkit
 | `amir pass [len]` | Generate a strong, random password. |
 | `amir lock <file>` | Encrypt a file (GPG). |
 | `amir unlock <file>` | Decrypt a file. |
-| `amir clean` | Deep clean system trash and caches (macOS/Linux). |
+| `amir clean` | Interactive cleanup menu — toggle items on/off with Space/numbers, navigate with ↑↓, confirm with Enter. Covers: Trash, User Caches, System Logs, VS Code workspaceStorage, macOS Aerials Screensaver, Claude Desktop VM. |
 | `amir speed` | Test internet connection speed. |
 | `amir weather [city]` | Check weather (specify city or use default). |
 
