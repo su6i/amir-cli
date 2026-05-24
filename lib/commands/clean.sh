@@ -8,12 +8,11 @@ run_clean() {
 
     # ── Single-keypress reader (handles ESC sequences for arrow keys) ─────────
     _read_key() {
-        local key k2 k3
+        local key rest
         IFS= read -r -s -n1 key
         if [[ "$key" == $'\x1b' ]]; then
-            IFS= read -r -s -n1 -t 0.1 k2
-            IFS= read -r -s -n1 -t 0.1 k3
-            key="${key}${k2}${k3}"
+            IFS= read -r -s -n2 -t 1 rest 2>/dev/null || rest=""
+            key="${key}${rest}"
         fi
         printf '%s' "$key"
     }
