@@ -1764,7 +1764,8 @@ find_existing_downloaded_video() {
 
         # Resolution-agnostic fallback: the actual downloaded height often differs from
         # the requested resolution (e.g. user asks 480p but video only has 426p).
-        # Scan all *_<N>p* files and match by title key regardless of resolution.
+        # Only reuse if the found file's resolution is ≥ 75% of the requested resolution
+        # to avoid reusing a 360p file when 1080p is explicitly requested.
         for _candidate in "${_out_dir}"/*_[0-9]*p*.mp4; do
             [[ -f "$_candidate" ]] || continue
             is_reusable_download_video "$_candidate" || continue
@@ -1774,6 +1775,14 @@ find_existing_downloaded_video() {
             _cand_base="$(printf '%s' "$_cand_stem" | sed -E 's/_[0-9]+p(_[0-9]+)?$//')"
             _cand_key="$(stem_compare_key "$_cand_base")"
             if [[ -n "$_cand_key" && "$_cand_key" == "$_target_key" ]]; then
+                local _found_res
+                _found_res="$(printf '%s' "$_cand_stem" | grep -oE '[0-9]+p' | tail -1 | tr -d 'p')"
+                if [[ "$_found_res" =~ ^[0-9]+$ && "$_resolution" =~ ^[0-9]+$ ]]; then
+                    # Skip if found resolution is less than 75% of requested (avoid reusing 360p for 1080p)
+                    if ! awk -v f="$_found_res" -v r="$_resolution" 'BEGIN { exit (f >= r * 0.75) ? 0 : 1 }'; then
+                        continue
+                    fi
+                fi
                 printf "%s" "$_candidate"
                 return 0
             fi
@@ -2314,6 +2323,14 @@ video_download() {
         IMPERSONATE_ARGS=(--extractor-args "generic:impersonate")
     fi
 
+    # YouTube SABR workaround: android_vr client may serve SABR-only formats with no
+    # direct URL (see github.com/yt-dlp/yt-dlp/issues/12482). Use web/android clients
+    # which provide standard DASH streams up to 1080p reliably.
+    local -a YT_CLIENT_ARGS=()
+    if $IS_YOUTUBE_URL; then
+        YT_CLIENT_ARGS=(--extractor-args "youtube:player_client=web,mweb,android")
+    fi
+
     # ── Extreme download defaults ─────────────────────────────────────────
     if $EXTREME_DL; then
         # New default profile for fast turnaround + acceptable subtitle readability.
@@ -2492,6 +2509,7 @@ PY
         yt-dlp \
             "${COOKIE_ARGS[@]}" \
             "${IMPERSONATE_ARGS[@]}" \
+            "${YT_CLIENT_ARGS[@]}" \
             --remote-components "ejs:github" \
             --newline \
             --continue \
@@ -2526,6 +2544,7 @@ PY
             log_info "↻ Retry without browser auth/session hints for YouTube..." >&2
             : > "$_PATHFILE"
             yt-dlp \
+                "${YT_CLIENT_ARGS[@]}" \
                 --remote-components "ejs:github" \
                 --newline \
                 --continue \
