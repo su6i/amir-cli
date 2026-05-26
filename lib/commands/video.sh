@@ -2323,12 +2323,13 @@ video_download() {
         IMPERSONATE_ARGS=(--extractor-args "generic:impersonate")
     fi
 
-    # YouTube SABR workaround: android_vr client may serve SABR-only formats with no
-    # direct URL (see github.com/yt-dlp/yt-dlp/issues/12482). Use web/android clients
-    # which provide standard DASH streams up to 1080p reliably.
+    # YouTube SABR workaround: yt-dlp's built-in default uses android_vr which
+    # YouTube may route to SABR-only streaming (no direct URL per issue #12482).
+    # Explicitly requesting player_client=default avoids android_vr and returns
+    # standard DASH streams up to 1080p without SABR restrictions.
     local -a YT_CLIENT_ARGS=()
     if $IS_YOUTUBE_URL; then
-        YT_CLIENT_ARGS=(--extractor-args "youtube:player_client=web,mweb,android")
+        YT_CLIENT_ARGS=(--extractor-args "youtube:player_client=default")
     fi
 
     # ── Extreme download defaults ─────────────────────────────────────────
