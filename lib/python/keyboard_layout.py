@@ -23,7 +23,7 @@ def c(text, col): return f"{col}{text}{R}"
 # ── Key layout data: (normal, shift, option) ─────────────────────────────────
 # French AZERTY — Apple Compact (Mac Mini)
 FR_ROW1 = [
-    ('²', '³', '—'),
+    ('@', '#', '—'),
     ('&', '1', '¹'),
     ('é', '2', '~'),
     ('"', '3', '#'),
@@ -373,9 +373,9 @@ def show_fr(highlight=None, auto_info=None):
         ('[',   'Opt + (    (touche 5)       <- [  crochet ouvrant'),
         (']',   'Opt + )    (touche 0/deg)   <- ]  crochet fermant'),
         ('|',   'Opt + -    (touche 6)       <- |  pipe Unix'),
-        ('~',   'Opt + e    (touche 2/e)     <- ~  HOME sur Mac/Linux  ** important **'),
-        ('@',   'Opt + a    (touche a/0)     <- @  email, SSH'),
-        ('#',   'Opt + "    (touche 3)       <- #  hashtag, commentaire Python/bash'),
+        ('~',   'Opt + e    (touche é/2)     <- ~  HOME sur Mac/Linux  ** important **'),
+        ('@',   'touche @   (1re touche)       <- @ direct, pas besoin Option !'),
+        ('#',   'Shift + @  (1re touche)  ou  Opt + "  <- # hashtag'),
         ('`',   'Opt + e    (touche 7)       <- `  backtick Markdown / shell'),
         ('\\',  'Opt + _    (touche 8)       <- \\  backslash'),
         ('^',   'Opt + c    (touche 9)       <- ^  caret regex / exposant'),
