@@ -268,10 +268,13 @@ def draw_row(keys, indent=0, highlight=None, three_layer=True):
     """
     Draw one keyboard row.
     keys = list of (nrm, shf, opt) or (nrm, shf)
-    Each key cell: 5 chars wide (3 inside + 2 borders).
+    Each key cell: 7 chars wide (5 inside + 2 borders).
+      3-layer top:  opt + 2 spaces + shf + 1 space  →  │o  S │
+      normal line:  2 spaces + nrm + 2 spaces        →  │  N  │
     """
     pad = ' ' * indent
     tops = []; layer1 = []; layer2 = []; bots = []
+    B = chr(0x2502)  # │
 
     for entry in keys:
         if len(entry) == 3:
@@ -284,20 +287,20 @@ def draw_row(keys, indent=0, highlight=None, three_layer=True):
         shf = shf or ' '
         opt = opt or ' '
 
-        tops.append(c('┌───┐', BRD))
-        bots.append(c('└───┘', BRD))
+        tops.append(c('┌─────┐', BRD))
+        bots.append(c('└─────┘', BRD))
 
         if three_layer:
             opt_s = c(opt, HLT + BLD if (highlight and opt == highlight) else OPT)
             shf_s = c(shf, HLT + BLD if (highlight and shf == highlight) else SHF)
-            layer1.append(f"{c(chr(0x2502), BRD)}{opt_s}{shf_s} {c(chr(0x2502), BRD)}")
+            layer1.append(f"{c(B, BRD)}{opt_s}  {shf_s} {c(B, BRD)}")
         else:
             shf_s = c(shf, HLT + BLD if (highlight and shf == highlight) else SHF)
-            layer1.append(f"{c(chr(0x2502), BRD)} {shf_s} {c(chr(0x2502), BRD)}")
+            layer1.append(f"{c(B, BRD)}  {shf_s}  {c(B, BRD)}")
 
         nrm_col = HLT + BLD if (highlight and nrm == highlight) else NRM + BLD
         nrm_s = c(nrm, nrm_col)
-        layer2.append(f"{c(chr(0x2502), BRD)} {nrm_s} {c(chr(0x2502), BRD)}")
+        layer2.append(f"{c(B, BRD)}  {nrm_s}  {c(B, BRD)}")
 
     sep = ' '
     print(f"{pad}{sep.join(tops)}")
