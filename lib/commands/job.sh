@@ -36,7 +36,7 @@ run_job() {
             _job_add_source "$@"
             ;;
         sync)
-            _job_sync
+            _job_sync_cmd
             ;;
         init)
             _job_init "$@"
@@ -205,15 +205,23 @@ _job_add_source() {
         add "$name" "$url" "$desc" $priority_flag
 }
 
-_job_sync() {
+_job_sync_cmd() {
+    local base_dir="${APPLY_BASE_DIR:-$HOME/@-Amir/Apply/2026-2027}"
+    local sync_file="$base_dir/sync_queue.txt"
     echo ""
-    echo "  ℹ  Job sync requires Gmail MCP access."
-    echo "     Run from Claude Code session:"
-    echo "       > sync my job application emails from Gmail newsletters"
-    echo ""
-    echo "  Or add positions manually:"
-    echo "       amir apply job new <id> --track <devops|ai_engineer|polyvalent>"
-    echo ""
+    echo "  SYNC REQUEST — Job tracks only"
+    if [[ -f "$sync_file" ]]; then
+        PYTHONPATH="$LIB_DIR/python" uv run python \
+            "$LIB_DIR/python/apply_tracker/sync.py" "$base_dir" \
+            --sync-file "$sync_file"
+    else
+        echo "  CLAUDE_ACTION: GMAIL_SYNC_JOB"
+        echo "  Check Gmail for [AMIR-SYNC] drafts (Job positions only),"
+        echo "  write to: $sync_file  then re-run: amir apply job sync"
+        echo ""
+        echo "  Or ask Claude Code:"
+        echo "    > sync new job positions from Gmail newsletters (APEC, LinkedIn)"
+    fi
 }
 
 _job_new() {
