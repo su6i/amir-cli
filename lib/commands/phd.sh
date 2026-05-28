@@ -11,7 +11,7 @@ run_phd() {
         status)
             _phd_python status.py "$@"
             ;;
-        show)
+        show|list)
             _phd_show "$@"
             ;;
         draft)
@@ -25,6 +25,9 @@ run_phd() {
             ;;
         open)
             _phd_open "$@"
+            ;;
+        search)
+            _phd_search "$@"
             ;;
         init)
             _phd_init "$@"
@@ -48,8 +51,11 @@ _phd_python() {
 _phd_show() {
     local pos_id="$1"
     if [[ -z "$pos_id" ]]; then
-        echo "Usage: amir apply phd show <position-id>" >&2
-        return 1
+        # Show list of available IDs instead of error
+        PYTHONPATH="$LIB_DIR/python" uv run python \
+            "$LIB_DIR/python/apply_tracker/status.py" \
+            "$_PHD_SEARCH_DIR" --list --type phd
+        return 0
     fi
 
     # Find position file
@@ -140,6 +146,32 @@ _phd_open() {
     fi
 }
 
+_phd_search() {
+    local source="${1:-all}"
+    echo ""
+    echo "  PhD Position Search"
+    echo "  ───────────────────────────────────────────────────────────"
+    echo ""
+    echo "  ℹ  Automatic search requires Claude Code session (Web Search + Gmail MCP)."
+    echo "     Run one of these in the Claude Code terminal:"
+    echo ""
+    echo "     > search new PhD positions in AI/LLM/MARL and add to tracker"
+    echo "     > check my Gmail for new PhD position newsletters"
+    echo "     > search ADUM/ABG/Inria for new LLM/multi-agent PhD positions"
+    echo ""
+    echo "  Manual sources to check:"
+    echo "    ADUM     → https://www.adum.fr"
+    echo "    ABG      → https://www.abg.asso.fr/fr/recrutement/sujet-de-these/informatique"
+    echo "    Inria    → https://jobs.inria.fr/public/classic/en/offres?filtre=doctorants"
+    echo "    Mila     → https://mila.quebec/en/prospective-students-postdocs"
+    echo "    Euraxess → https://euraxess.ec.europa.eu/jobs/search"
+    echo ""
+    echo "  To add a found position:"
+    echo "    Create: $_PHD_SEARCH_DIR/found/<track>/<id>.md"
+    echo "    Then:   amir apply phd init <track>"
+    echo ""
+}
+
 _phd_init() {
     local track="${1:-}"
     if [[ -z "$track" ]]; then
@@ -157,7 +189,9 @@ _phd_usage() {
     echo ""
     echo "  Commands:"
     echo "    status [--track general|finance|all]   Show all positions with urgency"
-    echo "    show   <id>                            Show position + existing draft"
+    echo "    show   [<id>]                          Show position + draft (no ID = list)"
+    echo "    list                                   List all position IDs and titles"
+    echo "    search                                 How to find new PhD positions"
     echo "    draft  <id> [--force] [--lang fr|en]   Generate email draft (DeepSeek)"
     echo "    sent   <id> [--date YYYY-MM-DD]        Mark as sent"
     echo "    reply  <id> --type positive|negative|bounce|info"

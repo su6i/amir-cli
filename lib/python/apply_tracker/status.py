@@ -205,6 +205,39 @@ def print_urgent_header(search_dir: Path, search_type: str = "phd") -> None:
         print(f"  {BOLD}⚠  {label}:{RESET} " + "  ".join(parts[:4]))
 
 
+def print_id_list(search_dir: Path, filter_track: str | None = None,
+                  search_type: str = "phd") -> None:
+    """Compact list: ID + title — for 'show' without args."""
+    entries = collect_entries(search_dir, filter_track)
+    if not entries:
+        print("  No positions found.")
+        return
+
+    col_id = max(len(e["id"]) for e in entries)
+    col_id = max(col_id, 20)
+
+    print()
+    print(f"  {UNDERLINE}{BOLD}Available positions{RESET} ({search_type.upper()})"
+          + (f" — track: {filter_track}" if filter_track else ""))
+    print(f"  {'─' * (col_id + 55)}")
+    print(f"  {'Tag':5}  {'ID':<{col_id}}  {'Track':<15}  Title")
+    print(f"  {'─' * (col_id + 55)}")
+
+    for e in entries:
+        tag = urgency_tag(e["days_left"])
+        title = e["title"]
+        if len(title) > 45:
+            title = title[:42] + "..."
+        line = f"  {tag}  {e['id']:<{col_id}}  {e['track']:<15}  {title}"
+        if e["days_left"] is not None and e["days_left"] <= 7:
+            print(BOLD + line + RESET)
+        else:
+            print(line)
+    print()
+    print(f"  Run: amir apply {search_type} show <ID>")
+    print()
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -213,6 +246,7 @@ if __name__ == "__main__":
     p.add_argument("--track", default=None)
     p.add_argument("--urgent-header", action="store_true")
     p.add_argument("--urgent", action="store_true")
+    p.add_argument("--list", action="store_true")
     p.add_argument("--type", dest="search_type", default="phd")
     args = p.parse_args()
 
@@ -222,5 +256,7 @@ if __name__ == "__main__":
         print_urgent_header(sd, args.search_type)
     elif args.urgent:
         print_status_table(sd, args.track, urgent_only=True, search_type=args.search_type)
+    elif args.list:
+        print_id_list(sd, args.track, args.search_type)
     else:
         print_status_table(sd, args.track, search_type=args.search_type)
