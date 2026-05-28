@@ -147,26 +147,43 @@ _phd_open() {
 }
 
 _phd_search() {
-    local source="${1:-all}"
+    local sources_file="${_PHD_SEARCH_DIR}/../context/phd_search_sources.md"
     echo ""
     echo "  PhD Position Search"
     echo "  ───────────────────────────────────────────────────────────"
+
+    if [[ -f "$sources_file" ]]; then
+        echo ""
+        while IFS='|' read -r name url desc; do
+            name="${name#"${name%%[![:space:]]*}"}"  # ltrim
+            # Section dividers: lines with "# ──"
+            if [[ "$name" =~ ^#[[:space:]]*── ]]; then
+                local section="${name#*── }"
+                section="${section%% ─*}"  # strip trailing ────
+                echo "  ── ${section}"
+                continue
+            fi
+            # Skip other comment lines and empty lines
+            [[ "$name" =~ ^# ]] && continue
+            [[ -z "$name" ]] && continue
+            url="${url#"${url%%[![:space:]]*}"}"
+            printf "    %-14s  %s\n" "$name" "$url"
+        done < "$sources_file"
+        echo ""
+        echo "  Edit: $sources_file"
+    else
+        echo "  Sources file not found: $sources_file"
+    fi
+
     echo ""
-    echo "  ℹ  Automatic search requires Claude Code session (Web Search + Gmail MCP)."
-    echo "     Run one of these in the Claude Code terminal:"
+    echo "  Auto search (with Claude Code session):"
+    echo "    > search new PhD positions in AI/LLM/MARL and add to tracker"
+    echo "    > check my Gmail for new PhD position newsletters"
     echo ""
-    echo "     > search new PhD positions in AI/LLM/MARL and add to tracker"
-    echo "     > check my Gmail for new PhD position newsletters"
-    echo "     > search ADUM/ABG/Inria for new LLM/multi-agent PhD positions"
+    echo "  Auto draft (DeepSeek — no Claude needed):"
+    echo "    amir apply phd draft <id>"
     echo ""
-    echo "  Manual sources to check:"
-    echo "    ADUM     → https://www.adum.fr"
-    echo "    ABG      → https://www.abg.asso.fr/fr/recrutement/sujet-de-these/informatique"
-    echo "    Inria    → https://jobs.inria.fr/public/classic/en/offres?filtre=doctorants"
-    echo "    Mila     → https://mila.quebec/en/prospective-students-postdocs"
-    echo "    Euraxess → https://euraxess.ec.europa.eu/jobs/search"
-    echo ""
-    echo "  To add a found position:"
+    echo "  Add found position manually:"
     echo "    Create: $_PHD_SEARCH_DIR/found/<track>/<id>.md"
     echo "    Then:   amir apply phd init <track>"
     echo ""
