@@ -198,6 +198,11 @@ case "$COMMAND" in
         if [[ -f "$LIB_DIR/commands/apply.sh" ]]; then source "$LIB_DIR/commands/apply.sh"; run_apply "$@"; exit $?; fi
         ;;
     
+    keyboard|kb)
+        shift
+        if [[ -f "$LIB_DIR/commands/keyboard.sh" ]]; then source "$LIB_DIR/commands/keyboard.sh"; run_keyboard "$@"; exit $?; fi
+        ;;
+
     trend|research)
         shift
         if [[ -f "$LIB_DIR/commands/trend.sh" ]]; then source "$LIB_DIR/commands/trend.sh"; run_trend "$@"; exit $?; fi
