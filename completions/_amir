@@ -775,14 +775,91 @@ _amir() {
             ;;
         
         apply)
-            if (( CURRENT == 3 )); then
-                _message "Enter job URL or 'preview'"
-                # Adding a second option 'url' to prevent auto-completing 'preview'
-                _values 'apply command' 'preview[Generate CV preview]' 'url[Enter job URL]'
-                return
-            fi
-
-            _apply_arguments
+            case $((CURRENT)) in
+                3)
+                    local -a apply_cmds
+                    apply_cmds=(
+                        'phd:PhD application tracker (status/show/draft/sent/reply/open)'
+                        'job:Job application tracker (status/show/new/draft/sent/reply/open/sync)'
+                        'preview:Generate CV preview'
+                    )
+                    _describe -t commands 'apply subcommand' apply_cmds
+                    _message "or enter a job URL"
+                    ;;
+                4)
+                    case "${words[3]}" in
+                        phd)
+                            local -a phd_cmds
+                            phd_cmds=(
+                                'status:Show all PhD positions with urgency'
+                                'show:Show position file and draft'
+                                'draft:Generate email draft via DeepSeek'
+                                'sent:Mark position as sent'
+                                'reply:Record a reply received'
+                                'open:Open HTML tracker in browser'
+                                'init:Initialize tracking.json from files'
+                            )
+                            _describe -t commands 'phd subcommand' phd_cmds
+                            ;;
+                        job)
+                            local -a job_cmds
+                            job_cmds=(
+                                'status:Show all job positions with urgency'
+                                'show:Show position file and draft'
+                                'new:Create a new position file'
+                                'draft:Generate email draft via DeepSeek'
+                                'sent:Mark position as sent'
+                                'reply:Record a reply received'
+                                'open:Open HTML tracker in browser'
+                                'sync:Instructions for Gmail newsletter sync'
+                                'init:Initialize tracking.json from files'
+                            )
+                            _describe -t commands 'job subcommand' job_cmds
+                            ;;
+                        preview)
+                            _apply_arguments
+                            ;;
+                    esac
+                    ;;
+                5)
+                    case "${words[3]}" in
+                        phd|job)
+                            case "${words[4]}" in
+                                status)
+                                    local -a track_opts
+                                    track_opts=('--track:Filter by track')
+                                    _describe -t opts 'options' track_opts
+                                    ;;
+                                draft)
+                                    local -a draft_opts
+                                    draft_opts=(
+                                        '--force:Regenerate existing draft'
+                                        '--lang:Language (fr/en)'
+                                    )
+                                    _describe -t opts 'options' draft_opts
+                                    ;;
+                                sent)
+                                    local -a sent_opts
+                                    sent_opts=('--date:Date sent (YYYY-MM-DD)')
+                                    _describe -t opts 'options' sent_opts
+                                    ;;
+                                reply)
+                                    local -a reply_opts
+                                    reply_opts=('--type:Reply type (positive/negative/bounce/info)')
+                                    _describe -t opts 'options' reply_opts
+                                    ;;
+                                open)
+                                    if [[ "${words[3]}" == "phd" ]]; then
+                                        _values 'track' 'general' 'finance' 'all'
+                                    else
+                                        _values 'track' 'devops' 'ai_engineer' 'polyvalent' 'all'
+                                    fi
+                                    ;;
+                            esac
+                            ;;
+                    esac
+                    ;;
+            esac
             ;;
         llm-lists)
             case $((CURRENT)) in
