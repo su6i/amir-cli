@@ -26,6 +26,9 @@ run_job() {
         open)
             _job_open "$@"
             ;;
+        sources|list-sources)
+            _job_sources
+            ;;
         search)
             _job_search "$@"
             ;;
@@ -139,21 +142,18 @@ _job_open() {
     fi
 }
 
-_job_search() {
+_job_sources() {
     local sources_file="${_JOB_SEARCH_DIR}/../context/job_search_sources.md"
     echo ""
-    echo "  Job Position Search"
+    echo "  Job Search Sources (priority-ordered)"
     echo "  ───────────────────────────────────────────────────────────"
-
     if [[ -f "$sources_file" ]]; then
         echo ""
         while IFS='|' read -r name url desc; do
             name="${name#"${name%%[![:space:]]*}"}"
             if [[ "$name" =~ ^#[[:space:]]*── ]]; then
-                local section="${name#*── }"
-                section="${section%% ─*}"
-                echo "  ── ${section}"
-                continue
+                local section="${name#*── }"; section="${section%% ─*}"
+                echo "  ── ${section}"; continue
             fi
             [[ "$name" =~ ^# ]] && continue
             [[ -z "$name" ]] && continue
@@ -162,20 +162,27 @@ _job_search() {
         done < "$sources_file"
         echo ""
         echo "  Edit: $sources_file"
+        echo "  Add:  amir apply job add-source <name> <url> [-p <position>]"
     else
-        echo "  Sources file not found: $sources_file"
+        echo "  Not found: $sources_file"
     fi
+    echo ""
+}
 
+_job_search() {
     echo ""
-    echo "  Auto search (with Claude Code session):"
+    echo "  Job Position Search — How to find new positions"
+    echo "  ───────────────────────────────────────────────────────────"
+    echo ""
+    echo "  With Claude Code (Web Search + Gmail MCP):"
     echo "    > check my Gmail for new job newsletters (APEC, LinkedIn, etc.)"
-    echo "    > search LinkedIn/APEC for new AI Engineer positions in Grenoble"
+    echo "    > search LinkedIn/APEC for AI Engineer positions in Grenoble/Montpellier"
+    echo "    > sync my job application emails"
     echo ""
-    echo "  Auto draft (DeepSeek — no Claude needed):"
-    echo "    amir apply job draft <id>"
-    echo ""
-    echo "  Add position manually:"
-    echo "    amir apply job new <id> --track <devops|ai_engineer|polyvalent>"
+    echo "  Without Claude (DeepSeek + manual):"
+    echo "    amir apply job sources        ← see priority-ordered site list"
+    echo "    amir apply job new <id>       ← add position manually"
+    echo "    amir apply job draft <id>     ← generate email draft"
     echo ""
 }
 

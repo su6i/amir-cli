@@ -26,6 +26,9 @@ run_phd() {
         open)
             _phd_open "$@"
             ;;
+        sources|list-sources)
+            _phd_sources
+            ;;
         search)
             _phd_search "$@"
             ;;
@@ -149,24 +152,19 @@ _phd_open() {
     fi
 }
 
-_phd_search() {
+_phd_sources() {
     local sources_file="${_PHD_SEARCH_DIR}/../context/phd_search_sources.md"
     echo ""
-    echo "  PhD Position Search"
+    echo "  PhD Search Sources (priority-ordered)"
     echo "  ───────────────────────────────────────────────────────────"
-
     if [[ -f "$sources_file" ]]; then
         echo ""
         while IFS='|' read -r name url desc; do
-            name="${name#"${name%%[![:space:]]*}"}"  # ltrim
-            # Section dividers: lines with "# ──"
+            name="${name#"${name%%[![:space:]]*}"}"
             if [[ "$name" =~ ^#[[:space:]]*── ]]; then
-                local section="${name#*── }"
-                section="${section%% ─*}"  # strip trailing ────
-                echo "  ── ${section}"
-                continue
+                local section="${name#*── }"; section="${section%% ─*}"
+                echo "  ── ${section}"; continue
             fi
-            # Skip other comment lines and empty lines
             [[ "$name" =~ ^# ]] && continue
             [[ -z "$name" ]] && continue
             url="${url#"${url%%[![:space:]]*}"}"
@@ -174,19 +172,28 @@ _phd_search() {
         done < "$sources_file"
         echo ""
         echo "  Edit: $sources_file"
+        echo "  Add:  amir apply phd add-source <name> <url> [-p <position>]"
     else
-        echo "  Sources file not found: $sources_file"
+        echo "  Not found: $sources_file"
     fi
-
     echo ""
-    echo "  Auto search (with Claude Code session):"
+}
+
+_phd_search() {
+    echo ""
+    echo "  PhD Position Search — How to find new positions"
+    echo "  ───────────────────────────────────────────────────────────"
+    echo ""
+    echo "  With Claude Code (Web Search + Gmail MCP):"
     echo "    > search new PhD positions in AI/LLM/MARL and add to tracker"
     echo "    > check my Gmail for new PhD position newsletters"
+    echo "    > search ADUM/ABG/Inria for new LLM/NLP positions"
     echo ""
-    echo "  Auto draft (DeepSeek — no Claude needed):"
-    echo "    amir apply phd draft <id>"
+    echo "  Without Claude (DeepSeek + manual):"
+    echo "    amir apply phd sources        ← see priority-ordered site list"
+    echo "    amir apply phd draft <id>     ← generate email draft"
     echo ""
-    echo "  Add found position manually:"
+    echo "  After finding a position:"
     echo "    Create: $_PHD_SEARCH_DIR/found/<track>/<id>.md"
     echo "    Then:   amir apply phd init <track>"
     echo ""
