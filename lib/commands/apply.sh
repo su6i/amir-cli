@@ -15,6 +15,13 @@ run_apply() {
         return 1
     fi
 
+    # ── sync (both phd + job) ─────────────────────────────────────────────────
+    if [[ "$1" == "sync" ]]; then
+        shift
+        _apply_sync_both "$@"
+        return $?
+    fi
+
     # ── phd subcommand ────────────────────────────────────────────────────────
     if [[ "$1" == "phd" ]]; then
         shift
@@ -56,6 +63,32 @@ run_apply() {
             args+=("--color" "blue")
         fi
         (cd "$CV_DIR" && uv run main.py apply "${args[@]}")
+    fi
+}
+
+_apply_sync_both() {
+    local base_dir="${APPLY_BASE_DIR:-$HOME/@-Amir/Apply/2026-2027}"
+    local sync_file="$base_dir/sync_queue.txt"
+
+    echo ""
+    echo "  SYNC REQUEST — checking for [AMIR-SYNC] positions"
+    echo "  base: $base_dir"
+    echo ""
+
+    if [[ -f "$sync_file" ]]; then
+        echo "  Found sync_queue.txt — processing..."
+        PYTHONPATH="$LIB_DIR/python" uv run python \
+            "$LIB_DIR/python/apply_tracker/sync.py" "$base_dir" \
+            --sync-file "$sync_file"
+    else
+        # Signal to Claude Code to perform Gmail sync
+        echo "  CLAUDE_ACTION: GMAIL_SYNC"
+        echo "  Read Gmail drafts with subject containing [AMIR-SYNC],"
+        echo "  write positions to: $sync_file"
+        echo "  then re-run: amir apply sync"
+        echo ""
+        echo "  Or ask Claude Code directly:"
+        echo "    > sync new positions from Gmail and job sites"
     fi
 }
 

@@ -164,7 +164,13 @@ amir apply <cmd>
 | sync ایمیل کاری | Gmail MCP | در این Claude Code session |
 | جستجو استاد/شرکت | Web search MCP | در این Claude Code session |
 
-**قانون:** وقتی کاربر در Claude Code session گفت "برای X اپلای کن" یا "این draft رو بازبینی کن" → Claude Sonnet مستقیماً:
+**قانون sync — اجباری:** وقتی خروجی ترمینال شامل `CLAUDE_ACTION: GMAIL_SYNC` بود:
+1. Gmail MCP → جستجوی draft با subject `[AMIR-SYNC]`
+2. محتوا را به فرمت مشخص در `sync_queue.txt` ذخیره کن
+3. `amir apply sync` دوباره اجرا کن تا فایل‌ها ساخته شوند
+4. draft Gmail پاک شود
+
+**قانون apply — اجباری:** وقتی کاربر گفت "برای X اپلای کن" یا "این draft رو بازبینی کن" → Claude Sonnet مستقیماً:
 1. `amir apply phd show <id>` را اجرا می‌کند یا فایل را می‌خواند
 2. draft با کیفیت بالا می‌نویسد یا بهبود می‌دهد
 3. با Gmail MCP یک Gmail draft می‌سازد (با ضمیمه‌های درست)
