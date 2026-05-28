@@ -373,7 +373,7 @@ def show_fr(highlight=None, auto_info=None):
         ('[',   'Opt + (    (touche 5)       <- [  crochet ouvrant'),
         (']',   'Opt + )    (touche 0/deg)   <- ]  crochet fermant'),
         ('|',   'Opt + -    (touche 6)       <- |  pipe Unix'),
-        ('~',   'Opt + e    (touche é/2)     <- ~  HOME sur Mac/Linux  ** important **'),
+        ('~',   'Opt + é    (touche 2, NUM row!) then SPACE  <- ~  HOME Mac/Linux  *** dead key ***'),
         ('@',   'touche @   (1re touche)       <- @ direct, pas besoin Option !'),
         ('#',   'Shift + @  (1re touche)  ou  Opt + "  <- # hashtag'),
         ('`',   'Opt + e    (touche 7)       <- `  backtick Markdown / shell'),
