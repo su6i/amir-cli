@@ -126,26 +126,61 @@ amir (bash entry point)
 
 | دستور | فایل | توضیح |
 |-------|------|-------|
-| `amir apply` | `lib/commands/apply.sh` | Bridge به ApplyForge — تولید رزومه + کاور لتر از URL شغلی |
-| `amir trend` / `amir research` | `lib/commands/trend.sh` | Bridge به research_toolkit (YouTube, GitHub, arXiv, Reddit, ProductHunt, IndieHackers) |
+| `amir apply` | `lib/commands/apply.sh` | CV/CL از URL شغلی + PhD/Job tracker |
+| `amir apply phd` | `lib/commands/phd.sh` | مدیریت کامل درخواست‌های دکترا |
+| `amir apply job` | `lib/commands/job.sh` | مدیریت کامل درخواست‌های شغلی |
+| `amir trend` / `amir research` | `lib/commands/trend.sh` | Bridge به research_toolkit |
 | `amir video` | `lib/commands/video.sh` | پردازش ویدیو + دانلود |
 | `amir subtitle` | `lib/commands/subtitle.sh` | زیرنویس AI چندزبانه |
 | `amir pdf` | `lib/commands/pdf.sh` | PDF با Puppeteer |
 | `amir chat` | `lib/commands/chat.sh` | چت با Gemini/Gemma |
 
-### ماژول apply — وابستگی خارجی
-
-`amir apply` یک wrapper است که به **ApplyForge** (`$HOME/@-github/ApplyForge`) delegate می‌کند:
+### ماژول apply — معماری یکپارچه
 
 ```
-amir apply <job-url> [--template <name>] [--lang auto|fr|en] [--color <name>]
+amir apply <cmd>
   │
-  └─ lib/commands/apply.sh → run_apply()
-       │
-       ├─ CV_DIR = ${APPLYFORGE_DIR:-$HOME/@-github/ApplyForge}
-       ├─ اگر --color تعریف نشده → --color blue را به صورت پیش‌فرض اضافه می‌کند
-       └─ (cd "$CV_DIR" && uv run main.py apply <args>)
+  ├─ [هر اجرا] → _apply_urgent_check() → PhD/Job alert اگر deadline ≤14 روز
+  │
+  ├─ phd <subcmd>  → lib/commands/phd.sh → lib/python/apply_tracker/
+  │                   PHD_SEARCH_DIR = $HOME/@-Amir/Apply/2026-2027/PhD-Search
+  │
+  ├─ job <subcmd>  → lib/commands/job.sh → lib/python/apply_tracker/
+  │                   JOB_SEARCH_DIR = $HOME/@-Amir/Apply/2026-2027/Job-Search
+  │
+  └─ <url>/preview → ApplyForge ($APPLYFORGE_DIR, default: $HOME/@-github/ApplyForge)
 ```
+
+**Subcommands مشترک PhD/Job:** `status | show | draft | sent | reply | open | init`
+**فقط job:** `new | sync`
+
+### تقسیم‌وظیفه AI در apply tracker
+
+| کار | مدل | نحوه اجرا |
+|-----|-----|-----------|
+| تولید draft ایمیل | DeepSeek v4-flash | `amir apply phd draft <id>` از ترمینال |
+| بهبود/بازبینی draft | Claude Sonnet | در این Claude Code session |
+| ایجاد Gmail draft | Gmail MCP | در این Claude Code session |
+| sync ایمیل کاری | Gmail MCP | در این Claude Code session |
+| جستجو استاد/شرکت | Web search MCP | در این Claude Code session |
+
+**قانون:** وقتی کاربر در Claude Code session گفت "برای X اپلای کن" یا "این draft رو بازبینی کن" → Claude Sonnet مستقیماً:
+1. `amir apply phd show <id>` را اجرا می‌کند یا فایل را می‌خواند
+2. draft با کیفیت بالا می‌نویسد یا بهبود می‌دهد
+3. با Gmail MCP یک Gmail draft می‌سازد (با ضمیمه‌های درست)
+
+### ساختار دایرکتوری Apply tracker
+
+```
+$HOME/@-Amir/Apply/2026-2027/
+├── PhD-Search/found/ai_general/tracking.json   ← source of truth
+├── PhD-Search/found/ai_finance/tracking.json
+├── PhD-Search/applied/<position-id>/email_draft.md
+├── Job-Search/found/<track>/tracking.json
+└── Job-Search/applied/<position-id>/email_draft.md
+```
+
+**tracking.json statuses:** `found → draft_ready → sent → replied/bounced/rejected/watching`
 
 - **`APPLYFORGE_DIR`** — می‌توان override کرد: `export APPLYFORGE_DIR=/path/to/ApplyForge`
 - **`--color blue`** — پیش‌فرض برای sidebar آبی کم‌رنگ altacv (`E6F0FA`)؛ با `--color <other>` قابل override است
