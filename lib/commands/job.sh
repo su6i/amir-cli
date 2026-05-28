@@ -29,6 +29,9 @@ run_job() {
         search)
             _job_search "$@"
             ;;
+        add-source)
+            _job_add_source "$@"
+            ;;
         sync)
             _job_sync
             ;;
@@ -176,6 +179,25 @@ _job_search() {
     echo ""
 }
 
+_job_add_source() {
+    local name="" url="" desc="" priority_flag=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -p|--priority) priority_flag="--priority $2"; shift 2 ;;
+            *) [[ -z "$name" ]] && name="$1" || { [[ -z "$url" ]] && url="$1" || desc="$1"; }; shift ;;
+        esac
+    done
+    if [[ -z "$name" || -z "$url" ]]; then
+        echo "Usage: amir apply job add-source <name> <url> [description] [-p <position>]" >&2
+        echo "  -p, --priority N   Insert at position N (default: end of list)" >&2
+        return 1
+    fi
+    local src="$_JOB_SEARCH_DIR/../context/job_search_sources.md"
+    PYTHONPATH="$LIB_DIR/python" uv run python \
+        "$LIB_DIR/python/apply_tracker/sources.py" "$src" \
+        add "$name" "$url" "$desc" $priority_flag
+}
+
 _job_sync() {
     echo ""
     echo "  ℹ  Job sync requires Gmail MCP access."
@@ -259,6 +281,8 @@ _job_usage() {
     echo "    show   [<id>]                   Show position + draft (no ID = list)"
     echo "    list                            List all position IDs and titles"
     echo "    search                          How to find new job positions"
+    echo "    add-source <name> <url> [desc]  Add a search source"
+    echo "               [-p N]              Insert at position N (default: end)"
     echo "    new    <id> [--track <track>]   Create new position file"
     echo "    draft  <id> [--force]           Generate email draft (DeepSeek)"
     echo "    sent   <id> [--date DATE]       Mark as sent"
