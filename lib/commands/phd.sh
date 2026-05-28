@@ -29,6 +29,9 @@ run_phd() {
         search)
             _phd_search "$@"
             ;;
+        add-source)
+            _phd_add_source "$@"
+            ;;
         init)
             _phd_init "$@"
             ;;
@@ -189,6 +192,25 @@ _phd_search() {
     echo ""
 }
 
+_phd_add_source() {
+    local name="" url="" desc="" priority_flag=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -p|--priority) priority_flag="--priority $2"; shift 2 ;;
+            *) [[ -z "$name" ]] && name="$1" || { [[ -z "$url" ]] && url="$1" || desc="$1"; }; shift ;;
+        esac
+    done
+    if [[ -z "$name" || -z "$url" ]]; then
+        echo "Usage: amir apply phd add-source <name> <url> [description] [-p <position>]" >&2
+        echo "  -p, --priority N   Insert at position N (default: end of list)" >&2
+        return 1
+    fi
+    local src="$_PHD_SEARCH_DIR/../context/phd_search_sources.md"
+    PYTHONPATH="$LIB_DIR/python" uv run python \
+        "$LIB_DIR/python/apply_tracker/sources.py" "$src" \
+        add "$name" "$url" "$desc" $priority_flag
+}
+
 _phd_init() {
     local track="${1:-}"
     if [[ -z "$track" ]]; then
@@ -209,6 +231,8 @@ _phd_usage() {
     echo "    show   [<id>]                          Show position + draft (no ID = list)"
     echo "    list                                   List all position IDs and titles"
     echo "    search                                 How to find new PhD positions"
+    echo "    add-source <name> <url> [desc]         Add a search source"
+    echo "               [-p N, --priority N]        Insert at position N (default: end)"
     echo "    draft  <id> [--force] [--lang fr|en]   Generate email draft (DeepSeek)"
     echo "    sent   <id> [--date YYYY-MM-DD]        Mark as sent"
     echo "    reply  <id> --type positive|negative|bounce|info"
