@@ -21,6 +21,8 @@ _amir() {
             'clean:Clean system caches and trash'
             'qr:Create smart QR Code'
             'weather:Show weather information'
+            'keyboard:Show keyboard layout (FR/EN/FA) with key combos'
+            'kb:Alias for keyboard'
             'short:Shorten long URLs'
             'pass:Generate secure password'
             'speed:Test internet speed'
@@ -627,6 +629,21 @@ _amir() {
             fi
             ;;
 
+        keyboard|kb)
+            case $((CURRENT)) in
+                3)
+                    local kb_langs
+                    kb_langs=('fr:French AZERTY (Apple Compact)' 'en:English QWERTY' 'fa:Persian Standard')
+                    _describe -t kb_langs 'layout language' kb_langs
+                    ;;
+                *)
+                    _arguments \
+                        '--find[Find which key produces a character]:character: ' \
+                        '-f[Alias for --find]:character: '
+                    ;;
+            esac
+            ;;
+
         qr)
             case $((CURRENT)) in
                 3) _message "Enter URL, phone number, email or text" ;;
@@ -794,7 +811,8 @@ _amir() {
                                 'status:Show all PhD positions with urgency table'
                                 'show:Show position file and draft (no arg = list all)'
                                 'list:List all position IDs and titles'
-                                'search:How to find new PhD positions'
+                                'search:Show priority-ordered search sources'
+                                'add-source:Add a new search source site'
                                 'draft:Generate email draft via DeepSeek'
                                 'sent:Mark position as sent'
                                 'reply:Record a reply received'
@@ -809,7 +827,8 @@ _amir() {
                                 'status:Show all job positions with urgency table'
                                 'show:Show position file and draft (no arg = list all)'
                                 'list:List all position IDs and titles'
-                                'search:How to find new job positions'
+                                'search:Show priority-ordered search sources'
+                                'add-source:Add a new search source site'
                                 'new:Create a new position file'
                                 'draft:Generate email draft via DeepSeek'
                                 'sent:Mark position as sent'
