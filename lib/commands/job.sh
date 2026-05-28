@@ -11,7 +11,7 @@ run_job() {
         status)
             _job_python status.py "$@"
             ;;
-        show)
+        show|list)
             _job_show "$@"
             ;;
         draft)
@@ -25,6 +25,9 @@ run_job() {
             ;;
         open)
             _job_open "$@"
+            ;;
+        search)
+            _job_search "$@"
             ;;
         sync)
             _job_sync
@@ -51,8 +54,10 @@ _job_python() {
 _job_show() {
     local pos_id="$1"
     if [[ -z "$pos_id" ]]; then
-        echo "Usage: amir apply job show <position-id>" >&2
-        return 1
+        PYTHONPATH="$LIB_DIR/python" uv run python \
+            "$LIB_DIR/python/apply_tracker/status.py" \
+            "$_JOB_SEARCH_DIR" --list --type job
+        return 0
     fi
 
     local pos_file
@@ -129,6 +134,33 @@ _job_open() {
         echo "ℹ  No HTML tracker found yet."
         echo "   Use 'amir apply job status' for terminal view."
     fi
+}
+
+_job_search() {
+    echo ""
+    echo "  Job Position Search"
+    echo "  ───────────────────────────────────────────────────────────"
+    echo ""
+    echo "  ℹ  Automatic search requires Claude Code session (Web Search + Gmail MCP)."
+    echo "     Run one of these in the Claude Code terminal:"
+    echo ""
+    echo "     > check my Gmail for new job position newsletters (APEC, LinkedIn, etc.)"
+    echo "     > search for DevOps/AI Engineer jobs in France and add to tracker"
+    echo "     > search LinkedIn/APEC for new AI Engineer positions in Grenoble/Montpellier"
+    echo ""
+    echo "  Manual sources to check:"
+    echo "    APEC     → https://www.apec.fr"
+    echo "    LinkedIn → https://www.linkedin.com/jobs"
+    echo "    Indeed   → https://fr.indeed.com"
+    echo "    Welcome  → https://www.welcometothejungle.com"
+    echo "    Talent   → https://www.talent.io"
+    echo ""
+    echo "  Sync Gmail newsletters automatically:"
+    echo "    → amir apply job sync"
+    echo ""
+    echo "  Add a position manually:"
+    echo "    → amir apply job new <id> --track <devops|ai_engineer|polyvalent>"
+    echo ""
 }
 
 _job_sync() {
@@ -211,13 +243,15 @@ _job_usage() {
     echo ""
     echo "  Commands:"
     echo "    status [--track devops|ai_engineer|polyvalent|all]  Show all positions"
-    echo "    show   <id>                     Show position + draft"
+    echo "    show   [<id>]                   Show position + draft (no ID = list)"
+    echo "    list                            List all position IDs and titles"
+    echo "    search                          How to find new job positions"
     echo "    new    <id> [--track <track>]   Create new position file"
     echo "    draft  <id> [--force]           Generate email draft (DeepSeek)"
     echo "    sent   <id> [--date DATE]       Mark as sent"
     echo "    reply  <id> --type positive|negative|bounce|info"
     echo "    open   [track]                  Open HTML tracker"
-    echo "    sync                            Instructions for Gmail sync"
+    echo "    sync                            Sync Gmail job newsletters"
     echo "    init   [track]                  Initialize tracking.json"
     echo ""
 }

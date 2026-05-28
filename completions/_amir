@@ -791,8 +791,10 @@ _amir() {
                         phd)
                             local -a phd_cmds
                             phd_cmds=(
-                                'status:Show all PhD positions with urgency'
-                                'show:Show position file and draft'
+                                'status:Show all PhD positions with urgency table'
+                                'show:Show position file and draft (no arg = list all)'
+                                'list:List all position IDs and titles'
+                                'search:How to find new PhD positions'
                                 'draft:Generate email draft via DeepSeek'
                                 'sent:Mark position as sent'
                                 'reply:Record a reply received'
@@ -804,14 +806,16 @@ _amir() {
                         job)
                             local -a job_cmds
                             job_cmds=(
-                                'status:Show all job positions with urgency'
-                                'show:Show position file and draft'
+                                'status:Show all job positions with urgency table'
+                                'show:Show position file and draft (no arg = list all)'
+                                'list:List all position IDs and titles'
+                                'search:How to find new job positions'
                                 'new:Create a new position file'
                                 'draft:Generate email draft via DeepSeek'
                                 'sent:Mark position as sent'
                                 'reply:Record a reply received'
                                 'open:Open HTML tracker in browser'
-                                'sync:Instructions for Gmail newsletter sync'
+                                'sync:Sync Gmail job newsletters'
                                 'init:Initialize tracking.json from files'
                             )
                             _describe -t commands 'job subcommand' job_cmds
