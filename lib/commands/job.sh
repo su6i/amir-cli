@@ -137,29 +137,42 @@ _job_open() {
 }
 
 _job_search() {
+    local sources_file="${_JOB_SEARCH_DIR}/../context/job_search_sources.md"
     echo ""
     echo "  Job Position Search"
     echo "  ───────────────────────────────────────────────────────────"
+
+    if [[ -f "$sources_file" ]]; then
+        echo ""
+        while IFS='|' read -r name url desc; do
+            name="${name#"${name%%[![:space:]]*}"}"
+            if [[ "$name" =~ ^#[[:space:]]*── ]]; then
+                local section="${name#*── }"
+                section="${section%% ─*}"
+                echo "  ── ${section}"
+                continue
+            fi
+            [[ "$name" =~ ^# ]] && continue
+            [[ -z "$name" ]] && continue
+            url="${url#"${url%%[![:space:]]*}"}"
+            printf "    %-14s  %s\n" "$name" "$url"
+        done < "$sources_file"
+        echo ""
+        echo "  Edit: $sources_file"
+    else
+        echo "  Sources file not found: $sources_file"
+    fi
+
     echo ""
-    echo "  ℹ  Automatic search requires Claude Code session (Web Search + Gmail MCP)."
-    echo "     Run one of these in the Claude Code terminal:"
+    echo "  Auto search (with Claude Code session):"
+    echo "    > check my Gmail for new job newsletters (APEC, LinkedIn, etc.)"
+    echo "    > search LinkedIn/APEC for new AI Engineer positions in Grenoble"
     echo ""
-    echo "     > check my Gmail for new job position newsletters (APEC, LinkedIn, etc.)"
-    echo "     > search for DevOps/AI Engineer jobs in France and add to tracker"
-    echo "     > search LinkedIn/APEC for new AI Engineer positions in Grenoble/Montpellier"
+    echo "  Auto draft (DeepSeek — no Claude needed):"
+    echo "    amir apply job draft <id>"
     echo ""
-    echo "  Manual sources to check:"
-    echo "    APEC     → https://www.apec.fr"
-    echo "    LinkedIn → https://www.linkedin.com/jobs"
-    echo "    Indeed   → https://fr.indeed.com"
-    echo "    Welcome  → https://www.welcometothejungle.com"
-    echo "    Talent   → https://www.talent.io"
-    echo ""
-    echo "  Sync Gmail newsletters automatically:"
-    echo "    → amir apply job sync"
-    echo ""
-    echo "  Add a position manually:"
-    echo "    → amir apply job new <id> --track <devops|ai_engineer|polyvalent>"
+    echo "  Add position manually:"
+    echo "    amir apply job new <id> --track <devops|ai_engineer|polyvalent>"
     echo ""
 }
 
