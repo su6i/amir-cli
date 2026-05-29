@@ -98,6 +98,7 @@ _amir() {
             video_subcmds=(
                 'subtitle:Transcribe + translate video (Whisper AI + LLM). Also accepts a URL'
                 'compress:Process video with smart selection'
+                'convert:Convert video format (mov→mp4, mkv, webm, avi…)'
                 'cut:Cut / Trim video segment'
                 'concat:Concatenate videos in the given order'
                 'merge:Alias for concat'
@@ -115,6 +116,24 @@ _amir() {
             fi
 
             case "$words[3]" in
+                convert)
+                    case "$prev" in
+                        --to|-f)
+                            _values 'format' mp4 mov mkv webm avi
+                            ;;
+                        -o|--output)
+                            _files
+                            ;;
+                        *)
+                            _arguments -s \
+                                '1: : ' '2: : ' \
+                                '3:video file:_files -g "*.mp4 *.mov *.mkv *.avi *.webm *.MP4 *.MOV *.MKV *.WEBM"' \
+                                '(--to -f)'{--to,-f}'[Target format]:format:(mp4 mov mkv webm avi)' \
+                                '(-o --output)'{-o,--output}'[Output filename]:output file:_files' \
+                                '--reencode[Force re-encode instead of stream copy]'
+                            ;;
+                    esac
+                    ;;
                 batch)
                     case $((CURRENT)) in
                         4) _files -/ ;;
