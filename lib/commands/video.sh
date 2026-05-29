@@ -495,6 +495,118 @@ video_abspath() {
     python3 -c "import os, sys; print(os.path.abspath(sys.argv[1]))" "$1"
 }
 
+video_convert() {
+    local input="" output="" target_fmt="" reencode=0
+
+    if [[ $# -eq 0 ]]; then
+        echo "Usage: amir video convert <input> [--to FORMAT] [-o OUTPUT] [--reencode]"
+        echo ""
+        echo "Formats: mp4  mov  mkv  webm  avi"
+        echo ""
+        echo "Examples:"
+        echo "  amir video convert clip.mov                    # → clip.mp4"
+        echo "  amir video convert clip.mov --to mkv           # → clip.mkv"
+        echo "  amir video convert clip.mov -o final.mp4"
+        echo "  amir video convert clip.webm --reencode        # force re-encode for compatibility"
+        return 1
+    fi
+
+    local supported_formats=("mp4" "mov" "mkv" "webm" "avi")
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --to|-f) target_fmt="$2"; shift 2 ;;
+            -o|--output) output="$2"; shift 2 ;;
+            --reencode) reencode=1; shift ;;
+            -*) echo "❌ Unknown option: $1"; return 1 ;;
+            *) input="$1"; shift ;;
+        esac
+    done
+
+    if [[ -z "$input" ]]; then
+        echo "❌ No input file specified."
+        return 1
+    fi
+
+    if [[ ! -f "$input" ]]; then
+        echo "❌ File not found: $input"
+        return 1
+    fi
+
+    # Determine target format
+    if [[ -n "$output" ]]; then
+        target_fmt="${output##*.}"
+    elif [[ -z "$target_fmt" ]]; then
+        target_fmt="mp4"
+    fi
+    target_fmt="$(echo "$target_fmt" | tr '[:upper:]' '[:lower:]')"
+
+    # Validate format
+    local valid=0
+    for fmt in "${supported_formats[@]}"; do
+        [[ "$fmt" == "$target_fmt" ]] && valid=1 && break
+    done
+    if [[ $valid -eq 0 ]]; then
+        echo "❌ Unsupported format: $target_fmt"
+        echo "   Supported: ${supported_formats[*]}"
+        return 1
+    fi
+
+    # Build output path
+    if [[ -z "$output" ]]; then
+        local stem="${input%.*}"
+        output="${stem}.${target_fmt}"
+    fi
+
+    if [[ "$input" == "$output" ]]; then
+        echo "❌ Input and output are the same file."
+        return 1
+    fi
+
+    # Detect codecs for smart copy decision
+    local vcodec acodec
+    vcodec=$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_name \
+        -of default=noprint_wrappers=1:nokey=1 "$input" 2>/dev/null | head -1)
+    acodec=$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name \
+        -of default=noprint_wrappers=1:nokey=1 "$input" 2>/dev/null | head -1)
+
+    # webm output requires VP8/VP9 video and Vorbis/Opus audio — always re-encode
+    if [[ "$target_fmt" == "webm" ]]; then
+        reencode=1
+    fi
+
+    local video_args=() audio_args=()
+    if [[ $reencode -eq 1 ]]; then
+        case "$target_fmt" in
+            webm)
+                video_args=(-c:v libvpx-vp9 -crf 30 -b:v 0)
+                audio_args=(-c:a libopus -b:a 128k)
+                ;;
+            *)
+                video_args=(-c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p)
+                audio_args=(-c:a aac -b:a 160k)
+                ;;
+        esac
+        echo "🔄 Re-encoding: $input → $output"
+    else
+        video_args=(-c:v copy)
+        audio_args=(-c:a copy)
+        echo "⚡ Stream-copy (fast): $input → $output"
+    fi
+
+    if ffmpeg -hide_banner -loglevel error -stats -y \
+        -i "$input" \
+        "${video_args[@]}" "${audio_args[@]}" \
+        -movflags +faststart \
+        "$output"; then
+        echo "✅ Done: $output"
+    else
+        echo "❌ Conversion failed. Try adding --reencode if stream-copy is incompatible."
+        rm -f "$output"
+        return 1
+    fi
+}
+
 video_concat() {
     local output_file=""
     local input_files=()
@@ -588,6 +700,12 @@ video() {
         return $?
     fi
 
+    if [[ "$1" == "convert" ]]; then
+        shift
+        video_convert "$@"
+        return $?
+    fi
+
     # Support explicit 'compress' subcommand by skipping it
     if [[ "$1" == "compress" ]]; then
         shift
@@ -596,6 +714,7 @@ video() {
     # If no arguments, show help
     if [[ $# -eq 0 ]]; then
         echo "Usage: amir video compress <files...> [Resolution] [Quality] [--gpu|--cpu]"
+        echo "       amir video convert <file> [--to FORMAT] [-o OUTPUT] [--reencode]"
         echo "       amir video concat <files...> [-o output.mp4]"
         echo "       amir video cut / trim <file> [options]"
         echo "       amir video split <file> <mb>"
@@ -3018,6 +3137,9 @@ run_video() {
         shift
         source "$LIB_DIR/commands/subtitle.sh"
         run_subtitle "$@"
+    elif [[ "$1" == "convert" ]]; then
+        shift
+        video_convert "$@"
     elif [[ "$1" == "download" || "$1" == "dl" ]]; then
         shift
         video_download "$@"
