@@ -570,11 +570,6 @@ video_convert() {
     acodec=$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name \
         -of default=noprint_wrappers=1:nokey=1 "$input" 2>/dev/null | head -1)
 
-    # Detect source codec tag (Apple HEVC uses hvc1 which breaks in MP4)
-    local vtag
-    vtag=$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_tag_string \
-        -of default=noprint_wrappers=1:nokey=1 "$input" 2>/dev/null | head -1)
-
     # webm output requires VP8/VP9 — always re-encode
     if [[ "$target_fmt" == "webm" ]]; then
         reencode=1
@@ -585,7 +580,7 @@ video_convert() {
         reencode=1
     fi
 
-    local video_args=() audio_args=() tag_args=()
+    local video_args=() audio_args=() extra_args=()
     if [[ $reencode -eq 1 ]]; then
         case "$target_fmt" in
             webm)
@@ -593,27 +588,28 @@ video_convert() {
                 audio_args=(-c:a libopus -b:a 128k)
                 ;;
             *)
-                video_args=(-c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p)
+                # VideoToolbox for hardware-accelerated H.264 on Apple Silicon
+                if ffmpeg -encoders 2>/dev/null | grep -q h264_videotoolbox; then
+                    video_args=(-c:v h264_videotoolbox -b:v 20M)
+                else
+                    video_args=(-c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p)
+                fi
                 audio_args=(-c:a aac -b:a 160k)
                 ;;
         esac
+        extra_args=(-movflags +faststart)
         echo "🔄 Re-encoding: $input → $output"
     else
         video_args=(-c:v copy)
         audio_args=(-c:a copy)
-        # Apple HEVC tag hvc1 → standard MP4/MKV tag hev1 (fixes DaVinci Resolve, Premiere, etc.)
-        if [[ "$vcodec" == "hevc" && "$vtag" == "hvc1" ]]; then
-            tag_args=(-tag:v hev1)
-            echo "⚡ Stream-copy + retag hvc1→hev1: $input → $output"
-        else
-            echo "⚡ Stream-copy (fast): $input → $output"
-        fi
+        # Note: -movflags +faststart is intentionally omitted for stream copy —
+        # it breaks Apple HEVC (hvc1) in MP4 container on DaVinci Resolve / QuickTime.
+        echo "⚡ Stream-copy (fast): $input → $output"
     fi
 
     if ffmpeg -hide_banner -loglevel error -stats -y \
         -i "$input" \
-        "${video_args[@]}" "${audio_args[@]}" "${tag_args[@]}" \
-        -movflags +faststart \
+        "${video_args[@]}" "${audio_args[@]}" "${extra_args[@]}" \
         "$output"; then
         echo "✅ Done: $output"
     else
