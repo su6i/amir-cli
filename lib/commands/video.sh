@@ -698,6 +698,218 @@ video_concat() {
     fi
 }
 
+_pip_to_seconds() {
+    local t="$1"
+    [[ "$t" =~ ^[0-9]+$ ]] && echo "$t" && return
+    local h=0 m=0 s=0
+    IFS=':' read -r p1 p2 p3 <<< "$t"
+    # 10# prefix forces base-10 so leading zeros (e.g. 09) don't trigger octal
+    if [[ -n "$p3" ]]; then
+        h=$(( 10#$p1 )); m=$(( 10#$p2 )); s=$(( 10#$p3 ))
+    elif [[ -n "$p2" ]]; then
+        m=$(( 10#$p1 )); s=$(( 10#$p2 ))
+    else
+        s=$(( 10#$p1 ))
+    fi
+    echo $(( h*3600 + m*60 + s ))
+}
+
+video_pip() {
+    if [[ $# -eq 0 ]]; then
+        echo "Usage: amir video pip <main> --pip <file> [options] [--pip <file> [options]] [-o output]"
+        echo ""
+        echo "Options per --pip:"
+        echo "  --start TIME     When to show this pip on the main timeline (default: 0)"
+        echo "  --end   TIME     When to hide this pip (default: end of main)"
+        echo "  --pos   POSITION tl|tr|bl|br|center or X:Y in pixels (default: tr)"
+        echo "  --size  PERCENT  Width as % of main video width (default: 25)"
+        echo ""
+        echo "Global options:"
+        echo "  --margin N       Edge margin in pixels (default: 20)"
+        echo "  -o, --output     Output file (default: <main>_pip.mp4)"
+        echo ""
+        echo "Examples:"
+        echo "  # Two people, each 2 minutes, top-right and top-left"
+        echo "  amir video pip screen.mp4 \\"
+        echo "    --pip person1.mov --start 00:01:00 --end 00:03:00 --pos tr \\"
+        echo "    --pip person2.mov --start 00:03:00 --end 00:05:00 --pos tl \\"
+        echo "    -o final.mp4"
+        echo ""
+        echo "  # Custom pixel position"
+        echo "  amir video pip screen.mp4 --pip cam.mov --pos 50:50 --size 30"
+        return 1
+    fi
+
+    local main_video="" output="" margin=20
+    local -a pip_files pip_starts pip_ends pip_positions pip_sizes pip_has_audio
+    local current=-1
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --pip)
+                current=$(( ${#pip_files[@]} ))
+                pip_files+=("$2")
+                pip_starts+=(0)
+                pip_ends+=("")
+                pip_positions+=(tr)
+                pip_sizes+=(25)
+                shift 2 ;;
+            --start)
+                [[ $current -lt 0 ]] && echo "❌ --start must follow --pip" && return 1
+                pip_starts[$current]="$(_pip_to_seconds "$2")"; shift 2 ;;
+            --end)
+                [[ $current -lt 0 ]] && echo "❌ --end must follow --pip" && return 1
+                pip_ends[$current]="$(_pip_to_seconds "$2")"; shift 2 ;;
+            --pos)
+                [[ $current -lt 0 ]] && echo "❌ --pos must follow --pip" && return 1
+                pip_positions[$current]="$2"; shift 2 ;;
+            --size)
+                [[ $current -lt 0 ]] && echo "❌ --size must follow --pip" && return 1
+                pip_sizes[$current]="$2"; shift 2 ;;
+            --margin)
+                margin="$2"; shift 2 ;;
+            -o|--output)
+                output="$2"; shift 2 ;;
+            -*)
+                echo "❌ Unknown option: $1"; return 1 ;;
+            *)
+                if [[ -z "$main_video" ]]; then
+                    main_video="$1"
+                else
+                    echo "❌ Unexpected argument: $1"; return 1
+                fi
+                shift ;;
+        esac
+    done
+
+    [[ -z "$main_video" ]]       && echo "❌ No main video specified." && return 1
+    [[ ! -f "$main_video" ]]     && echo "❌ File not found: $main_video" && return 1
+    [[ ${#pip_files[@]} -eq 0 ]] && echo "❌ No --pip videos specified." && return 1
+
+    [[ -z "$output" ]] && output="${main_video%.*}_pip.mp4"
+
+    local main_w main_h
+    main_w=$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=width -of default=noprint_wrappers=1:nokey=1 \
+        "$main_video" 2>/dev/null | head -1)
+    main_h=$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=height -of default=noprint_wrappers=1:nokey=1 \
+        "$main_video" 2>/dev/null | head -1)
+    [[ -z "$main_w" ]] && echo "❌ Could not read main video dimensions." && return 1
+
+    echo "📹 Main : $main_video (${main_w}×${main_h})"
+
+    local -a ffmpeg_args=(-i "$main_video")
+    local i num_pips=${#pip_files[@]}
+
+    for (( i=0; i<num_pips; i++ )); do
+        [[ ! -f "${pip_files[$i]}" ]] && echo "❌ PiP file not found: ${pip_files[$i]}" && return 1
+        ffmpeg_args+=(-i "${pip_files[$i]}")
+        local _astream
+        _astream=$(ffprobe -v error -select_streams a:0 \
+            -show_entries stream=codec_type \
+            -of default=noprint_wrappers=1:nokey=1 \
+            "${pip_files[$i]}" 2>/dev/null | head -1)
+        pip_has_audio+=("$_astream")
+        echo "   PiP $((i+1)): ${pip_files[$i]} | ${pip_starts[$i]}s–${pip_ends[$i]:-end} | pos=${pip_positions[$i]} size=${pip_sizes[$i]}%"
+    done
+
+    # ── Build filter_complex ──────────────────────────────────────────────────
+    local filter=""
+
+    # Scale each pip
+    for (( i=0; i<num_pips; i++ )); do
+        local pw=$(( main_w * pip_sizes[$i] / 100 ))
+        filter+="[$(( i+1 )):v]scale=${pw}:-2[p${i}v];"
+    done
+
+    # Overlay chain with time-based enable
+    local prev_v="0:v"
+    for (( i=0; i<num_pips; i++ )); do
+        local st="${pip_starts[$i]}" en="${pip_ends[$i]}"
+        local pos="${pip_positions[$i]}" x y
+
+        case "$pos" in
+            tl)     x="$margin";        y="$margin" ;;
+            tr)     x="W-w-$margin";    y="$margin" ;;
+            bl)     x="$margin";        y="H-h-$margin" ;;
+            br)     x="W-w-$margin";    y="H-h-$margin" ;;
+            center) x="(W-w)/2";        y="(H-h)/2" ;;
+            *:*)    x="${pos%%:*}";      y="${pos##*:}" ;;
+            *)      x="W-w-$margin";    y="$margin" ;;
+        esac
+
+        local enable
+        if [[ -n "$en" ]]; then
+            enable="enable='between(t,${st},${en})'"
+        else
+            enable="enable='gte(t,${st})'"
+        fi
+
+        local out_v
+        [[ $i -eq $(( num_pips-1 )) ]] && out_v="outv" || out_v="tmp${i}"
+        filter+="[${prev_v}][p${i}v]overlay=x=${x}:y=${y}:${enable}[${out_v}];"
+        prev_v="$out_v"
+    done
+
+    # Audio: mix main + each pip (with time offset)
+    local audio_count=1
+    for (( i=0; i<num_pips; i++ )); do
+        [[ "${pip_has_audio[$i]}" != "audio" ]] && continue
+        local st="${pip_starts[$i]}" en="${pip_ends[$i]}"
+        local delay_ms=$(( st * 1000 ))
+        local pa_filter="[$(( i+1 )):a]"
+        if [[ -n "$en" ]]; then
+            local dur=$(( en - st ))
+            pa_filter+="atrim=start=0:end=${dur},"
+        fi
+        pa_filter+="adelay=delays=${delay_ms}:all=1[pa${i}];"
+        filter+="$pa_filter"
+        audio_count=$(( audio_count + 1 ))
+    done
+
+    local amix_in="[0:a]"
+    for (( i=0; i<num_pips; i++ )); do
+        [[ "${pip_has_audio[$i]}" == "audio" ]] && amix_in+="[pa${i}]"
+    done
+    if [[ $audio_count -gt 1 ]]; then
+        filter+="${amix_in}amix=inputs=${audio_count}:duration=first:normalize=0[outa]"
+    else
+        filter+="[0:a]acopy[outa]"
+    fi
+
+    # ── Write filter to temp file (avoids shell quoting issues) ──────────────
+    local filter_file
+    filter_file=$(mktemp /tmp/pip_filter_XXXXXX.txt)
+    printf '%s' "$filter" > "$filter_file"
+
+    local venc
+    if ffmpeg -encoders 2>/dev/null | grep -q h264_videotoolbox; then
+        venc="h264_videotoolbox -b:v 15M"
+    else
+        venc="libx264 -preset medium -crf 20 -pix_fmt yuv420p"
+    fi
+
+    echo ""
+    echo "🎬 Compositing PiP..."
+
+    if ffmpeg -hide_banner -loglevel error -stats -y \
+        "${ffmpeg_args[@]}" \
+        -filter_complex_script "$filter_file" \
+        -map '[outv]' -map '[outa]' \
+        -c:v $venc \
+        -c:a aac -b:a 192k \
+        "$output"; then
+        rm -f "$filter_file"
+        echo "✅ Done: $output"
+    else
+        rm -f "$filter_file"
+        echo "❌ PiP failed. Check times and file formats."
+        rm -f "$output"
+        return 1
+    fi
+}
+
 video() {
     # Direct shared split subcommand
     if [[ "$1" == "split" ]]; then
@@ -726,6 +938,7 @@ video() {
     # If no arguments, show help
     if [[ $# -eq 0 ]]; then
         echo "Usage: amir video compress <files...> [Resolution] [Quality] [--gpu|--cpu]"
+        echo "       amir video pip <main> --pip <file> [--start T] [--end T] [--pos tl|tr|bl|br|X:Y] [--size %]"
         echo "       amir video convert <file> [--to FORMAT] [-o OUTPUT] [--reencode]"
         echo "       amir video concat <files...> [-o output.mp4]"
         echo "       amir video cut / trim <file> [options]"
@@ -3149,6 +3362,9 @@ run_video() {
         shift
         source "$LIB_DIR/commands/subtitle.sh"
         run_subtitle "$@"
+    elif [[ "$1" == "pip" ]]; then
+        shift
+        video_pip "$@"
     elif [[ "$1" == "convert" ]]; then
         shift
         video_convert "$@"
