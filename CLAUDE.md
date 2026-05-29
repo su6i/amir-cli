@@ -164,11 +164,15 @@ amir apply <cmd>
 | sync ایمیل کاری | Gmail MCP | در این Claude Code session |
 | جستجو استاد/شرکت | Web search MCP | در این Claude Code session |
 
-**قانون sync — اجباری:** وقتی خروجی ترمینال شامل `CLAUDE_ACTION: GMAIL_SYNC` بود:
-1. Gmail MCP → جستجوی draft با subject `[AMIR-SYNC]`
-2. محتوا را به فرمت مشخص در `sync_queue.txt` ذخیره کن
-3. `amir apply sync` دوباره اجرا کن تا فایل‌ها ساخته شوند
-4. draft Gmail پاک شود
+**قانون sync — اجباری:** وقتی کاربر گفت "sync new positions":
+1. Gmail MCP → `list_drafts` با query `AMIR-SYNC`
+2. محتوای draft را بخوان (`get_thread` یا از `plaintextBody`)
+3. محتوا را در `$HOME/@-Amir/Apply/2026-2027/sync_queue.txt` ذخیره کن
+4. `amir apply sync` را اجرا کن (فایل‌های .md + tracking.json ساخته می‌شوند)
+5. **Draft را به TRASH بفرست** با `label_message(messageId, ["TRASH"])` ← این مرحله اجباری است
+6. نتیجه را گزارش بده (X موقعیت اضافه شد)
+
+**نکته معماری:** `sync.py` به Gmail MCP دسترسی ندارد — مرحله ۵ (حذف draft) همیشه باید در Claude Code session انجام شود.
 
 **قانون apply — اجباری:** وقتی کاربر گفت "برای X اپلای کن" یا "این draft رو بازبینی کن" → Claude Sonnet مستقیماً:
 1. `amir apply phd show <id>` را اجرا می‌کند یا فایل را می‌خواند

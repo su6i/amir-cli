@@ -89,8 +89,8 @@ def apply_positions(positions: list[dict], base_dir: Path) -> tuple[int, int]:
     today = date.today().isoformat()
 
     # Resolve search dirs
-    phd_dir = base_dir.parent / "PhD-Search"
-    job_dir = base_dir.parent / "Job-Search"
+    phd_dir = base_dir / "PhD-Search"
+    job_dir = base_dir / "Job-Search"
 
     for pos in positions:
         track_raw = pos.get("track", "")
