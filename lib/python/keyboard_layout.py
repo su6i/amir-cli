@@ -574,16 +574,11 @@ def find_char(target):
               f"{c(mod, SHF)}{c(base_key, NRM + BLD)}  [{layer}]")
     print()
 
-    # Show the relevant keyboard highlighted
+    # Hint: full keyboard on demand
     if results:
-        lang = results[0][0]
-        print(c(f"  (showing {results[0][1]} layout with key highlighted)", DIM))
-        if lang == 'FR':
-            show_fr(highlight=target)
-        elif lang == 'EN':
-            show_en(highlight=target)
-        else:
-            show_fa(highlight=target)
+        lang = results[0][0].lower()
+        print(c(f"  tip: amir keyboard {lang} --opt   to see the full layout", DIM))
+        print()
 
 
 # ── Auto mode ─────────────────────────────────────────────────────────────────
