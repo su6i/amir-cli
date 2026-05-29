@@ -23,60 +23,60 @@ def c(text, col): return f"{col}{text}{R}"
 # ── Key layout data: (normal, shift, option) ─────────────────────────────────
 # French AZERTY — Apple Compact (Mac Mini)
 FR_ROW1 = [
-    ('@', '#', '—'),
-    ('&', '1', '¹'),
-    ('é', '2', 'ë'),
-    ('"', '3', '#'),
-    ("'", '4', '{'),
-    ('(', '5', '['),
-    ('-', '6', '|'),
-    ('è', '7', '`'),
-    ('_', '8', '\\'),
-    ('ç', '9', '^'),
-    ('à', '0', '@'),
-    (')', '°', ']'),
-    ('=', '+', '}'),
+    ('@', '#', '·'),   # @ key: opt=middle dot
+    ('&', '1', '¹'),   # confirmed from viewer
+    ('é', '2', 'ë'),   # confirmed by user
+    ('"', '3', '"'),   # opt=" (right double quote)
+    ("'", '4', '{'),   # confirmed
+    ('(', '5', '['),   # confirmed
+    ('-', '6', '«'),   # opt=« (not | as assumed)
+    ('è', '7', 'ï'),   # opt=ï (not ` as assumed)
+    ('_', '8', 'Ç'),   # opt=Ç (not \ as assumed)
+    ('ç', '9', '∂'),   # opt=∂
+    ('à', '0', '}'),   # opt=} (not @ — @ has own key)
+    (')', '°', '¡'),   # opt=¡ (inverted !)
+    ('=', '+', '—'),   # opt=— (em dash, not })
 ]
 FR_ROW2 = [
-    ('a', 'A', 'æ'),
-    ('z', 'Z', 'Ω'),
-    ('e', 'E', '€'),
-    ('r', 'R', '®'),
-    ('t', 'T', '†'),
-    ('y', 'Y', '¥'),
-    ('u', 'U', '·'),
-    ('i', 'I', ''),
-    ('o', 'O', 'œ'),
-    ('p', 'P', 'π'),
-    ('^', '¨', '¬'),
-    ('$', '£', '¤'),
+    ('a', 'A', 'æ'),   # confirmed
+    ('z', 'Z', 'Å'),   # dead ring key (pink in viewer)
+    ('e', 'E', 'ê'),   # dead circumflex (pink in viewer)
+    ('r', 'R', '®'),   # confirmed
+    ('t', 'T', '†'),   # confirmed
+    ('y', 'Y', 'Ú'),   # opt=Ú
+    ('u', 'U', '°'),   # opt=° (degree)
+    ('i', 'I', 'ï'),   # opt=ï
+    ('o', 'O', 'œ'),   # confirmed
+    ('p', 'P', 'π'),   # confirmed
+    ('^', '¨', 'ô'),   # opt=ô
+    ('$', '£', '€'),   # opt=€ (not ¤)
 ]
 FR_ROW3 = [
-    ('q', 'Q', ''),
-    ('s', 'S', 'ß'),
-    ('d', 'D', '∂'),
-    ('f', 'F', 'ƒ'),
-    ('g', 'G', ''),
-    ('h', 'H', ''),
-    ('j', 'J', ''),
-    ('k', 'K', ''),
-    ('l', 'L', ''),
-    ('m', 'M', 'µ'),
-    ('ù', '%', ''),
-    ('*', 'µ', ''),
+    ('q', 'Q', '`'),   # dead grave (pink in viewer)
+    ('s', 'S', 'Ò'),   # opt=Ò
+    ('d', 'D', '∂'),   # confirmed
+    ('f', 'F', 'ƒ'),   # confirmed
+    ('g', 'G', 'ﬁ'),   # opt=fi ligature (U+FB01)
+    ('h', 'H', 'Î'),   # opt=Î
+    ('j', 'J', 'Ï'),   # opt=Ï
+    ('k', 'K', 'È'),   # opt=È
+    ('l', 'L', '¬'),   # opt=¬
+    ('m', 'M', 'µ'),   # confirmed
+    ('ù', '%', 'Ú'),   # opt=Ú
+    ('*', 'µ', '@'),   # opt=@
 ]
 FR_ROW4 = [
-    ('<', '>', '≤'),
-    ('w', 'W', ''),
-    ('x', 'X', '≈'),
-    ('c', 'C', '©'),
-    ('v', 'V', '√'),
-    ('b', 'B', '∫'),
-    ('n', 'N', '~'),
-    (',', '?', ''),
-    (';', '.', '…'),
-    (':', '/', '÷'),
-    ('!', '§', ''),
+    ('<', '>', '≤'),   # confirmed
+    ('w', 'W', '<'),   # opt=<
+    ('x', 'X', '≈'),   # confirmed
+    ('c', 'C', '©'),   # confirmed
+    ('v', 'V', '◊'),   # opt=◊ (lozenge, not √)
+    ('b', 'B', 'ß'),   # opt=ß (not ∫)
+    ('n', 'N', '~'),   # confirmed by user
+    (',', '?', '∞'),   # opt=∞
+    (';', '.', '+'),   # opt=+
+    (':', '/', '÷'),   # confirmed
+    ('!', '§', '≠'),   # opt=≠
 ]
 FR_ROWS    = [FR_ROW1, FR_ROW2, FR_ROW3, FR_ROW4]
 FR_INDENTS = [0, 4, 6, 8]
@@ -408,20 +408,22 @@ def show_fr(highlight=None, auto_info=None, layer='all'):
     print()
     print(c('  -- Symboles frequents (Option) ---------------------------------', BRD))
     symbols = [
-        ('{',   "Opt + '    (touche 4)       <- {  accolade ouverte"),
-        ('}',   'Opt + =    (touche =)       <- }  accolade fermee'),
-        ('[',   'Opt + (    (touche 5)       <- [  crochet ouvrant'),
-        (']',   'Opt + )    (touche 0/deg)   <- ]  crochet fermant'),
-        ('|',   'Opt + -    (touche 6)       <- |  pipe Unix'),
-        ('~',   'Opt + n    (touche N)  then SPACE  <- ~  HOME Mac/Linux  *** dead key ***'),
+        ('{',   "Opt + '    (touche 4)         <- {  accolade ouverte"),
+        ('}',   'Opt + à    (touche 0)         <- }  accolade fermee'),
+        ('[',   'Opt + (    (touche 5)         <- [  crochet ouvrant'),
+        ('«',   'Opt + -    (touche 6)         <- «  guillemet ouvrant'),
+        ('~',   'Opt + n    (touche N) + Space <- ~  HOME Mac/Linux  *** dead key ***'),
         ('@',   'touche @   (1re touche)       <- @ direct, pas besoin Option !'),
-        ('#',   'Shift + @  (1re touche)  ou  Opt + "  <- # hashtag'),
-        ('`',   'Opt + e    (touche 7)       <- `  backtick Markdown / shell'),
-        ('\\',  'Opt + _    (touche 8)       <- \\  backslash'),
-        ('^',   'Opt + c    (touche 9)       <- ^  caret regex / exposant'),
-        ('€', 'Opt + e    (touche E)    <- euro'),
-        ('©', 'Opt + c    (touche C)    <- copyright'),
-        ('®', 'Opt + r    (touche R)    <- registered'),
+        ('#',   'Shift + @  (1re touche)       <- # hashtag'),
+        ('ë',   'Opt + e    (touche é/2)       <- e trema'),
+        ('ï',   'Opt + i    (touche I)         <- i trema'),
+        ('Ç',   'Opt + _    (touche 8)         <- C cedille majuscule'),
+        ('—',   'Opt + =    (touche =)         <- — tiret long (em dash)'),
+        ('€',   'Opt + $    (touche $)         <- euro'),
+        ('©',   'Opt + c    (touche C)         <- copyright'),
+        ('®',   'Opt + r    (touche R)         <- registered'),
+        ('∂',   'Opt + d    (touche D)         <- derivee partielle'),
+        ('∞',   'Opt + ,    (touche ,)         <- infini'),
     ]
     for sym, combo in symbols:
         hl_sym = (sym == highlight)

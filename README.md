@@ -210,6 +210,7 @@ export RESEARCH_TOOLKIT_DIR=/path/to/research_toolkit
 | `amir clean` | Interactive cleanup menu — toggle items on/off with Space/numbers, navigate with ↑↓, confirm with Enter. Covers: Trash, User Caches, System Logs, VS Code workspaceStorage, macOS Aerials Screensaver, Claude Desktop VM. |
 | `amir speed` | Test internet connection speed. |
 | `amir weather [city]` | Check weather (specify city or use default). |
+| `amir keyboard [fr\|en\|fa\|auto]` | Show keyboard layout for Apple Compact keyboard. Flags: `--opt` (Option layer), `--shift` (Shift layer), `--normal`, `--find <char>` (locate any character), `--auto` (detect active OS layout). Alias: `amir kb`. |
 
 
 ## 🤝 Contributing

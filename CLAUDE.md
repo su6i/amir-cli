@@ -134,6 +134,7 @@ amir (bash entry point)
 | `amir subtitle` | `lib/commands/subtitle.sh` | زیرنویس AI چندزبانه |
 | `amir pdf` | `lib/commands/pdf.sh` | PDF با Puppeteer |
 | `amir chat` | `lib/commands/chat.sh` | چت با Gemini/Gemma |
+| `amir keyboard` / `amir kb` | `lib/commands/keyboard.sh` → `lib/python/keyboard_layout.py` | layout کیبرد Apple Compact — FR/EN/FA + لایه‌های `--opt`/`--shift`/`--find` |
 
 ### ماژول apply — معماری یکپارچه
 
