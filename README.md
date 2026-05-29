@@ -211,6 +211,8 @@ export RESEARCH_TOOLKIT_DIR=/path/to/research_toolkit
 | `amir speed` | Test internet connection speed. |
 | `amir weather [city]` | Check weather (specify city or use default). |
 | `amir keyboard [fr\|en\|fa\|auto]` | Show keyboard layout for Apple Compact keyboard. Flags: `--opt` (Option layer), `--shift` (Shift layer), `--normal`, `--find <char>` (locate any character), `--auto` (detect active OS layout). Alias: `amir kb`. |
+| `amir init-project [dir]` | Scaffold the Agent Constitution (`.agent/` rules, skills, workflows) into a new project directory. |
+| `amir sync-constitution [dir]` | Sync `.agent/` rules and skills from the `agent-constitution` repo into an existing project. Preserves project-specific files; migrates legacy `.agents/`/`.cursor/` directories automatically. Override source with `AMIR_CONSTITUTION_PATH`. |
 
 
 ## 🤝 Contributing
