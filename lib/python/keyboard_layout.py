@@ -674,10 +674,7 @@ def main():
 """)
         return
 
-    if args.auto or args.lang == 'auto':
-        show_auto()
-        return
-
+    # --find is independent: works with any lang or auto
     if args.find:
         find_char(args.find)
         return
@@ -691,6 +688,10 @@ def main():
         layer = 'normal'
     else:
         layer = 'all'
+
+    if args.auto or args.lang == 'auto':
+        show_auto()
+        return
 
     dispatch = {'fr': show_fr, 'en': show_en, 'fa': show_fa}
     fn = dispatch.get(args.lang, show_fr)
