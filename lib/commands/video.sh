@@ -570,12 +570,22 @@ video_convert() {
     acodec=$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name \
         -of default=noprint_wrappers=1:nokey=1 "$input" 2>/dev/null | head -1)
 
-    # webm output requires VP8/VP9 video and Vorbis/Opus audio — always re-encode
+    # Detect source codec tag (Apple HEVC uses hvc1 which breaks in MP4)
+    local vtag
+    vtag=$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_tag_string \
+        -of default=noprint_wrappers=1:nokey=1 "$input" 2>/dev/null | head -1)
+
+    # webm output requires VP8/VP9 — always re-encode
     if [[ "$target_fmt" == "webm" ]]; then
         reencode=1
     fi
 
-    local video_args=() audio_args=()
+    # ProRes cannot be stream-copied into MP4/MKV — must re-encode
+    if [[ "$vcodec" == "prores" ]]; then
+        reencode=1
+    fi
+
+    local video_args=() audio_args=() tag_args=()
     if [[ $reencode -eq 1 ]]; then
         case "$target_fmt" in
             webm)
@@ -591,12 +601,18 @@ video_convert() {
     else
         video_args=(-c:v copy)
         audio_args=(-c:a copy)
-        echo "⚡ Stream-copy (fast): $input → $output"
+        # Apple HEVC tag hvc1 → standard MP4/MKV tag hev1 (fixes DaVinci Resolve, Premiere, etc.)
+        if [[ "$vcodec" == "hevc" && "$vtag" == "hvc1" ]]; then
+            tag_args=(-tag:v hev1)
+            echo "⚡ Stream-copy + retag hvc1→hev1: $input → $output"
+        else
+            echo "⚡ Stream-copy (fast): $input → $output"
+        fi
     fi
 
     if ffmpeg -hide_banner -loglevel error -stats -y \
         -i "$input" \
-        "${video_args[@]}" "${audio_args[@]}" \
+        "${video_args[@]}" "${audio_args[@]}" "${tag_args[@]}" \
         -movflags +faststart \
         "$output"; then
         echo "✅ Done: $output"
