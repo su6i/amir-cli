@@ -264,17 +264,18 @@ def detect_system_layout():
 
 # ── Renderer ─────────────────────────────────────────────────────────────────
 
-def draw_row(keys, indent=0, highlight=None, three_layer=True):
+def draw_row(keys, indent=0, highlight=None, three_layer=True, layer='all'):
     """
     Draw one keyboard row.
-    keys = list of (nrm, shf, opt) or (nrm, shf)
-    Each key cell: 7 chars wide (5 inside + 2 borders).
-      3-layer top:  opt + 2 spaces + shf + 1 space  →  │o  S │
-      normal line:  2 spaces + nrm + 2 spaces        →  │  N  │
+    layer = 'all'    → 2-line key: opt+shf on top, normal on bottom (default)
+    layer = 'normal' → 1-line key: only normal char, large + centred
+    layer = 'shift'  → 1-line key: only shift char
+    layer = 'opt'    → 1-line key: only option char
     """
     pad = ' ' * indent
-    tops = []; layer1 = []; layer2 = []; bots = []
+    tops = []; mids = []; bot1s = []; bots = []
     B = chr(0x2502)  # │
+    EMPTY = c('·', BRD)   # placeholder for empty option slot
 
     for entry in keys:
         if len(entry) == 3:
@@ -285,27 +286,47 @@ def draw_row(keys, indent=0, highlight=None, three_layer=True):
 
         nrm = nrm or ' '
         shf = shf or ' '
-        opt = opt or ' '
+        opt_raw = opt  # keep original for empty check
 
         tops.append(c('┌─────┐', BRD))
         bots.append(c('└─────┘', BRD))
 
-        if three_layer:
-            opt_s = c(opt, HLT + BLD if (highlight and opt == highlight) else OPT)
-            shf_s = c(shf, HLT + BLD if (highlight and shf == highlight) else SHF)
-            layer1.append(f"{c(B, BRD)}{opt_s}  {shf_s} {c(B, BRD)}")
-        else:
-            shf_s = c(shf, HLT + BLD if (highlight and shf == highlight) else SHF)
-            layer1.append(f"{c(B, BRD)}  {shf_s}  {c(B, BRD)}")
+        if layer == 'all':
+            if three_layer:
+                opt_s = c(opt or ' ', HLT + BLD if (highlight and opt == highlight) else OPT)
+                shf_s = c(shf, HLT + BLD if (highlight and shf == highlight) else SHF)
+                mids.append(f"{c(B, BRD)}{opt_s}  {shf_s} {c(B, BRD)}")
+            else:
+                shf_s = c(shf, HLT + BLD if (highlight and shf == highlight) else SHF)
+                mids.append(f"{c(B, BRD)}  {shf_s}  {c(B, BRD)}")
+            nrm_col = HLT + BLD if (highlight and nrm == highlight) else NRM + BLD
+            bot1s.append(f"{c(B, BRD)}  {c(nrm, nrm_col)}  {c(B, BRD)}")
 
-        nrm_col = HLT + BLD if (highlight and nrm == highlight) else NRM + BLD
-        nrm_s = c(nrm, nrm_col)
-        layer2.append(f"{c(B, BRD)}  {nrm_s}  {c(B, BRD)}")
+        else:
+            # single-layer mode: show one large character per key, centred
+            if layer == 'shift':
+                ch = shf
+                col = SHF + BLD
+            elif layer == 'opt':
+                ch = opt_raw
+                col = OPT + BLD
+            else:  # normal
+                ch = nrm
+                col = NRM + BLD
+
+            hl = highlight and ch == highlight
+            if not ch:
+                ch_s = EMPTY
+            else:
+                ch_s = c(ch, HLT + BLD if hl else col)
+            mids.append(f"{c(B, BRD)}  {ch_s}  {c(B, BRD)}")
+            bot1s.append(None)   # no second line in single-layer mode
 
     sep = ' '
     print(f"{pad}{sep.join(tops)}")
-    print(f"{pad}{sep.join(layer1)}")
-    print(f"{pad}{sep.join(layer2)}")
+    print(f"{pad}{sep.join(mids)}")
+    if any(x is not None for x in bot1s):
+        print(f"{pad}{sep.join(bot1s)}")
     print(f"{pad}{sep.join(bots)}")
     print()
 
@@ -331,20 +352,46 @@ def legend_2():
     print()
 
 
+def legend_layer(layer):
+    labels = {
+        'normal': f"  {c('[Normal]', NRM + BLD)}  — no modifier held",
+        'shift':  f"  {c('[⇧ Shift]', SHF + BLD)}  — holding Shift",
+        'opt':    f"  {c('[⌥ Option]', OPT + BLD)}  — holding Option",
+    }
+    print(labels.get(layer, ''))
+    print()
+
+
+def modifier_bar(layer='all'):
+    """Bottom modifier key row, with the active modifier highlighted."""
+    ctrl = c('Ctrl', DIM)
+    opt_s  = c('Opt',  OPT + BLD if layer == 'opt'   else DIM)
+    shf_s  = c('Shf',  SHF + BLD if layer == 'shift' else DIM)
+    cmd  = c('Cmd',  DIM)
+    spc  = c('            Space            ', DIM)
+    print(c('  +----------------------------------------------------------+', BRD))
+    print(c('  |', BRD) + f"  {ctrl}  {opt_s}  {cmd}  {spc}  {cmd}  {opt_s}  {shf_s} " + c('|', BRD))
+    print(c('  +----------------------------------------------------------+', BRD))
+
+
 # ── Layout displays ──────────────────────────────────────────────────────────
 
-def show_fr(highlight=None, auto_info=None):
+def show_fr(highlight=None, auto_info=None, layer='all'):
+    subtitle_map = {
+        'all':    'Top-left=Option  Top-right=Shift  Middle=Normal',
+        'normal': 'Mode: Normal  (no modifier)',
+        'shift':  'Mode: [holding Shift]',
+        'opt':    'Mode: [holding Option]',
+    }
+    title = 'AZERTY  --  Apple Compact  (Mac Mini)'
     if auto_info:
-        header(
-            'AZERTY  --  Apple Compact  (Francais)',
-            f'Auto-detected: {auto_info}  |  opt=Option  shf=Shift'
-        )
+        title = f'AZERTY  --  Apple Compact  (Francais)  [auto]'
+    header(title, subtitle_map.get(layer, ''))
+
+    if layer == 'all':
+        legend_3()
     else:
-        header(
-            'AZERTY  --  Apple Compact  (Mac Mini)',
-            'Top-left=Option  Top-right=Shift  Middle=Normal'
-        )
-    legend_3()
+        legend_layer(layer)
 
     row_labels = [
         '  [Num row]',
@@ -354,16 +401,9 @@ def show_fr(highlight=None, auto_info=None):
     ]
     for i, (row, indent) in enumerate(zip(FR_ROWS, FR_INDENTS)):
         print(c(row_labels[i], DIM))
-        draw_row(row, indent=indent, highlight=highlight)
+        draw_row(row, indent=indent, highlight=highlight, layer=layer)
 
-    # Modifier bar
-    print(c('  +----------------------------------------------------------+', BRD))
-    print(c('  |', BRD)
-          + f"  {c('Ctrl', DIM)}  {c('Opt', OPT)}  {c('Cmd', WHT)}"
-          + f"  {c('            Space            ', DIM)}  "
-          + f"{c('Cmd', WHT)}  {c('Opt', OPT)}  "
-          + c('|', BRD))
-    print(c('  +----------------------------------------------------------+', BRD))
+    modifier_bar(layer)
 
     print()
     print(c('  -- Symboles frequents (Option) ---------------------------------', BRD))
@@ -390,18 +430,22 @@ def show_fr(highlight=None, auto_info=None):
     print()
 
 
-def show_en(highlight=None, auto_info=None):
+def show_en(highlight=None, auto_info=None, layer='all'):
+    subtitle_map = {
+        'all':    'Top-left=Option  Top-right=Shift  Middle=Normal',
+        'normal': 'Mode: Normal  (no modifier)',
+        'shift':  'Mode: [holding Shift]',
+        'opt':    'Mode: [holding Option]',
+    }
+    title = 'QWERTY  --  Apple Compact  (English US)'
     if auto_info:
-        header(
-            'QWERTY  --  Apple Compact  (English US)',
-            f'Auto-detected: {auto_info}  |  opt=Option  shf=Shift'
-        )
+        title = f'QWERTY  --  Apple Compact  (English)  [auto]'
+    header(title, subtitle_map.get(layer, ''))
+
+    if layer == 'all':
+        legend_3()
     else:
-        header(
-            'QWERTY  --  Apple Compact  (English US)',
-            'Top-left=Option  Top-right=Shift  Middle=Normal'
-        )
-    legend_3()
+        legend_layer(layer)
 
     row_labels = [
         '  [Num row]',
@@ -411,15 +455,9 @@ def show_en(highlight=None, auto_info=None):
     ]
     for i, (row, indent) in enumerate(zip(EN_ROWS, EN_INDENTS)):
         print(c(row_labels[i], DIM))
-        draw_row(row, indent=indent, highlight=highlight)
+        draw_row(row, indent=indent, highlight=highlight, layer=layer)
 
-    print(c('  +----------------------------------------------------------+', BRD))
-    print(c('  |', BRD)
-          + f"  {c('Ctrl', DIM)}  {c('Opt', OPT)}  {c('Cmd', WHT)}"
-          + f"  {c('            Space            ', DIM)}  "
-          + f"{c('Cmd', WHT)}  {c('Opt', OPT)}  "
-          + c('|', BRD))
-    print(c('  +----------------------------------------------------------+', BRD))
+    modifier_bar(layer)
 
     print()
     print(c('  -- Common Option combos ----------------------------------------', BRD))
@@ -443,18 +481,19 @@ def show_en(highlight=None, auto_info=None):
     print()
 
 
-def show_fa(highlight=None, auto_info=None):
-    if auto_info:
-        header(
-            'Persian Standard  --  Apple Compact  (Farsi)',
-            f'Auto-detected: {auto_info}  |  shf=Shift  Middle=Normal'
-        )
+def show_fa(highlight=None, auto_info=None, layer='all'):
+    subtitle_map = {
+        'all':    'Top=Shift  Middle=Normal  (Apple Persian layout)',
+        'normal': 'Mode: Normal  (no modifier)',
+        'shift':  'Mode: [holding Shift]',
+        'opt':    'Mode: [holding Option]',
+    }
+    header('Persian Standard  --  Apple Compact', subtitle_map.get(layer, ''))
+
+    if layer == 'all':
+        legend_2()
     else:
-        header(
-            'Persian Standard  --  Apple Compact',
-            'Top=Shift  Middle=Normal  (Apple Persian layout)'
-        )
-    legend_2()
+        legend_layer(layer)
 
     row_labels = [
         '  [Num row  0-9]',
@@ -464,7 +503,10 @@ def show_fa(highlight=None, auto_info=None):
     ]
     for i, (row, indent) in enumerate(zip(FA_ROWS, FA_INDENTS)):
         print(c(row_labels[i], DIM))
-        draw_row(row, indent=indent, highlight=highlight, three_layer=False)
+        draw_row(row, indent=indent, highlight=highlight, three_layer=False,
+                 layer='normal' if layer == 'opt' else layer)
+
+    modifier_bar(layer)
 
     print()
     print(c('  -- Notable keys ------------------------------------------------', BRD))
@@ -571,11 +613,11 @@ def show_auto():
     print(c(f'  Detected: {c(lang.upper(), NRM + BLD)}  --  {layout_name}', WHT))
 
     if lang == 'fr':
-        show_fr(auto_info=auto_info)
+        show_fr(auto_info=auto_info, layer='all')
     elif lang == 'en':
-        show_en(auto_info=auto_info)
+        show_en(auto_info=auto_info, layer='all')
     elif lang == 'fa':
-        show_fa(auto_info=auto_info)
+        show_fa(auto_info=auto_info, layer='all')
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
@@ -593,31 +635,42 @@ def main():
                    help='Find which key produces this character')
     p.add_argument('--auto', '-a', action='store_true',
                    help='Auto-detect current OS keyboard layout')
+    p.add_argument('--shift', '-s', action='store_true',
+                   help='Show keyboard with Shift held — what does each key produce?')
+    p.add_argument('--opt', '-o', action='store_true',
+                   help='Show keyboard with Option held — what does each key produce?')
+    p.add_argument('--normal', '-n', action='store_true',
+                   help='Show keyboard in normal mode (no modifier)')
     p.add_argument('-h', '--help', action='store_true')
 
     args = p.parse_args()
 
     if args.help:
         print("""
-  Usage:  amir keyboard [fr|en|fa|auto] [--find CHAR]
+  Usage:  amir keyboard [fr|en|fa|auto] [--shift | --opt | --normal]
 
   Layouts:
     fr      French AZERTY  -- Apple Compact (Mac Mini)  (default)
     en      English QWERTY -- Apple
     fa      Persian Standard -- Apple
-    auto    Auto-detect from OS (priority)
+    auto    Auto-detect from OS
 
-  Options:
-    --auto / -a      Detect and show the active OS keyboard layout
+  Modifier view:
+    --shift  / -s    Show what each key types when Shift is held
+    --opt    / -o    Show what each key types when Option is held
+    --normal / -n    Show normal layer only (no modifier)
+    (default: show all 3 layers together)
+
+  Other:
     --find CHAR      Find which key produces this character
-                     Example:  amir keyboard --find @
+    --auto / -a      Detect and show the active OS keyboard layout
 
   Examples:
-    amir keyboard           # French AZERTY (default)
-    amir keyboard auto      # detect active layout from OS
-    amir keyboard en        # English QWERTY
-    amir keyboard fa        # Persian
-    amir keyboard --find @  # find @ on all layouts
+    amir keyboard              # all layers (default)
+    amir keyboard --shift      # Shift layer
+    amir keyboard --opt        # Option layer
+    amir keyboard fr --opt     # French + Option layer
+    amir keyboard --find @     # find @ on all layouts
 """)
         return
 
@@ -629,8 +682,19 @@ def main():
         find_char(args.find)
         return
 
+    # resolve active layer
+    if args.shift:
+        layer = 'shift'
+    elif args.opt:
+        layer = 'opt'
+    elif args.normal:
+        layer = 'normal'
+    else:
+        layer = 'all'
+
     dispatch = {'fr': show_fr, 'en': show_en, 'fa': show_fa}
-    dispatch.get(args.lang, show_fr)()
+    fn = dispatch.get(args.lang, show_fr)
+    fn(layer=layer)
 
 
 if __name__ == '__main__':
