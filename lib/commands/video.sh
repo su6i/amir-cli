@@ -2287,13 +2287,7 @@ video_download() {
     fi
 
     # Build cookie arguments
-    # YouTube can return HTTP 403 when browser cookies are auto-injected.
-    # Keep explicit user choice, but avoid implicit browser cookies for YouTube links.
     local -a COOKIE_ARGS=()
-    local IS_YOUTUBE_URL=false
-    if [[ "$URL" =~ ^https?://([^/]+\.)?(youtube\.com|youtu\.be|youtube-nocookie\.com)(/|$) ]]; then
-        IS_YOUTUBE_URL=true
-    fi
 
     if [[ -n "$COOKIES_FILE" ]]; then
         COOKIE_ARGS=(--cookies "$COOKIES_FILE")
@@ -2301,10 +2295,6 @@ video_download() {
         COOKIE_ARGS=(--cookies "cookies.txt")
     elif [[ -f "$HOME/su6i-yar/cookies.txt" ]]; then
         COOKIE_ARGS=(--cookies "$HOME/su6i-yar/cookies.txt")
-    elif $BROWSER_EXPLICIT && [[ -n "$BROWSER" && "$BROWSER" != "none" ]]; then
-        COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
-    elif $IS_YOUTUBE_URL; then
-        COOKIE_ARGS=()
     elif [[ -n "$BROWSER" && "$BROWSER" != "none" ]]; then
         COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
     fi
