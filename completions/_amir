@@ -10,6 +10,7 @@ _amir() {
         local -a commands
         commands=(
             'init-project:Scaffold Agent Constitution in directory'
+            'sync-constitution:Sync .agent/ rules+skills from agent-constitution repo'
             'video:Advanced video processing (compress, cut, batch)'
             'audio:Audio tools (convert, extract, concat, to-video)'
             'img:Resize images (logo and custom sizes)'
@@ -43,6 +44,10 @@ _amir() {
 
     # Step 2: Subcommand options
     case "${words[2]}" in
+
+        sync-constitution)
+            _arguments '*:target directory:_directories'
+            ;;
 
         trend|research)
             _trend_arguments
