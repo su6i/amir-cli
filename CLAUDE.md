@@ -295,6 +295,28 @@ git add -f lib/commands/specific_file.sh
 
 ---
 
+## تصمیمات این session (29 مه 2026)
+
+### مشکل ۷: دانلود YouTube — HTTP 500 + SABR
+
+**علت دوگانه:**
+
+1. **HTTP 500 (مشکل اول):** yt-dlp از `android_vr` client استفاده می‌کرد. YouTube این client را به SABR-only routing می‌کند — فرمت‌ها URL ندارند → HTTP 500.
+   **راه‌حل:** مسدودسازی cookie برای YouTube URLs حذف شد. حالا Chrome cookies برای همه URLها (از جمله YouTube) اعمال می‌شود.
+
+2. **HTTP 403 روی m3u8 fragments (مشکل دوم):** yt-dlp v2026.03.03 نمی‌توانست YouTube JS challenge را حل کند → فرمت‌های DASH (https) ناپدید می‌شدند → فقط m3u8 می‌ماند → fragment tokenها expire می‌شدند.
+   **راه‌حل:** `uv tool upgrade yt-dlp` → v2026.03.17. نسخه جدید با `--remote-components ejs:github` (که قبلاً در video.sh بود) JS challenge را حل می‌کند و DASH 1080p در دسترس می‌شود.
+
+**فایل‌های تغییریافته:** `lib/commands/video.sh` — بلاک `elif $IS_YOUTUBE_URL; then COOKIE_ARGS=()` حذف شد.
+
+**نکته نگهداری:** اگر دانلود YouTube دوباره 360p یا خطا داد:
+```bash
+uv tool upgrade yt-dlp   # اول این
+yt-dlp --version         # باید ≥ 2026.03.17 باشد
+```
+
+---
+
 ## تصمیمات این session (21 مه 2026)
 
 ### مشکل ۶: ویدیوهای چندزبانه — هذیان Whisper هنگام تغییر زبان
