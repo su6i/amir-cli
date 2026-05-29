@@ -630,18 +630,18 @@ _amir() {
             ;;
 
         keyboard|kb)
-            case $((CURRENT)) in
-                3)
-                    local kb_langs
-                    kb_langs=('fr:French AZERTY (Apple Compact)' 'en:English QWERTY' 'fa:Persian Standard')
-                    _describe -t kb_langs 'layout language' kb_langs
-                    ;;
-                *)
-                    _arguments \
-                        '--find[Find which key produces a character]:character: ' \
-                        '-f[Alias for --find]:character: '
-                    ;;
-            esac
+            _arguments \
+                '2::layout:(fr en fa auto)' \
+                '--shift[Show keyboard with Shift held]' \
+                '-s[Alias for --shift]' \
+                '--opt[Show keyboard with Option held]' \
+                '-o[Alias for --opt]' \
+                '--normal[Show normal layer only]' \
+                '-n[Alias for --normal]' \
+                '--auto[Auto-detect OS keyboard layout]' \
+                '-a[Alias for --auto]' \
+                '--find[Find which key produces a character]:character: ' \
+                '-f[Alias for --find]:character: '
             ;;
 
         qr)
