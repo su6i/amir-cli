@@ -98,6 +98,7 @@ _amir() {
             video_subcmds=(
                 'subtitle:Transcribe + translate video (Whisper AI + LLM). Also accepts a URL'
                 'compress:Process video with smart selection'
+                'pip:Picture-in-picture — overlay one or more videos onto a main video'
                 'convert:Convert video format (mov→mp4, mkv, webm, avi…)'
                 'cut:Cut / Trim video segment'
                 'concat:Concatenate videos in the given order'
