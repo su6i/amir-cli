@@ -929,6 +929,111 @@ video_pip() {
     fi
 }
 
+video_record() {
+    local screen_idx="1"
+    local audio_idx="0"
+    local fps=30
+    local output=""
+    local no_audio=0
+    local do_list=0
+    local quality=20
+
+    if [[ $# -eq 0 || "$1" == "--help" || "$1" == "-h" ]]; then
+        echo "Usage: amir video record [options]"
+        echo ""
+        echo "Options:"
+        echo "  --list           List available screens and audio devices"
+        echo "  --screen N       Screen index to record (default: 1)"
+        echo "  --audio  N       Audio device index (default: 0)"
+        echo "  --fps    N       Frame rate (default: 30)"
+        echo "  --no-audio       Record without audio"
+        echo "  --quality N      CRF 0-51, lower=better quality (default: 20)"
+        echo "  -o, --output     Output filename (default: screen_YYYYMMDD_HHMMSS.mp4)"
+        echo ""
+        echo "Examples:"
+        echo "  amir video record                       # Main screen + default mic"
+        echo "  amir video record --list                # Show available devices"
+        echo "  amir video record --screen 2 -o demo.mp4"
+        echo "  amir video record --no-audio -o cast.mp4"
+        return 0
+    fi
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --list|-l)    do_list=1; shift ;;
+            --screen)     screen_idx="$2"; shift 2 ;;
+            --audio)      audio_idx="$2"; shift 2 ;;
+            --fps)        fps="$2"; shift 2 ;;
+            --no-audio)   no_audio=1; shift ;;
+            --quality|-q) quality="$2"; shift 2 ;;
+            -o|--output)  output="$2"; shift 2 ;;
+            *) echo "❌ Unknown option: $1"; return 1 ;;
+        esac
+    done
+
+    if [[ $do_list -eq 1 ]]; then
+        echo "📺 Available AVFoundation devices:"
+        echo ""
+        ffmpeg -f avfoundation -list_devices true -i "" 2>&1 \
+            | grep -E "AVFoundation (video|audio) devices|\[[0-9]+\]" \
+            | sed \
+                -e 's/.*AVFoundation video devices:/🖥️  Video devices:/g' \
+                -e 's/.*AVFoundation audio devices:/🎙️  Audio devices:/g' \
+                -e 's/.*\[\([0-9]*\)\] /  [\1] /g'
+        echo ""
+        echo "💡 Use --screen N for video, --audio N for audio."
+        return 0
+    fi
+
+    if [[ -z "$output" ]]; then
+        output="screen_$(date +%Y%m%d_%H%M%S).mp4"
+    fi
+
+    local device_input
+    if [[ $no_audio -eq 1 ]]; then
+        device_input="${screen_idx}"
+    else
+        device_input="${screen_idx}:${audio_idx}"
+    fi
+
+    local audio_enc_args=(-c:a aac -b:a 192k)
+    [[ $no_audio -eq 1 ]] && audio_enc_args=(-an)
+
+    echo "🎬 Screen Recording — press Ctrl+C to stop"
+    echo "   Screen : device ${screen_idx}"
+    [[ $no_audio -eq 0 ]] && echo "   Audio  : device ${audio_idx}" || echo "   Audio  : off"
+    echo "   FPS    : ${fps}"
+    echo "   Output : ${output}"
+    echo ""
+
+    # ultrafast preset required for real-time screen capture encoding
+    ffmpeg -hide_banner \
+        -f avfoundation -framerate "$fps" -capture_cursor 1 \
+        -i "${device_input}" \
+        -c:v libx264 -preset ultrafast -crf "$quality" -pix_fmt yuv420p \
+        "${audio_enc_args[@]}" \
+        "$output"
+
+    local ec=$?
+
+    # ffmpeg exits 255 on SIGINT (Ctrl+C) — treat as success if file exists
+    if [[ ( $ec -eq 0 || $ec -eq 255 ) && -f "$output" && -s "$output" ]]; then
+        local dur size
+        dur=$(ffprobe -v error -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 "$output" 2>/dev/null \
+            | awk '{printf "%d:%02d", int($1/60), int($1%60)}')
+        size=$(du -sh "$output" 2>/dev/null | cut -f1)
+        echo ""
+        echo "✅ Saved: $output  (${dur}, ${size})"
+    else
+        echo ""
+        echo "❌ Recording failed or empty file."
+        echo "💡 Grant permission: System Settings → Privacy & Security → Screen Recording → Terminal"
+        rm -f "$output"
+        return 1
+    fi
+}
+
 video() {
     # Direct shared split subcommand
     if [[ "$1" == "split" ]]; then
@@ -957,6 +1062,7 @@ video() {
     # If no arguments, show help
     if [[ $# -eq 0 ]]; then
         echo "Usage: amir video compress <files...> [Resolution] [Quality] [--gpu|--cpu]"
+        echo "       amir video record [--list] [--screen N] [--audio N] [--fps N] [-o FILE]"
         echo "       amir video pip <main> --pip <file> [--start T] [--end T] [--pos tl|tr|bl|br|X:Y] [--size %]"
         echo "       amir video convert <file> [--to FORMAT] [-o OUTPUT] [--reencode]"
         echo "       amir video concat <files...> [-o output.mp4]"
@@ -3524,6 +3630,9 @@ run_video() {
         shift
         source "$LIB_DIR/commands/subtitle.sh"
         run_subtitle "$@"
+    elif [[ "$1" == "record" || "$1" == "rec" ]]; then
+        shift
+        video_record "$@"
     elif [[ "$1" == "pip" ]]; then
         shift
         video_pip "$@"
