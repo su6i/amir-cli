@@ -153,7 +153,17 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir pdf [files] [opts]` | **Multi-Engine PDF Generator**: Render Markdown/Text/Images to PDF. Supports piping (e.g., `amir clip | amir pdf`), Puppeteer (Default), WeasyPrint, PIL (Robust Fallback). Features: High-fidelity Persian RTL (B Nazanin), auto-pagination, ExFAT compatibility, `--free-size` (`-f`) for continuous/custom dimensions, and `--page-width/--page-height` (Puppeteer, pixels) for manual page sizing. Common widths: 1200, 1440, 1600, 1800, 2000, 2480. |
 | `amir watermark <file> [text]` | Add watermark to image (auto-saved or `-o output`). |
 | `amir subtitle <file/URL> [options]` | **AI-Powered Multilingual Subtitles**: Transcribe, translate (32 languages), and render. Source is auto-detected by default; practical default layout is source-top + Persian-bottom (`--sub auto fa`). Key flags: `--yt-subs` (force YouTube internal subs), `--ass-input <srt/ass>` (render from manual file; `.srt` files are automatically styled with Vazirmatn), `--resolution <h>` and `--quality <0-100>` (final render controls), `--style channel_brand_blue|shorts_brand_blue|news_guest_blue`, `--subtitle-banner-image/--subtitle-banner-color`, `--subtitle-logo [--subtitle-logo-animated]`, `--guest-tag "start,duration,name,title[,pos]"`, `--brand-kit <logo> [--brand-kit-shorts]`, `--save` (default export: `pdf`), and `--no-render` (SRT only). Default render height follows input video height when not provided. See [SUBTITLE.md](docs/SUBTITLE.md). |
+| `amir video record [--list] [--screen N] [--audio N] [--fps N] [-o FILE]` | Record screen to MP4 using macOS AVFoundation. `--list` shows available screens/audio devices. Ctrl+C to stop. Alias: `amir video rec`. |
 | `amir info <file>` | Show detailed technical metadata for any file. |
+
+### 🧠 Skill Management
+
+| Command | Description |
+| :--- | :--- |
+| `amir skill search <query> [--min-stars N]` | Search GitHub for repos matching query, ranked by stars — discover tools worth learning. |
+| `amir skill harvest <query> [--pick N] [-o file]` | Search GitHub → fetch top READMEs → synthesize a `.agent/skills/` reference file for AI agents. |
+| `amir skill list [--grep PATTERN]` | List all existing skill files in `.agent/skills/` with descriptions. |
+| `amir skill show <name>` | Display contents of a skill file. |
 
 ### 📡 Research & Trends
 
