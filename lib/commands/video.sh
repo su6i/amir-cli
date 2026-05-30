@@ -681,10 +681,13 @@ video_concat() {
     local ffmpeg_path
     ffmpeg_path=$(get_ffmpeg_path)
     # Re-encoding avoids concat failures when source files differ in codecs/timebase.
+    # avoid_negative_ts + setpts/asetpts reset PTS to 0 — prevents black frames at start.
     run_ffmpeg_with_progress "" \
         "$ffmpeg_path" -hide_banner -loglevel info -stats -y \
         -f concat -safe 0 -i "$list_file" \
-        -c:v libx264 -crf 20 -preset medium \
+        -avoid_negative_ts make_zero \
+        -vf setpts=PTS-STARTPTS -af asetpts=PTS-STARTPTS \
+        -c:v libx264 -crf 20 -preset medium -bf 0 -force_key_frames "expr:eq(n,0)" \
         -c:a aac -b:a 192k -movflags +faststart "$output_file"
     local exit_code=$?
     rm -f "$list_file"
