@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # amir skill — search GitHub for high-starred repos and create skill files
 
-SKILL_DIR="${AMIR_ROOT}/.agent/skills"
+# Resolve skill dir — works whether sourced via amir or run directly
+SKILL_DIR="${AMIR_ROOT:+${AMIR_ROOT}/.agent/skills}"
+[[ -z "$SKILL_DIR" ]] && SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.agent/skills" 2>/dev/null && pwd)"
+[[ -z "$SKILL_DIR" || ! -d "$SKILL_DIR" ]] && SKILL_DIR="$HOME/@-github/amir-cli/.agent/skills"
 
 run_skill() {
     local subcmd="${1:-help}"
