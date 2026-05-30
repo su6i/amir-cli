@@ -29,6 +29,9 @@ run_phd() {
         research)
             _phd_research "$@"
             ;;
+        lettre)
+            _phd_lettre "$@"
+            ;;
         sources|list-sources)
             _phd_sources
             ;;
@@ -158,6 +161,74 @@ _phd_open() {
     fi
 }
 
+_phd_lettre() {
+    # Scaffold the complete apply folder under ApplyForge/Applied/
+    local pos_id="${1:-}"
+    if [[ -z "$pos_id" ]]; then
+        echo "Usage: amir apply phd lettre <position-id>" >&2
+        return 1
+    fi
+
+    local applyforge_dir="${APPLYFORGE_DIR:-$HOME/@-github/ApplyForge}"
+    local today; today=$(date +%Y-%m-%d)
+
+    # Locate position file
+    local pos_file
+    pos_file=$(find "$_PHD_SEARCH_DIR/found" -name "${pos_id}.md" 2>/dev/null | head -1)
+    if [[ -z "$pos_file" ]]; then
+        echo "❌  Position not found: $pos_id" >&2; return 1
+    fi
+
+    # Determine folder name
+    local institution
+    institution=$(grep -i "université\|university\|institution\|lab\|institute" "$pos_file" | head -1 | sed 's/.*Valeur *|//;s/[*|]//g;s/^ *//;s/ *$//' | tr ' ' '_' | tr -d "'" | cut -c1-40)
+    local folder_name="${today}_${pos_id}"
+    local out_dir="$applyforge_dir/Applied/${folder_name}"
+
+    mkdir -p "$out_dir"
+
+    # Generate PhD CV via ApplyForge spontaneous pipeline
+    echo "  📄 Generating PhD CV from master_cv.json..."
+    (cd "$applyforge_dir" && uv run main.py spontaneous phd 2>/dev/null) || true
+
+    # Find generated CV and copy
+    local generated_cv
+    generated_cv=$(find "$applyforge_dir/Applied" -name "*CV_PhD*" -newer "$pos_file" 2>/dev/null | head -1)
+    if [[ -n "$generated_cv" ]]; then
+        cp "$generated_cv" "$out_dir/"
+        echo "  ✓ CV copied: $(basename "$generated_cv")"
+    else
+        echo "  ⚠️  CV not found — run manually: cd $applyforge_dir && uv run main.py spontaneous phd"
+    fi
+
+    # Copy position file as JobPosting
+    cp "$pos_file" "$out_dir/JobPosting_${pos_id}.md"
+    echo "  ✓ JobPosting copied"
+
+    # Copy email draft if exists
+    local draft="$_PHD_SEARCH_DIR/applied/$pos_id/email_draft.md"
+    if [[ -f "$draft" ]]; then
+        cp "$draft" "$out_dir/Email_Candidature_${pos_id}.md"
+        echo "  ✓ Email draft copied"
+    fi
+
+    echo ""
+    echo "  ──────────────────────────────────────────────────────"
+    echo "  📁 Folder ready: $out_dir"
+    echo "  Contents:"
+    ls -1 "$out_dir/"
+    echo ""
+    echo "  ⚠️  MISSING: Lettre de motivation PDF"
+    echo "  → Ask Claude Code: 'write lettre de motivation for $pos_id and save to:"
+    echo "    $out_dir/'"
+    echo "  → Claude Code will research supervisor, write .tex, compile PDF"
+    echo "  ──────────────────────────────────────────────────────"
+    echo ""
+
+    # Open folder
+    open "$out_dir" 2>/dev/null || true
+}
+
 _phd_research() {
     local pos_id="$1"
     if [[ -z "$pos_id" ]]; then
@@ -281,6 +352,7 @@ _phd_usage() {
     echo "    show   [<id>]                          Show position + draft (no ID = list)"
     echo "    list                                   List all position IDs and titles"
     echo "    research <id>                          Research supervisor — must run before draft"
+    echo "    lettre   <id>                          Scaffold apply folder + generate CV + copy files"
     echo "    search                                 How to find new PhD positions"
     echo "    add-source <name> <url> [desc]         Add a search source"
     echo "               [-p N, --priority N]        Insert at position N (default: end)"
