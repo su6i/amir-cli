@@ -295,6 +295,55 @@ git add -f lib/commands/specific_file.sh
 
 ---
 
+## تصمیمات این session (30 مه 2026)
+
+### دستورات جدید video: convert، pip، multi-delete، concat fix
+
+#### `amir video convert`
+تبدیل container فرمت بدون re-encode (stream copy). نکات معماری:
+- `-movflags +faststart` برای HEVC هرگز استفاده نشود — باعث freeze در DaVinci/QuickTime می‌شود
+- `hvc1` tag آیفون را **نباید** به `hev1` تغییر داد — bitstream تغییر نمی‌کند و فایل خراب می‌شود
+- `--reencode` از VideoToolbox (H.264) استفاده می‌کند
+- webm همیشه re-encode (VP9+Opus) — stream copy ممکن نیست
+- ProRes در MP4/MKV: همیشه re-encode
+
+#### `amir video pip`
+PiP overlay با filter_complex. مثال:
+```bash
+amir video pip screen.mp4 \
+  --pip person1.mov --start 00:01:00 --end 00:03:00 --pos tr --size 25 \
+  --pip person2.mov --start 00:03:00 --end 00:05:00 --pos tl --size 25 \
+  -o final.mp4
+```
+- موقعیت‌ها: `tl|tr|bl|br|center|X:Y`
+- صدای هر pip در بازه زمانی فعالش mix می‌شود
+- filter به temp file نوشته می‌شود تا quoting مشکل نداشته باشد
+
+#### `amir video cut` — multi-delete
+چند `-d` در یک pass با filter_complex:
+```bash
+amir video cut video.mp4 -d 00:02:10 00:02:25 -d 00:08:45 00:09:02 -o out.mp4
+```
+- single range: مسیر stream-copy سریع حفظ شده
+- multiple ranges: filter_complex با trim+setpts+concat
+- ranges قبل از اجرا sort و validate می‌شوند
+
+#### `amir video concat` — رفع freeze با HEVC MOV
+**مشکل:** `-f concat` demuxer + `setpts=PTS-STARTPTS` باعث freeze ویدیو با HEVC MOV می‌شد.
+**راه‌حل:** `filter_complex` با `-i` مستقل برای هر فایل — هر codec با decoder خودش decode می‌شود.
+**قانون:** `setpts/asetpts` در concat هرگز استفاده نشود روی HEVC input.
+
+#### باگ‌های شناسایی‌شده و رفع‌شده
+| باگ | علت | راه‌حل |
+|-----|-----|---------|
+| `--delete` infinite loop | `shift 3` وقتی arg نمانده بود | fallback به `shift 1` |
+| `hvc1→hev1` tag fix غلط | bitstream بدون تبدیل → خراب | حذف tag fix، stream copy بدون دستکاری |
+| `movflags +faststart` + HEVC | DaVinci و QuickTime reject | حذف faststart از stream copy |
+| concat freeze با MOV | demuxer concat + HEVC decoder | filter_complex per-input |
+| فریم سیاه در concat | PTS منفی انباشته از cut‌های قبلی | `avoid_negative_ts make_zero` + `-bf 0` |
+
+---
+
 ## تصمیمات این session (29 مه 2026)
 
 ### مشکل ۷: دانلود YouTube — HTTP 500 + SABR
