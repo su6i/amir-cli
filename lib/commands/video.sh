@@ -1114,15 +1114,21 @@ run_video_cut() {
                 shift 3
                 ;;
             -d|--delete)
-                # Backward compatibility: old -d <duration>
-                if [[ "$1" == "-d" && ( -z "${3:-}" || "${2:-}" == -* || "${3:-}" == -* ) ]]; then
+                # Backward compatibility: old -d <duration> (short flag only, one numeric arg)
+                if [[ "$1" == "-d" && ( -z "${3:-}" || "${2:-}" == -* || "${3:-}" == -* ) && "${2:-}" =~ ^[0-9] ]]; then
                     duration="$2"
                     shift 2
-                else
+                elif [[ -n "${2:-}" && "${2:-}" != -* && -n "${3:-}" && "${3:-}" != -* ]]; then
+                    # --delete start end  (two explicit time args follow)
                     delete_mode=1
                     delete_start="$2"
                     delete_end="$3"
                     shift 3
+                else
+                    # --delete used as boolean flag; range must come from -s/-e
+                    # (will be validated below — gives a clear error instead of infinite loop)
+                    delete_mode=1
+                    shift 1
                 fi
                 ;;
             -o|--output) output_file="$2"; shift 2 ;;
@@ -1175,8 +1181,19 @@ run_video_cut() {
         return 1
     fi
 
-    if [[ $delete_mode -eq 1 && ( -n "$start_time" || -n "$end_time" || -n "$duration" ) ]]; then
-        echo "❌ Error: --delete cannot be combined with --start/--end/--duration in the same command."
+    # Allow: -s START -e END --delete  → treat -s/-e as the delete range
+    if [[ $delete_mode -eq 1 && -z "$delete_start" && -z "$delete_end" ]]; then
+        if [[ -n "$start_time" && -n "$end_time" ]]; then
+            delete_start="$start_time"
+            delete_end="$end_time"
+            start_time=""
+            end_time=""
+        else
+            echo "❌ --delete requires a range: use  -d START END  or  -s START -e END --delete"
+            return 1
+        fi
+    elif [[ $delete_mode -eq 1 && -n "$duration" ]]; then
+        echo "❌ --delete cannot be combined with --duration."
         return 1
     fi
 
