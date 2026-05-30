@@ -680,17 +680,33 @@ video_concat() {
 
     local ffmpeg_path
     ffmpeg_path=$(get_ffmpeg_path)
-    # Re-encoding avoids concat failures when source files differ in codecs/timebase.
-    # avoid_negative_ts fixes accumulated negative PTS from prior cuts.
-    # NOTE: setpts/asetpts intentionally removed — breaks HEVC reference frames on MOV input.
+
+    # Build filter_complex concat — each file gets its own decoder.
+    # This handles mixed codecs (H.264 MP4 + HEVC MOV) without freeze artifacts.
+    local -a input_args=()
+    local filter_in=""
+    local seg=0
+    for f in "${input_files[@]}"; do
+        [[ ! -f "$f" ]] && continue
+        input_args+=(-i "$f")
+        filter_in+="[${seg}:v][${seg}:a]"
+        seg=$(( seg + 1 ))
+    done
+    rm -f "$list_file"
+
+    local filter_file
+    filter_file=$(mktemp /tmp/concat_filter_XXXXXX.txt)
+    printf '%s' "${filter_in}concat=n=${seg}:v=1:a=1[outv][outa]" > "$filter_file"
+
     run_ffmpeg_with_progress "" \
         "$ffmpeg_path" -hide_banner -loglevel info -stats -y \
-        -f concat -safe 0 -i "$list_file" \
-        -avoid_negative_ts make_zero \
-        -c:v libx264 -crf 20 -preset medium -bf 0 -force_key_frames "expr:eq(n,0)" \
+        "${input_args[@]}" \
+        -filter_complex_script "$filter_file" \
+        -map '[outv]' -map '[outa]' \
+        -c:v libx264 -crf 20 -preset medium -bf 0 \
         -c:a aac -b:a 192k -movflags +faststart "$output_file"
     local exit_code=$?
-    rm -f "$list_file"
+    rm -f "$filter_file"
 
     if [[ $exit_code -eq 0 ]]; then
         echo "✅ Concatenation complete: $output_file"
