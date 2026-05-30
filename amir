@@ -208,6 +208,11 @@ case "$COMMAND" in
         if [[ -f "$LIB_DIR/commands/trend.sh" ]]; then source "$LIB_DIR/commands/trend.sh"; run_trend "$@"; exit $?; fi
         ;;
 
+    skill)
+        shift
+        if [[ -f "$LIB_DIR/commands/skill.sh" ]]; then source "$LIB_DIR/commands/skill.sh"; run_skill "$@"; exit $?; fi
+        ;;
+
     llm-lists)
         shift
         if [[ -f "$LIB_DIR/commands/llm-lists.sh" ]]; then source "$LIB_DIR/commands/llm-lists.sh"; llm_lists "$@"; exit $?; fi
