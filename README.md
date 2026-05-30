@@ -207,7 +207,10 @@ export RESEARCH_TOOLKIT_DIR=/path/to/research_toolkit
 | `amir chat "hello"` | Ask the AI assistant a question. |
 | `amir code "fix this"` | Request code generation or refactoring. |
 | `amir llm-lists <provider> [-e fmt]` | **NEW:** Fetch model lists from LLM providers (gemini, openai, deepseek, groq, anthropic). Export to PDF/MD/JPG. |
-| `amir todo add "task"` | Manage a lightweight local to-do list. |
+| `amir todo "task"` | Add a task to the local to-do list. |
+| `amir todo list` | Show all pending tasks. |
+| `amir todo done <n>` | Remove task number `<n>` from the list. |
+| `amir todo clear` | Clear all tasks. |
 | `amir dashboard` | Show a system status dashboard (CPU, RAM, Space). |
 
 ### 🛠 Utilities
