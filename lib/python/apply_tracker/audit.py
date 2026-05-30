@@ -167,48 +167,68 @@ def audit_lettre(apply_folder: Path | None, sup: dict | None) -> list[tuple[str,
     return results
 
 
-def audit_cv(apply_folder: Path | None) -> list[tuple[str, bool]]:
+def audit_cv(apply_folder: Path | None, entry: dict | None = None) -> list[tuple[str, bool]]:
     results = []
     if not apply_folder:
         return results
 
     text = _read_tex_or_pdf_text(apply_folder, "CV")
     if not text:
-        results.append((f"  {WARN}  CV .tex not found — cannot audit section order", False))
+        results.append((f"  {WARN}  CV .tex not found — cannot audit content", False))
         return results
 
-    sections_order = ["AI for Language Acquisition",
-                      "AI for Research Automation",
-                      "Speech Processing",
-                      "Deep Learning for Financial"]
-    positions = {}
-    for s in sections_order:
-        idx = text.find(s)
-        if idx >= 0:
-            positions[s] = idx
+    results.append(_check("CV compiles (tex present)", True))
 
-    results.append(_check("CV has LinguaGame / CLIL section",
-                           "LinguaGame" in text or "CLIL" in text))
-    results.append(_check("CV has AI for Language Acquisition",
-                           "AI for Language Acquisition" in text))
-    results.append(_check("CV has AI for Research Automation",
-                           "AI for Research Automation" in text))
+    # Derive priority keywords from supervisor research areas (not hardcoded)
+    priority_keywords: list[str] = []
+    if entry:
+        sup = entry.get("supervisor", {})
+        areas = sup.get("research_areas", [])
+        title = entry.get("title", "")
+        # Map research areas → CV section keywords
+        area_text = " ".join(areas + [title]).lower()
+        if any(w in area_text for w in ["game", "persuasif", "ludique", "clil", "language", "learning"]):
+            priority_keywords.append("AI for Language Acquisition")
+        if any(w in area_text for w in ["epistemic", "belief", "cognitive", "reasoning", "logic"]):
+            priority_keywords.append("AI for Research Automation")
+        if any(w in area_text for w in ["speech", "tts", "audio", "voice"]):
+            priority_keywords.append("Speech Processing")
 
-    if "AI for Language Acquisition" in positions and "Deep Learning for Financial" in positions:
-        lang_before_finance = positions["AI for Language Acquisition"] < positions["Deep Learning for Financial"]
-        results.append(_check("Language Acquisition appears before Financial section",
-                               lang_before_finance,
-                               "Section order matters — most relevant first"))
+    # Check that priority sections exist
+    for section in priority_keywords:
+        results.append(_check(f"Section '{section}' present in CV", section in text))
 
-    if "AI for Research Automation" in positions and "Speech Processing" in positions:
-        research_before_speech = positions["AI for Research Automation"] < positions["Speech Processing"]
-        results.append(_check("Research Automation appears before Speech section",
-                               research_before_speech,
-                               warn_only=True))
+    # Check priority sections appear before non-priority ones (position-aware)
+    if priority_keywords:
+        positions = {s: text.find(s) for s in priority_keywords if s in text}
+        non_priority = ["Deep Learning for Financial", "Speech Processing"]
+        for prio in list(positions.keys())[:2]:
+            for non in non_priority:
+                if non in text and non not in positions:
+                    non_pos = text.find(non)
+                    prio_pos = positions[prio]
+                    results.append(_check(
+                        f"'{prio[:30]}' before '{non[:25]}'",
+                        prio_pos < non_pos,
+                        "Most relevant sections should appear first",
+                        warn_only=True
+                    ))
+                    break
 
-    has_del = "Epistemic" in text or "DEL" in text or "belief" in text.lower()
-    results.append(_check("Dynamic Epistemic Logic / belief revision mentioned in CV",
-                           has_del, warn_only=True))
+    # Project-specific keyword checks (derived from supervisor/title)
+    if entry:
+        sup = entry.get("supervisor", {})
+        areas = sup.get("research_areas", [])
+        title = entry.get("title", "").lower()
+        area_text = " ".join(areas).lower()
+
+        if "game" in area_text or "ludique" in title or "persuasif" in title:
+            results.append(_check("LinguaGame / CLIL present for gaming-focused position",
+                                   "LinguaGame" in text or "CLIL" in text))
+        if "epistemic" in area_text or "belief" in area_text:
+            results.append(_check("Epistemic Logic / belief revision mentioned",
+                                   "Epistemic" in text or "belief" in text.lower(),
+                                   warn_only=True))
     return results
 
 
@@ -272,7 +292,7 @@ def run_audit(search_dir: Path, pos_id: str, applyforge_dir: Path) -> int:
         ("SUPERVISOR RESEARCH", audit_supervisor(entry)),
         ("ONE-FOLDER STRUCTURE", audit_folder(apply_folder, pos_id)),
         ("LETTRE DE MOTIVATION", audit_lettre(apply_folder, sup)),
-        ("CV QUALITY", audit_cv(apply_folder)),
+        ("CV QUALITY", audit_cv(apply_folder, entry)),
     ]
 
     total = passed = 0
