@@ -118,6 +118,27 @@ _amir() {
             fi
 
             case "$words[3]" in
+                record|rec)
+                    case "$prev" in
+                        --screen|--audio|--fps|--quality|-q)
+                            _message 'number'
+                            ;;
+                        -o|--output)
+                            _files
+                            ;;
+                        *)
+                            _arguments -s \
+                                '1: : ' '2: : ' \
+                                '--list[List available screens and audio devices]' \
+                                '--screen[Screen device index]:N: ' \
+                                '--audio[Audio device index]:N: ' \
+                                '--fps[Frame rate]:fps:(24 30 60)' \
+                                '--no-audio[Record without audio]' \
+                                '(-q --quality)'{-q,--quality}'[CRF quality (lower=better)]:N: ' \
+                                '(-o --output)'{-o,--output}'[Output filename]:file:_files'
+                            ;;
+                    esac
+                    ;;
                 convert)
                     case "$prev" in
                         --to|-f)
