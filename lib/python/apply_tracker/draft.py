@@ -52,14 +52,18 @@ PHD_PROMPT = """Tu es un assistant expert en candidatures académiques.
 ## Poste visé
 {position}
 
+## Profil du superviseur (recherché au préalable)
+{supervisor_profile}
+
 ## Consignes strictes
 1. Écris un email de candidature complet en {lang}.
-2. Référence explicitement UN axe de recherche spécifique du superviseur ou du sujet.
-3. Montre le lien direct entre l'expérience MARL/multi-agents/LLM du candidat et le sujet.
-4. Longueur : 3-4 paragraphes concis. Pas de formules creuses.
-5. Termine avec une signature complète (nom, diplôme, email, LinkedIn, ville).
-6. NE PAS inclure les années d'expérience sauf si le poste l'exige explicitement.
-7. Format de sortie : commence directement par l'objet de l'email, puis le corps complet.
+2. Utilise la civilité exacte du superviseur (ex: "Monsieur de Lima," ou "Madame X,") — jamais "Madame, Monsieur".
+3. Référence NOMMÉMENT au moins un article récent du superviseur et montre le lien avec l'expérience du candidat.
+4. Montre le lien direct entre l'expérience MARL/multi-agents/LLM du candidat et le sujet.
+5. Longueur : 3-4 paragraphes concis. Pas de formules creuses.
+6. Termine avec une signature complète (nom, diplôme, email, LinkedIn, ville).
+7. NE PAS inclure les années d'expérience sauf si le poste l'exige explicitement.
+8. Format de sortie : commence directement par l'objet de l'email, puis le corps complet.
 
 Objet: [sujet précis, pas générique]
 
@@ -86,6 +90,42 @@ Objet: [sujet précis]
 
 [Corps du message]
 """
+
+
+def _build_supervisor_profile(search_dir, pos_id: str, track: str | None) -> str:
+    """Extract supervisor profile from tracking.json for use in prompt."""
+    if not track:
+        return "⚠️  Profil superviseur non renseigné — lancer d'abord: amir apply phd research <id>"
+    try:
+        track_dir = search_dir / "found" / track
+        data = load_tracking(track_dir)
+        entry = data.get(pos_id, {})
+        sup = entry.get("supervisor")
+        if not sup:
+            return (
+                "⚠️  Profil superviseur manquant dans tracking.json.\n"
+                "Avant d'envoyer ce draft, rechercher le superviseur dans Claude Code :\n"
+                "  > amir apply phd show <id>  puis mettre à jour tracking.json avec clé 'supervisor'."
+            )
+        lines = [
+            f"Nom : {sup.get('name', '?')}",
+            f"Genre : {'Masculin' if sup.get('gender') == 'M' else 'Féminin' if sup.get('gender') == 'F' else '?'}",
+            f"Titre : {sup.get('title', '?')}",
+            f"Civilité à utiliser : {sup.get('salutation', '?')}",
+            f"Email : {sup.get('email', '?')}",
+            f"Laboratoire : {sup.get('lab', '?')}",
+        ]
+        if sup.get("research_areas"):
+            lines.append("Axes de recherche : " + ", ".join(sup["research_areas"]))
+        if sup.get("key_papers"):
+            lines.append("Publications clés :")
+            for p in sup["key_papers"]:
+                lines.append(f"  - {p}")
+        if sup.get("workshops"):
+            lines.append("Activités récentes : " + "; ".join(sup["workshops"]))
+        return "\n".join(lines)
+    except Exception as e:
+        return f"(erreur lecture profil superviseur: {e})"
 
 
 def _build_email_draft_md(pos_id: str, position_info: dict,
@@ -182,9 +222,17 @@ def generate_draft(
     profile_text = profile_file.read_text() if profile_file.exists() else "(profile not found)"
     position_text = pos_file.read_text()
 
+    # Load supervisor profile from tracking.json if available
+    supervisor_profile_text = _build_supervisor_profile(search_dir, pos_id, pos_track)
+
     # Build prompt
     template = PHD_PROMPT if search_type == "phd" else JOB_PROMPT
     prompt = template.format(
+        profile=profile_text,
+        position=position_text,
+        lang=effective_lang,
+        supervisor_profile=supervisor_profile_text,
+    ) if search_type == "phd" else template.format(
         profile=profile_text,
         position=position_text,
         lang=effective_lang,

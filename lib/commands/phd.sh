@@ -26,6 +26,9 @@ run_phd() {
         open)
             _phd_open "$@"
             ;;
+        research)
+            _phd_research "$@"
+            ;;
         sources|list-sources)
             _phd_sources
             ;;
@@ -155,6 +158,43 @@ _phd_open() {
     fi
 }
 
+_phd_research() {
+    local pos_id="$1"
+    if [[ -z "$pos_id" ]]; then
+        echo "Usage: amir apply phd research <position-id>" >&2
+        return 1
+    fi
+
+    # Show position info
+    local pos_file
+    pos_file=$(find "$_PHD_SEARCH_DIR/found" -name "${pos_id}.md" 2>/dev/null | head -1)
+    if [[ -z "$pos_file" ]]; then
+        echo "❌  Position not found: $pos_id" >&2; return 1
+    fi
+
+    local supervisor
+    supervisor=$(grep -i "supervisor\|directeur\|encadrant\|contact\|responsable" "$pos_file" | head -3)
+
+    echo ""
+    echo "  ── Supervisor Research Required ──────────────────────────────────"
+    echo ""
+    echo "  Position : $pos_id"
+    [[ -n "$supervisor" ]] && echo "  From .md : $supervisor"
+    echo ""
+    echo "  ACTION (Claude Code session) :"
+    echo "  ┌─────────────────────────────────────────────────────────────────"
+    echo "  │  1. Web search: supervisor name + institution + publications"
+    echo "  │  2. Confirm: gender, title (MCF/PR/HDR), recent papers"
+    echo "  │  3. Update tracking.json — add 'supervisor' object:"
+    echo "  │     { name, gender (M/F), title, salutation, email,"
+    echo "  │       research_areas[], key_papers[], workshops[] }"
+    echo "  │  4. Then run: amir apply phd draft $pos_id"
+    echo "  └─────────────────────────────────────────────────────────────────"
+    echo ""
+    echo "  Tip: in Claude Code → 'research supervisor for $pos_id and update tracking.json'"
+    echo ""
+}
+
 _phd_sources() {
     local sources_file="${_PHD_SEARCH_DIR}/../context/phd_search_sources.md"
     echo ""
@@ -240,6 +280,7 @@ _phd_usage() {
     echo "    status [--track general|finance|all]   Show all positions with urgency"
     echo "    show   [<id>]                          Show position + draft (no ID = list)"
     echo "    list                                   List all position IDs and titles"
+    echo "    research <id>                          Research supervisor — must run before draft"
     echo "    search                                 How to find new PhD positions"
     echo "    add-source <name> <url> [desc]         Add a search source"
     echo "               [-p N, --priority N]        Insert at position N (default: end)"
