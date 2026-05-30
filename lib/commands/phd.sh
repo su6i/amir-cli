@@ -32,6 +32,9 @@ run_phd() {
         lettre)
             _phd_lettre "$@"
             ;;
+        audit)
+            _phd_audit "$@"
+            ;;
         sources|list-sources)
             _phd_sources
             ;;
@@ -159,6 +162,18 @@ _phd_open() {
     else
         echo "❌  File not found: $html_file" >&2
     fi
+}
+
+_phd_audit() {
+    local pos_id="${1:-}"
+    if [[ -z "$pos_id" ]]; then
+        echo "Usage: amir apply phd audit <position-id>" >&2
+        return 1
+    fi
+    PYTHONPATH="$LIB_DIR/python" uv run python \
+        "$LIB_DIR/python/apply_tracker/audit.py" \
+        "$_PHD_SEARCH_DIR" "$pos_id" \
+        --applyforge "${APPLYFORGE_DIR:-$HOME/@-github/ApplyForge}"
 }
 
 _phd_lettre() {
@@ -353,6 +368,7 @@ _phd_usage() {
     echo "    list                                   List all position IDs and titles"
     echo "    research <id>                          Research supervisor — must run before draft"
     echo "    lettre   <id>                          Scaffold apply folder + generate CV + copy files"
+    echo "    audit    <id>                          Manager-agent QA — run after lettre+CV are ready"
     echo "    search                                 How to find new PhD positions"
     echo "    add-source <name> <url> [desc]         Add a search source"
     echo "               [-p N, --priority N]        Insert at position N (default: end)"
