@@ -17,7 +17,8 @@ Built with modularity and ease of use in mind, `amir` works seamlessly across **
 
 ## ✨ Features
 
-- **🎬 Smart Video Compression:** Auto-detects hardware (Apple Silicon, NVENC, QSV) and optimizes settings for the best quality/size ratio. Features `--gpu`/`--cpu` encoding toggle, `extreme` profile for maximum reduction, custom frame rate via `--fps`, chunking via `--split <MB>`, real-time progress bar with ETA, output size validation, and "AI Learning" to adapt over time.
+- **🎬 Smart Video Processing:** Compress, cut (multi-range single-pass), convert formats, picture-in-picture overlay, screen recording, and concat with mixed-codec support (H.264 + HEVC MOV). Auto-detects hardware (Apple Silicon VideoToolbox), handles Apple HEVC `hvc1` correctly.
+- **🧠 Skill Management:** `amir skill harvest` searches GitHub by stars, fetches READMEs, and synthesizes `.agent/skills/` reference files for AI agents. Covers YouTube automation, TTS (Fish Speech, GPT-SoVITS, XTTS v2), video production, ComfyUI, music generation, and analytics.
 - **🖼️ Advanced Image Processing:** AI-powered upscaling (Real-ESRGAN), document enhancement lab (140 variations), smart stacking (front/back), and professional corner rounding.
 - **🌍 Advanced Subtitle System:** AI-powered multilingual subtitles supporting **32 languages**. Features automatic translation, multi-platform hardware encoding (Mac/Ubuntu) with 1:1 size parity, Whisper Turbo as default, and document export via `--save` (no argument defaults to `pdf`).
 - **🤖 AI Powered:** Chat with Gemini/Gemma, generate code, and fetch model lists from 5 LLM providers (Gemini, OpenAI, DeepSeek, Groq, Anthropic).

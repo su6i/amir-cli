@@ -131,10 +131,15 @@ amir (bash entry point)
 | `amir apply job` | `lib/commands/job.sh` | مدیریت کامل درخواست‌های شغلی |
 | `amir trend` / `amir research` | `lib/commands/trend.sh` | Bridge به research_toolkit |
 | `amir video` | `lib/commands/video.sh` | پردازش ویدیو + دانلود |
+| `amir video record` | `lib/commands/video.sh` → `video_record()` | ضبط صفحه با AVFoundation — `--list`, `--screen N`, `--audio N`, `--fps N` |
+| `amir video convert` | `lib/commands/video.sh` → `video_convert()` | تبدیل container فرمت — stream-copy هوشمند، HEVC hvc1 درست handle می‌شود |
+| `amir video pip` | `lib/commands/video.sh` → `video_pip()` | PiP overlay چند ویدیو با time window و مختصات |
+| `amir video cut -d -d` | `lib/commands/video.sh` → `run_video_cut()` | چند برش همزمان با filter_complex یک‌پاسه |
 | `amir subtitle` | `lib/commands/subtitle.sh` | زیرنویس AI چندزبانه |
 | `amir pdf` | `lib/commands/pdf.sh` | PDF با Puppeteer |
 | `amir chat` | `lib/commands/chat.sh` | چت با Gemini/Gemma |
 | `amir keyboard` / `amir kb` | `lib/commands/keyboard.sh` → `lib/python/keyboard_layout.py` | layout کیبرد Apple Compact — FR/EN/FA + لایه‌های `--opt`/`--shift`/`--find` |
+| `amir skill` | `lib/commands/skill.sh` | مدیریت skill — `search`, `harvest`, `list`, `show` |
 
 ### ماژول apply — معماری یکپارچه
 
@@ -291,7 +296,70 @@ git add -f lib/commands/specific_file.sh
 | `lib/python/subtitle/translation/deepseek_pipeline.py` | DeepSeek V4-Flash translation |
 | `lib/commands/init-project.sh` | `amir init-project` — کپی `.agent/` به پروژه جدید |
 | `lib/commands/trend.sh` | `amir trend` / `amir research` — bridge به research_toolkit |
-| `completions/_amir` | Zsh autocompletion — شامل `trend` و تمام آپشن‌هایش |
+| `lib/commands/skill.sh` | `amir skill` — search/harvest/list/show برای skill management از GitHub |
+| `completions/_amir` | Zsh autocompletion — شامل `trend`، `video record`، `skill` و تمام آپشن‌هایشان |
+
+---
+
+## تصمیمات این session (30 مه 2026) — بخش دوم
+
+### amir skill — مدیریت skill از GitHub
+
+دستور جدید `amir skill` با چهار subcommand:
+
+```bash
+amir skill search "persian tts" --min-stars 500   # جستجوی GitHub
+amir skill harvest "fish speech tts" --pick 5      # fetch + ساخت skill file
+amir skill list --grep video                        # لیست skill های موجود
+amir skill show opensource-tts                      # نمایش محتوا
+```
+
+**قانون harvest:** فقط از repo‌هایی که واقعاً fetch شده‌اند skill بساز — نه از دانش خودت. وقتی `claude --print` در دسترس نیست، محتوای raw README ذخیره می‌شود.
+
+**SKILL_DIR resolution:** از `AMIR_ROOT` → `BASH_SOURCE` → fallback hardcoded. اگر در background خراب شد، از Agent مستقیم استفاده کن.
+
+### skill های جدید این session (از GitHub fetch شده)
+
+| فایل | منبع | کاربرد در pipeline |
+|---|---|---|
+| `obs-studio.md` | upgradeQ/OBS + obsproject/websocket | ضبط و اتوماسیون |
+| `davinci-resolve-scripting.md` | X-Raym gist + mhadifilms gist | ویرایش Python API |
+| `youtube-data-api.md` | Google Developers + googleapis | آپلود + schedule |
+| `auto-editor.md` | WyattBlue/auto-editor | حذف سکوت خودکار |
+| `heygen-api.md` | docs.heygen.com | AI avatar |
+| `youtube-automation-pipeline.md` | 4 GitHub repo | pipeline کامل |
+| `ai-video-generation.md` | SDK های رسمی | RunwayML/Kling/Luma/Pika |
+| `opensource-tts.md` | 5 GitHub repo | TTS رایگان |
+| `fish-speech.md` | fishaudio/fish-speech | TTS با fa/fr/en |
+| `gpt-sovits.md` | RVC-Boss/GPT-SoVITS | voice cloning |
+| `video-effects-transitions.md` | xfade-easing + remotion | transition/intro/outro |
+| `xtts-v2.md` | coqui-ai/TTS | TTS چندزبانه |
+| `huggingface-tts.md` | parler-tts + MMS | MMS-fas برای فارسی |
+| `persian-tts-training.md` | GitHub search + vast.ai | training guide |
+| `music-generation.md` | audiocraft + Suno + Udio | موسیقی پس‌زمینه |
+| `comfyui-stable-diffusion.md` | comfyanonymous/ComfyUI | thumbnail generation |
+| `youtube-analytics.md` | Google Analytics API | CTR + A/B test |
+
+### نکته TTS فارسی (مهم)
+- edge-tts کیفیت تجاری ندارد — برای YouTube استفاده نکن
+- بهترین راه: **GPT-SoVITS** با ۱-۵ دقیقه صدای خودت → voice clone
+- **Fish Speech 1.5** هم `fa` پشتیبانی می‌کند — تست اول
+- **MMS-TTS** از HuggingFace: `facebook/mms-tts-fas` — رایگان اما کیفیت پایین
+- Training: vast.ai ~$1.5/hr A100 یا Google Colab Pro
+
+### YouTube Automation Pipeline — وضعیت (آماده برای هفته بعد)
+
+```
+① Script  → screenwriting-youtube + LLM
+② Voice   → Fish Speech / GPT-SoVITS (voice clone از صدای خودت)
+③ Video   → ai-video-generation + video-effects-transitions
+④ Music   → music-generation (MusicGen local یا Suno API)
+⑤ Thumb   → comfyui-stable-diffusion + Pillow text overlay
+⑥ Edit    → auto-editor (حذف سکوت) + amir video pip/concat
+⑦ Sub     → amir subtitle (Whisper + DeepSeek)
+⑧ Upload  → youtube-data-api (schedule + thumbnail)
+⑨ Monitor → youtube-analytics (CTR + A/B test + retention)
+```
 
 ---
 
