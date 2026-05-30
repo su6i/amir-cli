@@ -161,9 +161,26 @@ def audit_lettre(apply_folder: Path | None, sup: dict | None) -> list[tuple[str,
     results.append(_check("ADUM portal mentioned", has_adum, warn_only=True))
 
     word_count = len(text.split())
-    ok_length = 300 < word_count < 900
-    results.append(_check(f"Lettre length reasonable ({word_count} words)", ok_length,
-                           "Aim for 400–700 words" if not ok_length else "", warn_only=True))
+    ok_length = 300 < word_count < 750
+    results.append(_check(f"Lettre length ({word_count} words, target 400–650)",
+                           ok_length, "Too long — trim to fit 1 page" if word_count >= 750 else
+                           ("Too short" if word_count <= 300 else ""), warn_only=word_count >= 750))
+
+    # Page count — must be exactly 1 page
+    pdf_file = next((f for f in apply_folder.iterdir()
+                     if "Lettre" in f.name and f.suffix == ".pdf"), None)
+    if pdf_file:
+        try:
+            import subprocess
+            out = subprocess.check_output(["pdfinfo", str(pdf_file)],
+                                          stderr=subprocess.DEVNULL, text=True)
+            pages_line = next((l for l in out.splitlines() if "Pages:" in l), "")
+            n_pages = int(pages_line.split()[-1]) if pages_line else 0
+            results.append(_check(f"Lettre is 1 page (got {n_pages})",
+                                   n_pages == 1,
+                                   "Shorten the lettre — a PhD cover letter must fit on 1 page"))
+        except Exception:
+            results.append((f"  {WARN}  Could not check PDF page count (pdfinfo missing)", False))
     return results
 
 
