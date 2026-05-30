@@ -182,8 +182,29 @@ amir apply <cmd>
 
 **قانون apply — اجباری:** وقتی کاربر گفت "برای X اپلای کن" یا "این draft رو بازبینی کن" → Claude Sonnet مستقیماً:
 1. `amir apply phd show <id>` را اجرا می‌کند یا فایل را می‌خواند
-2. draft با کیفیت بالا می‌نویسد یا بهبود می‌دهد
-3. با Gmail MCP یک Gmail draft می‌سازد (با ضمیمه‌های درست)
+2. **قانون supervisor research (اجباری برای PhD):** قبل از نوشتن هر ایمیل PhD:
+   - `tracking.json` را بخوان → آیا `supervisor.gender` و `supervisor.key_papers` موجود است؟
+   - اگر نه: web search کن (نام + institution)، جنسیت/عنوان/مقالات اخیر را پیدا کن
+   - نتیجه را در `tracking.json` زیر کلید `supervisor` ذخیره کن
+   - هرگز "Madame, Monsieur" عمومی ننویس — همیشه "Monsieur X" یا "Madame X" دقیق
+   - حداقل یک مقاله‌ی اخیر supervisor را در ایمیل نام ببر
+3. draft با کیفیت بالا می‌نویسد یا بهبود می‌دهد (با CLIL/project angle اگر مرتبط است)
+4. با Gmail MCP یک Gmail draft می‌سازد (با ضمیمه‌های درست)
+
+**schema supervisor در tracking.json:**
+```json
+"supervisor": {
+  "name": "Tiago de Lima",
+  "gender": "M",
+  "title": "Maître de conférences HDR",
+  "salutation": "Monsieur de Lima",
+  "email": "delima@cril-lab.fr",
+  "research_areas": ["Dynamic Epistemic Logic", "belief revision", "multi-agent"],
+  "key_papers": ["Checking Agent Intentions in Games (ICTAI 2021)", "..."],
+  "workshops": ["MAFTEC + IA & Jeux (Arras, juillet 2026)"],
+  "researched_date": "YYYY-MM-DD"
+}
+```
 
 ### ساختار دایرکتوری Apply tracker
 
