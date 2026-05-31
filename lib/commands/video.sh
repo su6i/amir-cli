@@ -3006,6 +3006,10 @@ video_download() {
         return 1
     fi
 
+    # Detect URL type so downstream logic can branch correctly
+    local IS_YOUTUBE_URL=false
+    [[ "$URL" =~ (youtube\.com|youtu\.be) ]] && IS_YOUTUBE_URL=true
+
     # Build cookie arguments
     local -a COOKIE_ARGS=()
 
@@ -3020,16 +3024,23 @@ video_download() {
     fi
 
     # Cloudflare / anti-bot compatibility:
-    # Default to Chrome impersonation, but allow disabling/override via env.
+    # Default to Chrome impersonation for non-YouTube sites, but allow disabling/override via env.
+    # YouTube does not need impersonation; skip it to avoid curl_cffi crashes.
     # Examples:
     #   AMIR_YTDLP_IMPERSONATE=none   -> disable
     #   AMIR_YTDLP_IMPERSONATE=safari -> custom target
     local -a IMPERSONATE_ARGS=()
     local IMPERSONATE_TARGET="${AMIR_YTDLP_IMPERSONATE:-chrome}"
-    if [[ -n "$IMPERSONATE_TARGET" && "$IMPERSONATE_TARGET" != "none" ]]; then
-        IMPERSONATE_ARGS=(--impersonate "$IMPERSONATE_TARGET" --extractor-args "generic:impersonate=$IMPERSONATE_TARGET")
+    if [[ -n "$IMPERSONATE_TARGET" && "$IMPERSONATE_TARGET" != "none" && "$IS_YOUTUBE_URL" == false ]]; then
+        # Only use --impersonate when curl_cffi actually supports the target
+        if yt-dlp --list-impersonate-targets 2>/dev/null | awk -v t="${IMPERSONATE_TARGET}" \
+            'tolower($1)==tolower(t) && $0 !~ /unavailable/{found=1} END{exit !found}'; then
+            IMPERSONATE_ARGS=(--impersonate "$IMPERSONATE_TARGET" --extractor-args "generic:impersonate=$IMPERSONATE_TARGET")
+        else
+            IMPERSONATE_ARGS=(--extractor-args "generic:impersonate")
+        fi
     else
-        # Keep generic extractor behavior available even when explicit impersonation is disabled.
+        # YouTube or disabled: keep generic extractor hint without requiring curl_cffi.
         IMPERSONATE_ARGS=(--extractor-args "generic:impersonate")
     fi
 
