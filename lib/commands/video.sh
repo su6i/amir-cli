@@ -929,6 +929,107 @@ video_pip() {
     fi
 }
 
+video_outro() {
+    if [[ $# -eq 0 ]]; then
+        echo "Usage: amir video outro <video> --image <img> [options]"
+        echo ""
+        echo "Options:"
+        echo "  --image FILE       Image to show as outro card (required)"
+        echo "  --fade N           Fade duration in seconds (default: 1)"
+        echo "  --hold N           How long to display the image (default: 3)"
+        echo "  -o, --output FILE  Output file (default: <video>_outro.mp4)"
+        echo ""
+        echo "Example:"
+        echo "  amir video outro presentation.mp4 --image outro_card.png --fade 1 --hold 4"
+        return 1
+    fi
+
+    local video="" image="" output="" fade_dur=1 hold_dur=3
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --image)    image="$2";    shift 2 ;;
+            --fade)     fade_dur="$2"; shift 2 ;;
+            --hold)     hold_dur="$2"; shift 2 ;;
+            -o|--output) output="$2"; shift 2 ;;
+            -*) echo "❌ Unknown option: $1"; return 1 ;;
+            *)
+                if [[ -z "$video" ]]; then
+                    video="$1"
+                else
+                    echo "❌ Unexpected argument: $1"; return 1
+                fi
+                shift ;;
+        esac
+    done
+
+    [[ -z "$video" ]]  && echo "❌ No video specified." && return 1
+    [[ -z "$image" ]]  && echo "❌ --image is required." && return 1
+    [[ ! -f "$video" ]] && echo "❌ File not found: $video" && return 1
+    [[ ! -f "$image" ]] && echo "❌ File not found: $image" && return 1
+
+    [[ -z "$output" ]] && output="${video%.*}_outro.mp4"
+
+    local width height duration
+    width=$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=width -of default=noprint_wrappers=1:nokey=1 \
+        "$video" 2>/dev/null | head -1)
+    height=$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=height -of default=noprint_wrappers=1:nokey=1 \
+        "$video" 2>/dev/null | head -1)
+    duration=$(ffprobe -v error -show_entries format=duration \
+        -of default=noprint_wrappers=1:nokey=1 "$video" 2>/dev/null | head -1)
+    local fps_raw
+    fps_raw=$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=r_frame_rate -of csv=p=0 \
+        "$video" 2>/dev/null | head -1)
+    local fps
+    fps=$(awk -F/ '{if ($2 && $2!=0) printf "%d", int($1/$2 + 0.5); else printf "%d", int($1)}' <<< "$fps_raw")
+    [[ -z "$fps" || "$fps" -eq 0 ]] && fps=30
+
+    local has_audio=0
+    ffprobe -v error -select_streams a:0 -show_entries stream=codec_type \
+        -of default=noprint_wrappers=1:nokey=1 "$video" 2>/dev/null \
+        | grep -q '^audio' && has_audio=1
+
+    local fade_out_start
+    fade_out_start=$(awk "BEGIN {printf \"%.3f\", $duration - $fade_dur}")
+
+    echo "📹 Video: $(basename "$video") (${width}x${height}, ${duration}s, ${fps}fps)"
+    echo "🖼️  Image: $(basename "$image")"
+    echo "⏱️  Fade: ${fade_dur}s out → ${fade_dur}s in | Hold: ${hold_dur}s"
+
+    local filter_v="[0:v]fade=t=out:st=${fade_out_start}:d=${fade_dur}[v_main];"
+    filter_v+="[1:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,"
+    filter_v+="pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
+    filter_v+="fade=t=in:st=0:d=${fade_dur}[v_img];"
+
+    local filter_a="" map_a=() audio_enc=()
+    if [[ $has_audio -eq 1 ]]; then
+        filter_a+="aevalsrc=0:c=stereo:s=44100:d=${hold_dur}[a_img];"
+        filter_a+="[v_main][0:a][v_img][a_img]concat=n=2:v=1:a=1[outv][outa]"
+        map_a=(-map "[outa]")
+        audio_enc=(-c:a aac -b:a 192k)
+    else
+        filter_a+="aevalsrc=0:c=stereo:s=44100:d=${duration}[a_main];"
+        filter_a+="aevalsrc=0:c=stereo:s=44100:d=${hold_dur}[a_img];"
+        filter_a+="[v_main][a_main][v_img][a_img]concat=n=2:v=1:a=1[outv][outa]"
+        map_a=(-map "[outa]")
+        audio_enc=(-c:a aac -b:a 128k)
+    fi
+
+    local filter_complex="${filter_v}${filter_a}"
+
+    ffmpeg -y \
+        -i "$video" \
+        -loop 1 -framerate "$fps" -t "$hold_dur" -i "$image" \
+        -filter_complex "$filter_complex" \
+        -map "[outv]" "${map_a[@]}" \
+        -c:v h264_videotoolbox -b:v 8M \
+        "${audio_enc[@]}" \
+        "$output" && echo "✅ Done: $output" || { echo "❌ Failed."; rm -f "$output"; return 1; }
+}
+
 video_record() {
     local screen_idx="1"
     local audio_idx="0"
@@ -1054,6 +1155,12 @@ video() {
         return $?
     fi
 
+    if [[ "$1" == "outro" ]]; then
+        shift
+        video_outro "$@"
+        return $?
+    fi
+
     # Support explicit 'compress' subcommand by skipping it
     if [[ "$1" == "compress" ]]; then
         shift
@@ -1066,6 +1173,7 @@ video() {
         echo "       amir video pip <main> --pip <file> [--start T] [--end T] [--pos tl|tr|bl|br|X:Y] [--size %]"
         echo "       amir video convert <file> [--to FORMAT] [-o OUTPUT] [--reencode]"
         echo "       amir video concat <files...> [-o output.mp4]"
+        echo "       amir video outro <video> --image <img> [--fade N] [--hold N] [-o FILE]"
         echo "       amir video cut / trim <file> [options]"
         echo "       amir video split <file> <mb>"
         echo "       amir video batch <dir> [Resolution]"
