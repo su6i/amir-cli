@@ -177,6 +177,19 @@ def process_sync_file(sync_file: Path, base_dir: Path) -> int:
     archive = sync_file.parent / f"sync_archive_{date.today().isoformat()}.txt"
     sync_file.rename(archive)
     print(f"  Archived → {archive.name}")
+
+    # Regenerate HTML trackers
+    try:
+        from apply_tracker.generate_html import regenerate_all
+        phd_dir = base_dir / "PhD-Search"
+        job_dir = base_dir / "Job-Search"
+        if phd_dir.exists():
+            regenerate_all(phd_dir, kind="phd")
+        if job_dir.exists():
+            regenerate_all(job_dir, kind="job")
+    except Exception as e:
+        print(f"  ⚠ HTML regeneration failed: {e}", file=sys.stderr)
+
     return 0
 
 
