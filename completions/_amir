@@ -10,6 +10,7 @@ _amir() {
         local -a commands
         commands=(
             'init-project:Scaffold Agent Constitution in directory'
+            'sync-constitution:Sync .agent/ rules+skills from agent-constitution repo'
             'video:Advanced video processing (compress, cut, batch)'
             'audio:Audio tools (convert, extract, concat, to-video)'
             'img:Resize images (logo and custom sizes)'
@@ -21,6 +22,8 @@ _amir() {
             'clean:Clean system caches and trash'
             'qr:Create smart QR Code'
             'weather:Show weather information'
+            'keyboard:Show keyboard layout (FR/EN/FA) with key combos'
+            'kb:Alias for keyboard'
             'short:Shorten long URLs'
             'pass:Generate secure password'
             'speed:Test internet speed'
@@ -42,8 +45,50 @@ _amir() {
     # Step 2: Subcommand options
     case "${words[2]}" in
 
-        trend|research)
+        sync-constitution)
+            _arguments '*:target directory:_directories'
+            ;;
+
+        trend)
             _trend_arguments
+            ;;
+
+        research)
+            case "${words[3]}" in
+                discover)
+                    _arguments -s \
+                        '--keywords[Topic keywords]+: :' \
+                        '--sources[Sources to search]:source:(arxiv dblp)' \
+                        '--since-year[Papers since year]:year:(2020 2021 2022 2023 2024)' \
+                        '--min-papers[Min papers per author]:count:(1 2 3 5)' \
+                        '--top[Candidates to show]:count:(5 10 15 20)' \
+                        '--format[Output format]:format:(txt md xlsx)' \
+                        '--categories[ArXiv category filter]+: :' \
+                        '--profile[Candidate profile .md]:file:_files' \
+                        '--save[Override output path]:file:_files' \
+                        {-h,--help}'[Show help]'
+                    ;;
+                professor)
+                    _arguments -s \
+                        '--professor[Professor full name]: :' \
+                        '--institution[Institution / lab]: :' \
+                        '--email[Professor email]: :' \
+                        '--gender[Gender for salutation]:gender:(M F)' \
+                        '--lang[Email language]:lang:(fr en)' \
+                        '--story[Candidate motivation]: :' \
+                        '--since-year[Papers since year]:year:(2020 2021 2022 2023)' \
+                        '--scholar-url[Google Scholar or personal page URL]: :' \
+                        '--profile[Candidate profile .md]:file:_files' \
+                        '--tracking[Path to tracking.json]:file:_files' \
+                        '--position-id[Position ID in tracking.json]: :' \
+                        {-h,--help}'[Show help]'
+                    ;;
+                *)
+                    _values 'research subcommand' \
+                        'discover[Find supervisors by topic keywords (ArXiv + DBLP)]' \
+                        'professor[Research a specific professor: papers → overlap → email]'
+                    ;;
+            esac
             ;;
 
         pdf)
@@ -91,6 +136,9 @@ _amir() {
             video_subcmds=(
                 'subtitle:Transcribe + translate video (Whisper AI + LLM). Also accepts a URL'
                 'compress:Process video with smart selection'
+                'record:Record screen to video file via AVFoundation (macOS)'
+                'pip:Picture-in-picture — overlay one or more videos onto a main video'
+                'convert:Convert video format (mov→mp4, mkv, webm, avi…)'
                 'cut:Cut / Trim video segment'
                 'concat:Concatenate videos in the given order'
                 'merge:Alias for concat'
@@ -108,6 +156,45 @@ _amir() {
             fi
 
             case "$words[3]" in
+                record|rec)
+                    case "$prev" in
+                        --screen|--audio|--fps|--quality|-q)
+                            _message 'number'
+                            ;;
+                        -o|--output)
+                            _files
+                            ;;
+                        *)
+                            _arguments -s \
+                                '1: : ' '2: : ' \
+                                '--list[List available screens and audio devices]' \
+                                '--screen[Screen device index]:N: ' \
+                                '--audio[Audio device index]:N: ' \
+                                '--fps[Frame rate]:fps:(24 30 60)' \
+                                '--no-audio[Record without audio]' \
+                                '(-q --quality)'{-q,--quality}'[CRF quality (lower=better)]:N: ' \
+                                '(-o --output)'{-o,--output}'[Output filename]:file:_files'
+                            ;;
+                    esac
+                    ;;
+                convert)
+                    case "$prev" in
+                        --to|-f)
+                            _values 'format' mp4 mov mkv webm avi
+                            ;;
+                        -o|--output)
+                            _files
+                            ;;
+                        *)
+                            _arguments -s \
+                                '1: : ' '2: : ' \
+                                '3:video file:_files -g "*.mp4 *.mov *.mkv *.avi *.webm *.MP4 *.MOV *.MKV *.WEBM"' \
+                                '(--to -f)'{--to,-f}'[Target format]:format:(mp4 mov mkv webm avi)' \
+                                '(-o --output)'{-o,--output}'[Output filename]:output file:_files' \
+                                '--reencode[Force re-encode instead of stream copy]'
+                            ;;
+                    esac
+                    ;;
                 batch)
                     case $((CURRENT)) in
                         4) _files -/ ;;
@@ -275,7 +362,7 @@ _amir() {
 
             if (( CURRENT == 3 )); then
                 _alternative \
-                    'acmds:Audio Command:((extract\:Extract\ audio\ from\ video\ file convert\:Convert\ audio\ format split\:Split\ audio\ into\ chunks concat\:Join\ multiple\ audio\ files to-video\:Create\ video\ from\ audio\ and\ image youtube\:Download\ audio\ from\ YouTube\ link))' \
+                    'acmds:Audio Command:((extract\:Extract\ audio\ from\ video\ file convert\:Convert\ audio\ format cut\:Trim\ or\ delete\ segments normalize\:EBU\ R128\ loudness\ normalize fade\:Fade\ in/out trim-silence\:Remove\ leading/trailing\ silence split\:Split\ audio\ into\ chunks concat\:Join\ multiple\ audio\ files to-video\:Create\ video\ from\ audio\ and\ image youtube\:Download\ audio\ from\ YouTube\ link))' \
                     'afolders:Audio Folder:_files -/'
             else
                 case "$subcmd" in
@@ -289,6 +376,38 @@ _amir() {
                         case $((CURRENT)) in
                             4) _files -g "*.(mp4|mov|mkv|avi|webm|flv|MP4|MOV|MKV)" ;;
                             5) _amir_bitrates ;;
+                        esac
+                        ;;
+                    cut)
+                        case "$prev" in
+                            -o|--output) _files ;;
+                            -s|--start|-e|--end|-t|--to|-d|--delete|-x|--extract)
+                                _message "Time (HH:MM:SS or MM:SS or seconds)"
+                                ;;
+                            *)
+                                local _ai=0 _i
+                                for (( _i=4; _i<CURRENT; _i++ )); do
+                                    [[ "${words[$_i]}" =~ \.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)$ ]] && { _ai=1; break }
+                                done
+                                if (( _ai )) || [[ "$PREFIX" == -* ]]; then
+                                    local -a cut_opts
+                                    cut_opts=(
+                                        '-s:Start time (keep from here)'
+                                        '--start:Start time (keep from here)'
+                                        '-e:End time (keep until here)'
+                                        '--end:End time (keep until here)'
+                                        '-d:Delete a time range (start end)'
+                                        '--delete:Delete a time range (start end)'
+                                        '-x:Extract named clip (start end)'
+                                        '--extract:Extract named clip (start end)'
+                                        '-o:Output file'
+                                        '--output:Output file'
+                                    )
+                                    _describe -t cut_opts 'options' cut_opts
+                                else
+                                    _files -g "*.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)"
+                                fi
+                                ;;
                         esac
                         ;;
                     split)
@@ -322,6 +441,83 @@ _amir() {
                                     _files -g "*.(mp3|wav|m4a|flac|aac|MP3|WAV)"
                                 fi
                                 ;;
+                        esac
+                        ;;
+                    normalize)
+                        case "$prev" in
+                            -o|--output) _files ;;
+                            --target|-l) _message "Target LUFS (e.g. -16 for YouTube, -14 for Spotify)" ;;
+                            --peak|-p)   _message "Max true peak dBTP (e.g. -1)" ;;
+                            *)
+                                local _ai=0 _i
+                                for (( _i=4; _i<CURRENT; _i++ )); do
+                                    [[ "${words[$_i]}" =~ \.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)$ ]] && { _ai=1; break }
+                                done
+                                if (( _ai )) || [[ "$PREFIX" == -* ]]; then
+                                    local -a norm_opts
+                                    norm_opts=(
+                                        '--target:Target integrated loudness in LUFS (default: -16)'
+                                        '-l:Target integrated loudness in LUFS (default: -16)'
+                                        '--peak:Max true peak in dBTP (default: -1)'
+                                        '-p:Max true peak in dBTP (default: -1)'
+                                        '-o:Output file'
+                                        '--output:Output file'
+                                    )
+                                    _describe -t norm_opts 'options' norm_opts
+                                else
+                                    _files -g "*.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)"
+                                fi ;;
+                        esac
+                        ;;
+                    fade)
+                        case "$prev" in
+                            -o|--output) _files ;;
+                            --in|-i|--out|-O) _message "Duration in seconds (e.g. 2)" ;;
+                            *)
+                                local _ai=0 _i
+                                for (( _i=4; _i<CURRENT; _i++ )); do
+                                    [[ "${words[$_i]}" =~ \.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)$ ]] && { _ai=1; break }
+                                done
+                                if (( _ai )) || [[ "$PREFIX" == -* ]]; then
+                                    local -a fade_opts
+                                    fade_opts=(
+                                        '--in:Fade-in duration in seconds'
+                                        '-i:Fade-in duration in seconds'
+                                        '--out:Fade-out duration in seconds'
+                                        '-O:Fade-out duration in seconds'
+                                        '-o:Output file'
+                                        '--output:Output file'
+                                    )
+                                    _describe -t fade_opts 'options' fade_opts
+                                else
+                                    _files -g "*.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)"
+                                fi ;;
+                        esac
+                        ;;
+                    trim-silence)
+                        case "$prev" in
+                            -o|--output) _files ;;
+                            --threshold|-t) _message "dB threshold (e.g. -40, higher = more aggressive)" ;;
+                            --pad|-p) _message "Silence padding to keep at edges (seconds, e.g. 0.3)" ;;
+                            *)
+                                local _ai=0 _i
+                                for (( _i=4; _i<CURRENT; _i++ )); do
+                                    [[ "${words[$_i]}" =~ \.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)$ ]] && { _ai=1; break }
+                                done
+                                if (( _ai )) || [[ "$PREFIX" == -* ]]; then
+                                    local -a ts_opts
+                                    ts_opts=(
+                                        '--threshold:Silence level in dB (default: -40)'
+                                        '-t:Silence level in dB (default: -40)'
+                                        '--pad:Silence padding at edges in seconds (default: 0.3)'
+                                        '-p:Silence padding at edges in seconds (default: 0.3)'
+                                        '-o:Output file'
+                                        '--output:Output file'
+                                    )
+                                    _describe -t ts_opts 'options' ts_opts
+                                else
+                                    _files -g "*.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)"
+                                fi ;;
                         esac
                         ;;
                     youtube|yt)
@@ -627,6 +823,21 @@ _amir() {
             fi
             ;;
 
+        keyboard|kb)
+            _arguments \
+                '2::layout:(fr en fa auto)' \
+                '--shift[Show keyboard with Shift held]' \
+                '-s[Alias for --shift]' \
+                '--opt[Show keyboard with Option held]' \
+                '-o[Alias for --opt]' \
+                '--normal[Show normal layer only]' \
+                '-n[Alias for --normal]' \
+                '--auto[Auto-detect OS keyboard layout]' \
+                '-a[Alias for --auto]' \
+                '--find[Find which key produces a character]:character: ' \
+                '-f[Alias for --find]:character: '
+            ;;
+
         qr)
             case $((CURRENT)) in
                 3) _message "Enter URL, phone number, email or text" ;;
@@ -775,14 +986,99 @@ _amir() {
             ;;
         
         apply)
-            if (( CURRENT == 3 )); then
-                _message "Enter job URL or 'preview'"
-                # Adding a second option 'url' to prevent auto-completing 'preview'
-                _values 'apply command' 'preview[Generate CV preview]' 'url[Enter job URL]'
-                return
-            fi
-
-            _apply_arguments
+            case $((CURRENT)) in
+                3)
+                    local -a apply_cmds
+                    apply_cmds=(
+                        'phd:PhD application tracker (status/show/draft/sent/reply/open)'
+                        'job:Job application tracker (status/show/new/draft/sent/reply/open/sync)'
+                        'preview:Generate CV preview'
+                    )
+                    _describe -t commands 'apply subcommand' apply_cmds
+                    _message "or enter a job URL"
+                    ;;
+                4)
+                    case "${words[3]}" in
+                        phd)
+                            local -a phd_cmds
+                            phd_cmds=(
+                                'status:Show all PhD positions with urgency table'
+                                'show:Show position file and draft (no arg = list all)'
+                                'list:List all position IDs and titles'
+                                'sources:Show priority-ordered search sources list'
+                                'search:How to find new PhD positions (with/without Claude)'
+                                'add-source:Add a new search source site'
+                                'draft:Generate email draft via DeepSeek'
+                                'sent:Mark position as sent'
+                                'reply:Record a reply received'
+                                'open:Open HTML tracker in browser'
+                                'init:Initialize tracking.json from files'
+                            )
+                            _describe -t commands 'phd subcommand' phd_cmds
+                            ;;
+                        job)
+                            local -a job_cmds
+                            job_cmds=(
+                                'status:Show all job positions with urgency table'
+                                'show:Show position file and draft (no arg = list all)'
+                                'list:List all position IDs and titles'
+                                'sources:Show priority-ordered search sources list'
+                                'search:How to find new job positions (with/without Claude)'
+                                'add-source:Add a new search source site'
+                                'new:Create a new position file'
+                                'draft:Generate email draft via DeepSeek'
+                                'sent:Mark position as sent'
+                                'reply:Record a reply received'
+                                'open:Open HTML tracker in browser'
+                                'sync:Sync Gmail job newsletters'
+                                'init:Initialize tracking.json from files'
+                            )
+                            _describe -t commands 'job subcommand' job_cmds
+                            ;;
+                        preview)
+                            _apply_arguments
+                            ;;
+                    esac
+                    ;;
+                5)
+                    case "${words[3]}" in
+                        phd|job)
+                            case "${words[4]}" in
+                                status)
+                                    local -a track_opts
+                                    track_opts=('--track:Filter by track')
+                                    _describe -t opts 'options' track_opts
+                                    ;;
+                                draft)
+                                    local -a draft_opts
+                                    draft_opts=(
+                                        '--force:Regenerate existing draft'
+                                        '--lang:Language (fr/en)'
+                                    )
+                                    _describe -t opts 'options' draft_opts
+                                    ;;
+                                sent)
+                                    local -a sent_opts
+                                    sent_opts=('--date:Date sent (YYYY-MM-DD)')
+                                    _describe -t opts 'options' sent_opts
+                                    ;;
+                                reply)
+                                    local -a reply_opts
+                                    reply_opts=('--type:Reply type (positive/negative/bounce/info)')
+                                    _describe -t opts 'options' reply_opts
+                                    ;;
+                                open)
+                                    if [[ "${words[3]}" == "phd" ]]; then
+                                        _values 'track' 'general' 'finance' 'all'
+                                    else
+                                        _values 'track' 'devops' 'ai_engineer' 'polyvalent' 'all'
+                                    fi
+                                    ;;
+                            esac
+                            ;;
+                    esac
+                    ;;
+            esac
             ;;
         llm-lists)
             case $((CURRENT)) in

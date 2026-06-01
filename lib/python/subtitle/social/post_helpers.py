@@ -29,7 +29,7 @@ def call_llm_for_post(
                 {"role": "user", "content": user},
             ],
             temperature=0.7,
-            max_tokens=2000,
+            max_tokens=8000,
         )
         return resp.choices[0].message.content.strip()
     except Exception as e1:
@@ -57,14 +57,12 @@ def sanitize_post(text: str, platform: str) -> str:
         text = re.sub(r"^-{3,}\s*\n?", "", text)
         text = re.sub(r"\n?-{3,}\s*$", "", text)
         text = text.strip()
-        if len(text) > 1024:
-            cut = text[:1024].rfind("\n")
-            if cut < 800:
-                cut = text[:1024].rfind(" ")
-            text = text[: cut if cut > 500 else 1024].rstrip()
-            if len(text) < len(text.strip()):
-                pass
-            text += "..." if len(text) < 1024 else ""
+        if len(text) > 4096:
+            cut = text[:4096].rfind("\n")
+            if cut < 3000:
+                cut = text[:4096].rfind(" ")
+            text = text[: cut if cut > 2000 else 4096].rstrip()
+            text += "..." if len(text) < 4096 else ""
     return text
 
 
