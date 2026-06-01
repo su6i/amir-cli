@@ -4,12 +4,15 @@
 _PHD_SEARCH_DIR="${PHD_SEARCH_DIR:-$HOME/@-Amir/Apply/2026-2027/PhD-Search}"
 
 run_phd() {
-    local cmd="${1:-status}"
+    local cmd="${1:-pending}"
     shift || true
 
     case "$cmd" in
         status)
             _phd_python status.py "$@"
+            ;;
+        pending)
+            _phd_python status.py --pending-only "$@"
             ;;
         show|list)
             _phd_show "$@"

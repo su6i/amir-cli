@@ -111,10 +111,14 @@ def collect_entries(search_dir: Path, filter_track: str | None = None,
 
 
 def print_status_table(search_dir: Path, filter_track: str | None = None,
-                       urgent_only: bool = False, search_type: str = "phd") -> None:
+                       urgent_only: bool = False, search_type: str = "phd",
+                       pending_only: bool = False) -> None:
     entries = collect_entries(search_dir, filter_track, urgent_only)
     # Exclude already-handled statuses from urgent view
     if urgent_only:
+        entries = [e for e in entries if e["status"] not in
+                   ("sent", "replied", "rejected", "bounced")]
+    if pending_only:
         entries = [e for e in entries if e["status"] not in
                    ("sent", "replied", "rejected", "bounced")]
 
@@ -246,6 +250,8 @@ if __name__ == "__main__":
     p.add_argument("--track", default=None)
     p.add_argument("--urgent-header", action="store_true")
     p.add_argument("--urgent", action="store_true")
+    p.add_argument("--pending-only", action="store_true",
+                   help="Only show found/draft_ready — exclude sent/replied/rejected/bounced")
     p.add_argument("--list", action="store_true")
     p.add_argument("--type", dest="search_type", default="phd")
     args = p.parse_args()
@@ -258,5 +264,7 @@ if __name__ == "__main__":
         print_status_table(sd, args.track, urgent_only=True, search_type=args.search_type)
     elif args.list:
         print_id_list(sd, args.track, args.search_type)
+    elif args.pending_only:
+        print_status_table(sd, args.track, pending_only=True, search_type=args.search_type)
     else:
         print_status_table(sd, args.track, search_type=args.search_type)

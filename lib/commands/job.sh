@@ -4,12 +4,15 @@
 _JOB_SEARCH_DIR="${JOB_SEARCH_DIR:-$HOME/@-Amir/Apply/2026-2027/Job-Search}"
 
 run_job() {
-    local cmd="${1:-status}"
+    local cmd="${1:-pending}"
     shift || true
 
     case "$cmd" in
         status)
             _job_python status.py "$@"
+            ;;
+        pending)
+            _job_python status.py --pending-only "$@"
             ;;
         show|list)
             _job_show "$@"
