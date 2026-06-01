@@ -135,6 +135,14 @@ amir (bash entry point)
 | `amir video convert` | `lib/commands/video.sh` → `video_convert()` | تبدیل container فرمت — stream-copy هوشمند، HEVC hvc1 درست handle می‌شود |
 | `amir video pip` | `lib/commands/video.sh` → `video_pip()` | PiP overlay چند ویدیو با time window و مختصات |
 | `amir video cut -d -d` | `lib/commands/video.sh` → `run_video_cut()` | چند برش همزمان با filter_complex یک‌پاسه |
+| `amir audio` | `lib/commands/audio.sh` | پردازش صوتی — subcommandها زیر |
+| `amir audio cut` | `lib/commands/audio.sh` → `audio_cut()` | برش و حذف بخش — stream copy برای trim، atrim+concat برای delete. batch: چند فایل همزمان |
+| `amir audio normalize` | `lib/commands/audio.sh` → `audio_normalize()` | two-pass EBU R128 loudnorm — `--target -16` (YouTube)، `-14` (Spotify). batch |
+| `amir audio fade` | `lib/commands/audio.sh` → `audio_fade()` | `--in N --out N` با afade — زمان fade-out از طول فایل محاسبه می‌شود. batch |
+| `amir audio trim-silence` | `lib/commands/audio.sh` → `audio_trim_silence()` | حذف سکوت ابتدا و انتها با silenceremove+areverse. batch |
+| `amir audio convert` | `lib/commands/audio.sh` → `audio_convert()` | تبدیل فرمت صوتی — `*.wav mp3` batch-friendly |
+| `amir audio extract` | `lib/commands/audio.sh` → `audio_extract()` | استخراج MP3 از ویدیو. batch: `*.mp4 192` |
+| `amir audio split` | `lib/commands/audio.sh` → `audio_split()` | تقسیم فایل صوتی به chunks. batch |
 | `amir subtitle` | `lib/commands/subtitle.sh` | زیرنویس AI چندزبانه |
 | `amir pdf` | `lib/commands/pdf.sh` | PDF با Puppeteer |
 | `amir chat` | `lib/commands/chat.sh` | چت با Gemini/Gemma |
