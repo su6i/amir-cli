@@ -10,7 +10,13 @@
 #           No keyword → global trending (most viewed)
 
 _trend_toolkit_dir() {
-    echo "${RESEARCH_TOOLKIT_DIR:-$HOME/@-github/research_toolkit}"
+    if [[ -n "${RESEARCH_TOOLKIT_DIR:-}" ]]; then
+        echo "$RESEARCH_TOOLKIT_DIR"
+    elif [[ -n "${AMIR_ROOT:-}" && -d "$AMIR_ROOT/lib/research_toolkit" ]]; then
+        echo "$AMIR_ROOT/lib/research_toolkit"
+    else
+        echo "$HOME/@-github/research_toolkit"
+    fi
 }
 
 _trend_help() {
