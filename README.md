@@ -138,7 +138,16 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir video tiktok <url> [opts]` | TikTok-optimized wrapper around `video download` with the same subtitle/translate pipeline flags. |
 | `amir video stats` | View AI learning statistics & compression history. |
 | `amir mp3 <file> [bitrate] [--split <MB>]` | Extract high-quality MP3 audio from a video file and optionally split the output into chunks. |
+| `amir audio extract <video(s)> [bitrate] [--split <MB>]` | Extract MP3 from one or more video files. Batch: `amir audio extract *.mp4 192`. |
+| `amir audio convert <file(s)> [mp3\|wav\|ogg\|m4a\|flac]` | Convert audio format. Batch: `amir audio convert *.wav mp3`. |
+| `amir audio cut <file(s)> [-s start] [-e end]` | Trim or delete segments. `-s`/`-e`: keep range (stream copy, instant). `-d START END`: delete a range and keep the rest. Multiple `-d` flags for multi-delete in one pass. `-x START END`: extract a named clip. Batch: `amir audio cut *.mp3 -s 00:01:00 -e 00:05:00`. |
+| `amir audio normalize <file(s)> [--target -16] [--peak -1]` | Two-pass EBU R128 loudness normalize. Default target `-16 LUFS` (YouTube standard). Use `--target -14` for Spotify, `--target -23` for broadcast. Batch: `amir audio normalize *.mp3`. |
+| `amir audio fade <file(s)> [--in N] [--out N]` | Fade-in and/or fade-out. Duration in seconds. Fade-out start is computed from file length automatically. Batch: `amir audio fade *.mp3 --in 2 --out 4`. |
+| `amir audio trim-silence <file(s)> [--threshold -40] [--pad 0.3]` | Remove leading and trailing silence. `--threshold` sets the dB cutoff (higher = more aggressive). `--pad` keeps a short margin at each edge. Batch: `amir audio trim-silence *.mp3`. |
+| `amir audio split <file(s)> <mb>` | Split audio into approximate MB chunks. Batch: `amir audio split *.mp3 10`. |
+| `amir audio concat <files...> [-o output]` | Join multiple audio files into one. |
 | `amir audio youtube <url> [format] [bitrate] [--split <MB>]` | Download audio from YouTube (mp3/wav/ogg) and optionally split the final output into chunks. |
+| `amir audio to-video <audio> [-i image] [-o output] [--waveform]` | Create a video from an audio file and a static (or waveform-animated) background image. |
 | `amir img upscale <file> [scale] [model]` | AI-Upscale or quality enhancement (1x mode). |
 | `amir img lab <file> [-s scale] [-m model]` | Generate 60/420 enhancement variations for testing. |
 | `amir img stack <files> [opts]` | Combine images vertically (A4/B5 presets + deskew). |
