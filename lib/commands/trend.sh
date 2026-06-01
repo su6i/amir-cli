@@ -49,7 +49,117 @@ _trend_help() {
     echo ""
 }
 
+_research_help() {
+    echo ""
+    echo "Usage: amir research <subcommand> [options]"
+    echo ""
+    echo "Subcommands:"
+    printf "  %-12s %s\n" "discover"  "Find potential PhD supervisors by topic keywords (ArXiv + DBLP)"
+    printf "  %-12s %s\n" "trend"     "Search/trending content across YouTube, GitHub, arXiv, Reddit, etc."
+    printf "  %-12s %s\n" "ideas"     "Generate cross-source ideas from collected data"
+    echo ""
+    echo "discover options:"
+    printf "  %-28s %s\n" "--keywords KW [KW ...]"      "Topic keywords (required)"
+    printf "  %-28s %s\n" "--sources arxiv dblp"        "Sources to search (default: both)"
+    printf "  %-28s %s\n" "--since-year YEAR"           "Papers since year (default: 2022)"
+    printf "  %-28s %s\n" "--min-papers N"              "Min relevant papers per author (default: 2)"
+    printf "  %-28s %s\n" "--top N"                     "Number of candidates to show (default: 10)"
+    printf "  %-28s %s\n" "--format txt|md|xlsx"        "Output format (default: txt)"
+    printf "  %-28s %s\n" "--categories cs.LG q-fin.CP" "ArXiv category filter (optional)"
+    printf "  %-28s %s\n" "--profile PATH"              "Candidate profile .md for LLM scoring"
+    printf "  %-28s %s\n" "--save PATH"                 "Override output file path"
+    echo ""
+    echo "Examples:"
+    echo "  amir research discover --keywords \"MARL portfolio optimization\""
+    echo "  amir research discover --keywords \"NLP finance sentiment\" --format md --top 15"
+    echo "  amir research discover --keywords \"mean field games\" --sources dblp --since-year 2021"
+    echo ""
+}
+
+_run_research_discover() {
+    local toolkit_dir python_bin
+    toolkit_dir="$(_trend_toolkit_dir)"
+    python_bin="$toolkit_dir/.venv/bin/python"
+
+    if [[ ! -d "$toolkit_dir" ]]; then
+        echo "❌ Research toolkit not found at: $toolkit_dir"
+        return 1
+    fi
+    if [[ ! -x "$python_bin" ]]; then
+        echo "❌ research_toolkit venv not found. Run: cd $toolkit_dir && bash install.sh"
+        return 1
+    fi
+
+    local keywords=()
+    local sources=()
+    local since_year="" min_papers="" top_n="" fmt="" save="" profile="" categories=()
+    local show_help=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --keywords)
+                shift
+                while [[ $# -gt 0 && "$1" != --* ]]; do
+                    keywords+=("$1"); shift
+                done ;;
+            --sources)
+                shift
+                while [[ $# -gt 0 && "$1" != --* ]]; do
+                    sources+=("$1"); shift
+                done ;;
+            --categories)
+                shift
+                while [[ $# -gt 0 && "$1" != --* ]]; do
+                    categories+=("$1"); shift
+                done ;;
+            --since-year)   since_year="$2";  shift 2 ;;
+            --min-papers)   min_papers="$2";  shift 2 ;;
+            --top)          top_n="$2";       shift 2 ;;
+            --format)       fmt="$2";         shift 2 ;;
+            --save)         save="$2";        shift 2 ;;
+            --profile)      profile="$2";     shift 2 ;;
+            --help|-h)      show_help=true;   shift ;;
+            *)              shift ;;
+        esac
+    done
+
+    if [[ "$show_help" == true || ${#keywords[@]} -eq 0 ]]; then
+        _research_help
+        return 0
+    fi
+
+    local cmd=("$python_bin" main.py discover --keywords "${keywords[@]}")
+    [[ ${#sources[@]}    -gt 0 ]] && cmd+=(--sources    "${sources[@]}")
+    [[ ${#categories[@]} -gt 0 ]] && cmd+=(--categories "${categories[@]}")
+    [[ -n "$since_year" ]]        && cmd+=(--since-year "$since_year")
+    [[ -n "$min_papers" ]]        && cmd+=(--min-papers "$min_papers")
+    [[ -n "$top_n" ]]             && cmd+=(--top         "$top_n")
+    [[ -n "$fmt" ]]               && cmd+=(--format      "$fmt")
+    [[ -n "$save" ]]              && cmd+=(--save        "$save")
+    [[ -n "$profile" ]]           && cmd+=(--profile     "$profile")
+
+    # If --save not given, generate default path anchored to caller's CWD
+    if [[ -z "$save" ]]; then
+        local user_cwd slug today ext
+        user_cwd="$(pwd)"
+        slug="${keywords[0]// /_}"
+        slug="${slug:0:20}"
+        today="$(date +%Y%m%d)"
+        ext="${fmt:-txt}"
+        cmd+=(--save "${user_cwd}/discover_${slug}_${today}.${ext}")
+    fi
+
+    (cd "$toolkit_dir" && "${cmd[@]}")
+}
+
 run_trend() {
+    # Route `amir research discover` before the trend arg-parser takes over
+    if [[ "$1" == "discover" ]]; then
+        shift
+        _run_research_discover "$@"
+        return $?
+    fi
+
     local toolkit_dir
     toolkit_dir="$(_trend_toolkit_dir)"
 
