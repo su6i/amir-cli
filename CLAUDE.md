@@ -579,3 +579,14 @@ amir pdf --theme carousel linkedin/02_data_science/carousel.md \
 | `scripts/data_jobs_scraper.mjs` | اسکرپر France Travail MétierScope |
 | `docs/it_rome_codes.json` | کدهای ROME برای مشاغل IT/Data |
 | `scripts/linkedin_post.py` | انتشار PDF carousel روی LinkedIn |
+
+## قوانین Agent
+
+### قوانین مشترک (از agent-constitution)
+تمام فایل‌های `.agent/constitution/rules/` را بخوان و رعایت کن.
+آپدیت: `git submodule update --remote .agent/constitution`
+
+### قوانین اختصاصی این پروژه
+تمام فایل‌های `.agent/local-rules/` را بخوان.
+در صورت تناقض، **قوانین اختصاصی (local-rules) اولویت دارند.**
+
