@@ -362,7 +362,7 @@ _amir() {
 
             if (( CURRENT == 3 )); then
                 _alternative \
-                    'acmds:Audio Command:((extract\:Extract\ audio\ from\ video\ file convert\:Convert\ audio\ format split\:Split\ audio\ into\ chunks concat\:Join\ multiple\ audio\ files to-video\:Create\ video\ from\ audio\ and\ image youtube\:Download\ audio\ from\ YouTube\ link))' \
+                    'acmds:Audio Command:((extract\:Extract\ audio\ from\ video\ file convert\:Convert\ audio\ format cut\:Trim\ or\ delete\ segments split\:Split\ audio\ into\ chunks concat\:Join\ multiple\ audio\ files to-video\:Create\ video\ from\ audio\ and\ image youtube\:Download\ audio\ from\ YouTube\ link))' \
                     'afolders:Audio Folder:_files -/'
             else
                 case "$subcmd" in
@@ -376,6 +376,34 @@ _amir() {
                         case $((CURRENT)) in
                             4) _files -g "*.(mp4|mov|mkv|avi|webm|flv|MP4|MOV|MKV)" ;;
                             5) _amir_bitrates ;;
+                        esac
+                        ;;
+                    cut)
+                        case "$prev" in
+                            -o|--output) _files ;;
+                            -s|--start|-e|--end|-t|--to|-d|--delete|-x|--extract)
+                                _message "Time (HH:MM:SS or MM:SS or seconds)"
+                                ;;
+                            *)
+                                if [[ "$PREFIX" == -* ]]; then
+                                    local -a cut_opts
+                                    cut_opts=(
+                                        '-s:Start time (keep from here)'
+                                        '--start:Start time (keep from here)'
+                                        '-e:End time (keep until here)'
+                                        '--end:End time (keep until here)'
+                                        '-d:Delete a time range (start end)'
+                                        '--delete:Delete a time range (start end)'
+                                        '-x:Extract named clip (start end)'
+                                        '--extract:Extract named clip (start end)'
+                                        '-o:Output file'
+                                        '--output:Output file'
+                                    )
+                                    _describe -t cut_opts 'options' cut_opts
+                                else
+                                    _files -g "*.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)"
+                                fi
+                                ;;
                         esac
                         ;;
                     split)
