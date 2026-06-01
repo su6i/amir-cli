@@ -198,9 +198,24 @@ case "$COMMAND" in
         if [[ -f "$LIB_DIR/commands/apply.sh" ]]; then source "$LIB_DIR/commands/apply.sh"; run_apply "$@"; exit $?; fi
         ;;
     
-    trend|research)
+    keyboard|kb)
+        shift
+        if [[ -f "$LIB_DIR/commands/keyboard.sh" ]]; then source "$LIB_DIR/commands/keyboard.sh"; run_keyboard "$@"; exit $?; fi
+        ;;
+
+    trend)
         shift
         if [[ -f "$LIB_DIR/commands/trend.sh" ]]; then source "$LIB_DIR/commands/trend.sh"; run_trend "$@"; exit $?; fi
+        ;;
+
+    research)
+        shift
+        if [[ -f "$LIB_DIR/commands/research.sh" ]]; then source "$LIB_DIR/commands/research.sh"; run_research "$@"; exit $?; fi
+        ;;
+
+    skill)
+        shift
+        if [[ -f "$LIB_DIR/commands/skill.sh" ]]; then source "$LIB_DIR/commands/skill.sh"; run_skill "$@"; exit $?; fi
         ;;
 
     llm-lists)

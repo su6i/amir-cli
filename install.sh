@@ -353,6 +353,18 @@ else
     echo "     bash /path/to/CV/install.sh"
 fi
 
+# Initialize research_toolkit submodule (if this repo was cloned with --recursive or submodule exists)
+SCRIPT_DIR_INSTALL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TOOLKIT_SUBMODULE="$SCRIPT_DIR_INSTALL/lib/research_toolkit"
+if [[ -f "$SCRIPT_DIR_INSTALL/.gitmodules" ]]; then
+    echo "📦 Initializing research_toolkit submodule..."
+    git -C "$SCRIPT_DIR_INSTALL" submodule update --init --recursive 2>/dev/null || true
+    if [[ -d "$TOOLKIT_SUBMODULE" && -f "$TOOLKIT_SUBMODULE/install.sh" ]]; then
+        echo "   Installing research_toolkit dependencies..."
+        (cd "$TOOLKIT_SUBMODULE" && bash install.sh) || echo "   ⚠️  research_toolkit setup had warnings"
+    fi
+fi
+
 echo "-------------------------------------"
 echo "🎉 Installation Complete! Run 'amir help' to start."
 if [[ $INSTALL_ML -eq 0 ]]; then
