@@ -54,26 +54,39 @@ _amir() {
             ;;
 
         research)
-            local research_sub
-            research_sub="${words[3]}"
-            case "$research_sub" in
+            case "${words[3]}" in
                 discover)
                     _arguments -s \
-                        '--keywords[Topic keywords for supervisor search]+: :' \
+                        '--keywords[Topic keywords]+: :' \
                         '--sources[Sources to search]:source:(arxiv dblp)' \
-                        '--since-year[Include papers since year]:year:(2020 2021 2022 2023 2024)' \
-                        '--min-papers[Minimum relevant papers per author]:count:(1 2 3 5)' \
-                        '--top[Number of top candidates]:count:(5 10 15 20)' \
+                        '--since-year[Papers since year]:year:(2020 2021 2022 2023 2024)' \
+                        '--min-papers[Min papers per author]:count:(1 2 3 5)' \
+                        '--top[Candidates to show]:count:(5 10 15 20)' \
                         '--format[Output format]:format:(txt md xlsx)' \
                         '--categories[ArXiv category filter]+: :' \
-                        '--profile[Candidate profile markdown file]:file:_files' \
-                        '--save[Override output file path]:file:_files' \
+                        '--profile[Candidate profile .md]:file:_files' \
+                        '--save[Override output path]:file:_files' \
+                        {-h,--help}'[Show help]'
+                    ;;
+                professor)
+                    _arguments -s \
+                        '--professor[Professor full name]: :' \
+                        '--institution[Institution / lab]: :' \
+                        '--email[Professor email]: :' \
+                        '--gender[Gender for salutation]:gender:(M F)' \
+                        '--lang[Email language]:lang:(fr en)' \
+                        '--story[Candidate motivation]: :' \
+                        '--since-year[Papers since year]:year:(2020 2021 2022 2023)' \
+                        '--scholar-url[Google Scholar or personal page URL]: :' \
+                        '--profile[Candidate profile .md]:file:_files' \
+                        '--tracking[Path to tracking.json]:file:_files' \
+                        '--position-id[Position ID in tracking.json]: :' \
                         {-h,--help}'[Show help]'
                     ;;
                 *)
-                    _values 'subcommand' \
-                        'discover[Find PhD supervisors by topic keywords (ArXiv + DBLP)]' \
-                        && _trend_arguments
+                    _values 'research subcommand' \
+                        'discover[Find supervisors by topic keywords (ArXiv + DBLP)]' \
+                        'professor[Research a specific professor: papers → overlap → email]'
                     ;;
             esac
             ;;
