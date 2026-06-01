@@ -80,7 +80,6 @@ run_audio() {
 }
 
 audio_cut() {
-    local input_file=""
     local start_time=""
     local end_time=""
     local extract_mode=0
@@ -90,46 +89,42 @@ audio_cut() {
     local -a delete_ends=()
     local delete_mode=0
     local output_file=""
+    local -a input_files=()
+    local -a _opts=()
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -s|--start) start_time="$2"; shift 2 ;;
-            -e|--end|-t|--to) end_time="$2"; shift 2 ;;
+            -s|--start)   start_time="$2";  _opts+=("$1" "$2"); shift 2 ;;
+            -e|--end|-t|--to) end_time="$2"; _opts+=("$1" "$2"); shift 2 ;;
             -x|--extract)
-                extract_mode=1
-                extract_start="$2"
-                extract_end="$3"
-                shift 3
+                extract_mode=1; extract_start="$2"; extract_end="$3"
+                _opts+=("$1" "$2" "$3"); shift 3
                 ;;
             -d|--delete)
                 if [[ -n "${2:-}" && "${2:-}" != -* && -n "${3:-}" && "${3:-}" != -* ]]; then
-                    delete_mode=1
-                    delete_starts+=("$2")
-                    delete_ends+=("$3")
-                    shift 3
+                    delete_mode=1; delete_starts+=("$2"); delete_ends+=("$3")
+                    _opts+=("$1" "$2" "$3"); shift 3
                 else
-                    delete_mode=1
-                    shift 1
+                    delete_mode=1; _opts+=("$1"); shift 1
                 fi
                 ;;
             -o|--output) output_file="$2"; shift 2 ;;
             *)
-                if [[ -f "$1" && -z "$input_file" ]]; then
-                    input_file="$1"
-                    shift
+                if [[ -f "$1" ]]; then
+                    input_files+=("$1"); shift
                 else
                     echo "❌ Unknown argument: $1" >&2
-                    echo "Usage: amir audio cut <file> [-s start] [-e end] [-d start end ...] [-x start end] [-o output]" >&2
+                    echo "Usage: amir audio cut <file(s)> [-s start] [-e end] [-d start end ...] [-x start end] [-o output]" >&2
                     return 1
                 fi
                 ;;
         esac
     done
 
-    if [[ -z "$input_file" ]]; then
+    if [[ ${#input_files[@]} -eq 0 ]]; then
         echo "❌ Error: No input file specified." >&2
         echo "" >&2
-        echo "Usage: amir audio cut <file> [options]" >&2
+        echo "Usage: amir audio cut <file(s)> [options]" >&2
         echo "  -s 00:01:00 -e 00:03:00                    Keep 1m–3m (stream copy, fast)" >&2
         echo "  -d 00:01:00 00:03:00                       Delete 1m–3m, keep rest" >&2
         echo "  -d 00:01:00 00:02:00 -d 00:05:00 00:06:00  Multi-delete in one pass" >&2
@@ -137,6 +132,20 @@ audio_cut() {
         echo "  -o output.mp3                              Custom output filename" >&2
         return 1
     fi
+
+    # ── Batch dispatch ─────────────────────────────────────────────────────────
+    if [[ ${#input_files[@]} -gt 1 ]]; then
+        [[ -n "$output_file" ]] && echo "⚠️  Batch mode: -o ignored, outputs auto-named." >&2
+        local _ok=0 _fail=0 _total=${#input_files[@]}
+        for _f in "${input_files[@]}"; do
+            echo ""; echo "── [$(( _ok + _fail + 1 ))/${_total}] $(basename "$_f") ──"
+            if audio_cut "$_f" "${_opts[@]}"; then (( _ok += 1 )); else (( _fail += 1 )); fi
+        done
+        echo ""; echo "Batch cut: ${_ok}✅  ${_fail}❌  (${_total} files)"
+        return $(( _fail > 0 ? 1 : 0 ))
+    fi
+
+    local input_file="${input_files[0]}"
 
     # -s/-e --delete shorthand: treat start/end as the delete range
     if [[ $delete_mode -eq 1 && ${#delete_starts[@]} -eq 0 ]]; then
@@ -318,35 +327,49 @@ audio_cut() {
 }
 
 audio_normalize() {
-    local input_file=""
     local target_lufs="-16"
     local true_peak="-1"
     local output_file=""
+    local -a input_files=()
+    local -a _opts=()
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --target|-l) target_lufs="$2"; shift 2 ;;
-            --peak|-p)   true_peak="$2";   shift 2 ;;
+            --target|-l) target_lufs="$2"; _opts+=("$1" "$2"); shift 2 ;;
+            --peak|-p)   true_peak="$2";   _opts+=("$1" "$2"); shift 2 ;;
             -o|--output) output_file="$2"; shift 2 ;;
             *)
-                if [[ -f "$1" && -z "$input_file" ]]; then
-                    input_file="$1"; shift
+                if [[ -f "$1" ]]; then
+                    input_files+=("$1"); shift
                 else
                     echo "❌ Unknown argument: $1" >&2
-                    echo "Usage: amir audio normalize <file> [--target -16] [--peak -1] [-o output]" >&2
+                    echo "Usage: amir audio normalize <file(s)> [--target -16] [--peak -1] [-o output]" >&2
                     return 1
                 fi ;;
         esac
     done
 
-    if [[ -z "$input_file" ]]; then
+    if [[ ${#input_files[@]} -eq 0 ]]; then
         echo "❌ No input file." >&2
-        echo "Usage: amir audio normalize <file> [--target -16] [--peak -1] [-o output]" >&2
+        echo "Usage: amir audio normalize <file(s)> [--target -16] [--peak -1] [-o output]" >&2
         echo "  --target  Target integrated loudness in LUFS (default: -16, YouTube standard)" >&2
         echo "  --peak    Max true peak in dBTP (default: -1)" >&2
         return 1
     fi
 
+    # ── Batch dispatch ─────────────────────────────────────────────────────────
+    if [[ ${#input_files[@]} -gt 1 ]]; then
+        [[ -n "$output_file" ]] && echo "⚠️  Batch mode: -o ignored, outputs auto-named." >&2
+        local _ok=0 _fail=0 _total=${#input_files[@]}
+        for _f in "${input_files[@]}"; do
+            echo ""; echo "── [$(( _ok + _fail + 1 ))/${_total}] $(basename "$_f") ──"
+            if audio_normalize "$_f" "${_opts[@]}"; then (( _ok += 1 )); else (( _fail += 1 )); fi
+        done
+        echo ""; echo "Batch normalize: ${_ok}✅  ${_fail}❌  (${_total} files)"
+        return $(( _fail > 0 ? 1 : 0 ))
+    fi
+
+    local input_file="${input_files[0]}"
     local ext="${input_file##*.}"
     [[ -z "$output_file" ]] && output_file="${input_file%.*}_normalized.${ext}"
 
@@ -409,30 +432,31 @@ audio_normalize() {
 }
 
 audio_fade() {
-    local input_file=""
     local fade_in=0
     local fade_out=0
     local output_file=""
+    local -a input_files=()
+    local -a _opts=()
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --in|-i)  fade_in="$2";  shift 2 ;;
-            --out|-O) fade_out="$2"; shift 2 ;;
+            --in|-i)  fade_in="$2";  _opts+=("$1" "$2"); shift 2 ;;
+            --out|-O) fade_out="$2"; _opts+=("$1" "$2"); shift 2 ;;
             -o|--output) output_file="$2"; shift 2 ;;
             *)
-                if [[ -f "$1" && -z "$input_file" ]]; then
-                    input_file="$1"; shift
+                if [[ -f "$1" ]]; then
+                    input_files+=("$1"); shift
                 else
                     echo "❌ Unknown argument: $1" >&2
-                    echo "Usage: amir audio fade <file> [--in 2] [--out 3] [-o output]" >&2
+                    echo "Usage: amir audio fade <file(s)> [--in 2] [--out 3] [-o output]" >&2
                     return 1
                 fi ;;
         esac
     done
 
-    if [[ -z "$input_file" ]]; then
+    if [[ ${#input_files[@]} -eq 0 ]]; then
         echo "❌ No input file." >&2
-        echo "Usage: amir audio fade <file> [--in 2] [--out 3] [-o output]" >&2
+        echo "Usage: amir audio fade <file(s)> [--in 2] [--out 3] [-o output]" >&2
         echo "  --in   Fade-in duration in seconds (default: 0)" >&2
         echo "  --out  Fade-out duration in seconds (default: 0)" >&2
         return 1
@@ -442,6 +466,20 @@ audio_fade() {
         echo "❌ Specify at least --in or --out." >&2
         return 1
     fi
+
+    # ── Batch dispatch ─────────────────────────────────────────────────────────
+    if [[ ${#input_files[@]} -gt 1 ]]; then
+        [[ -n "$output_file" ]] && echo "⚠️  Batch mode: -o ignored, outputs auto-named." >&2
+        local _ok=0 _fail=0 _total=${#input_files[@]}
+        for _f in "${input_files[@]}"; do
+            echo ""; echo "── [$(( _ok + _fail + 1 ))/${_total}] $(basename "$_f") ──"
+            if audio_fade "$_f" "${_opts[@]}"; then (( _ok += 1 )); else (( _fail += 1 )); fi
+        done
+        echo ""; echo "Batch fade: ${_ok}✅  ${_fail}❌  (${_total} files)"
+        return $(( _fail > 0 ? 1 : 0 ))
+    fi
+
+    local input_file="${input_files[0]}"
 
     local duration
     duration=$(ffprobe -v error -show_entries format=duration \
@@ -499,35 +537,49 @@ audio_fade() {
 }
 
 audio_trim_silence() {
-    local input_file=""
     local threshold="-40"
     local pad="0.3"
     local output_file=""
+    local -a input_files=()
+    local -a _opts=()
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --threshold|-t) threshold="$2"; shift 2 ;;
-            --pad|-p)       pad="$2";       shift 2 ;;
+            --threshold|-t) threshold="$2"; _opts+=("$1" "$2"); shift 2 ;;
+            --pad|-p)       pad="$2";       _opts+=("$1" "$2"); shift 2 ;;
             -o|--output)    output_file="$2"; shift 2 ;;
             *)
-                if [[ -f "$1" && -z "$input_file" ]]; then
-                    input_file="$1"; shift
+                if [[ -f "$1" ]]; then
+                    input_files+=("$1"); shift
                 else
                     echo "❌ Unknown argument: $1" >&2
-                    echo "Usage: amir audio trim-silence <file> [--threshold -40] [--pad 0.3] [-o output]" >&2
+                    echo "Usage: amir audio trim-silence <file(s)> [--threshold -40] [--pad 0.3] [-o output]" >&2
                     return 1
                 fi ;;
         esac
     done
 
-    if [[ -z "$input_file" ]]; then
+    if [[ ${#input_files[@]} -eq 0 ]]; then
         echo "❌ No input file." >&2
-        echo "Usage: amir audio trim-silence <file> [--threshold -40] [--pad 0.3] [-o output]" >&2
+        echo "Usage: amir audio trim-silence <file(s)> [--threshold -40] [--pad 0.3] [-o output]" >&2
         echo "  --threshold  Silence level in dB (default: -40). Louder = more aggressive." >&2
         echo "  --pad        Seconds of silence to keep at edges (default: 0.3)" >&2
         return 1
     fi
 
+    # ── Batch dispatch ─────────────────────────────────────────────────────────
+    if [[ ${#input_files[@]} -gt 1 ]]; then
+        [[ -n "$output_file" ]] && echo "⚠️  Batch mode: -o ignored, outputs auto-named." >&2
+        local _ok=0 _fail=0 _total=${#input_files[@]}
+        for _f in "${input_files[@]}"; do
+            echo ""; echo "── [$(( _ok + _fail + 1 ))/${_total}] $(basename "$_f") ──"
+            if audio_trim_silence "$_f" "${_opts[@]}"; then (( _ok += 1 )); else (( _fail += 1 )); fi
+        done
+        echo ""; echo "Batch trim-silence: ${_ok}✅  ${_fail}❌  (${_total} files)"
+        return $(( _fail > 0 ? 1 : 0 ))
+    fi
+
+    local input_file="${input_files[0]}"
     local ext="${input_file##*.}"
     [[ -z "$output_file" ]] && output_file="${input_file%.*}_trimmed.${ext}"
 
@@ -578,130 +630,175 @@ audio_trim_silence() {
 }
 
 audio_split() {
-    local INPUT="$1"
-    local split_mb="$2"
+    # Usage: amir audio split <file(s)> <mb>
+    # Last numeric arg is always the chunk size in MB
+    local -a input_files=()
+    local split_mb=""
 
-    if [[ -z "$INPUT" || ! -f "$INPUT" ]]; then
-        log_error "File not found: $INPUT" >&2
-        echo "Usage: amir audio split <audio_file> <mb>" >&2
+    for arg in "$@"; do
+        if [[ -f "$arg" ]]; then
+            input_files+=("$arg")
+        elif [[ "$arg" =~ ^[0-9]+$ ]]; then
+            split_mb="$arg"
+        else
+            log_error "Unknown argument: $arg" >&2
+            echo "Usage: amir audio split <file(s)> <mb>" >&2
+            return 1
+        fi
+    done
+
+    if [[ ${#input_files[@]} -eq 0 ]]; then
+        log_error "No input files specified." >&2
+        echo "Usage: amir audio split <file(s)> <mb>" >&2
         return 1
     fi
-    if [[ -z "$split_mb" || ! "$split_mb" =~ ^[0-9]+$ || "$split_mb" -le 0 ]]; then
+    if [[ -z "$split_mb" || "$split_mb" -le 0 ]]; then
         log_error "Split size must be a positive integer in MB." >&2
-        echo "Usage: amir audio split <audio_file> <mb>" >&2
+        echo "Usage: amir audio split <file(s)> <mb>" >&2
         return 1
     fi
 
-    split_media_approx_by_size "$INPUT" "$split_mb"
+    local _ok=0 _fail=0 _total=${#input_files[@]}
+    for _f in "${input_files[@]}"; do
+        [[ $_total -gt 1 ]] && echo "── [$(( _ok + _fail + 1 ))/${_total}] $(basename "$_f") ──"
+        if split_media_approx_by_size "$_f" "$split_mb"; then (( _ok += 1 )); else (( _fail += 1 )); fi
+    done
+    [[ $_total -gt 1 ]] && { echo ""; echo "Batch split: ${_ok}✅  ${_fail}❌  (${_total} files)"; }
+    return $(( _fail > 0 ? 1 : 0 ))
 }
 
 audio_convert() {
-    local INPUT="$1"
-    local FORMAT="${2:-mp3}"
-    
-    if [[ -z "$INPUT" || ! -f "$INPUT" ]]; then
-        log_error "File not found: $INPUT" >&2
-        echo "Usage: amir audio convert <audio_file> [mp3|wav|ogg|m4a]" >&2
+    # Usage: amir audio convert <file(s)> [mp3|wav|ogg|m4a]
+    # Last non-file arg is the target format (default: mp3)
+    local -a input_files=()
+    local FORMAT="mp3"
+
+    for arg in "$@"; do
+        if [[ -f "$arg" ]]; then
+            input_files+=("$arg")
+        elif [[ "$arg" =~ ^(mp3|wav|ogg|m4a|aac|flac)$ ]]; then
+            FORMAT="$arg"
+        else
+            log_error "Unknown argument: $arg" >&2
+            echo "Usage: amir audio convert <file(s)> [mp3|wav|ogg|m4a|flac]" >&2
+            return 1
+        fi
+    done
+
+    if [[ ${#input_files[@]} -eq 0 ]]; then
+        log_error "No input files specified." >&2
+        echo "Usage: amir audio convert <file(s)> [mp3|wav|ogg|m4a|flac]" >&2
         return 1
     fi
 
-    local OUTPUT="${INPUT%.*}.${FORMAT}"
-    
-    if [[ "$INPUT" == "$OUTPUT" ]]; then
-        log_error "Input and target format are the same!" >&2
-        return 1
-    fi
-    
-    local UPPER_FORMAT=$(echo "$FORMAT" | tr '[:lower:]' '[:upper:]')
-    log_info "🔄 Converting $(basename "$INPUT") to ${UPPER_FORMAT} format..." >&2
-    local FFMPEG_PATH=$(get_ffmpeg_path)
-    local duration_seconds=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$INPUT" 2>/dev/null | cut -d. -f1)
-    
     local ENCODER_ARGS=()
     case "$FORMAT" in
-        mp3) ENCODER_ARGS=(-c:a libmp3lame -b:a 192k) ;;
-        wav) ENCODER_ARGS=(-c:a pcm_s16le) ;;
-        ogg) ENCODER_ARGS=(-c:a libvorbis -q:a 4) ;;
+        mp3)  ENCODER_ARGS=(-c:a libmp3lame -b:a 192k) ;;
+        wav)  ENCODER_ARGS=(-c:a pcm_s16le) ;;
+        ogg)  ENCODER_ARGS=(-c:a libvorbis -q:a 4) ;;
         m4a|aac) ENCODER_ARGS=(-c:a aac -b:a 192k) ;;
-        *) 
+        flac) ENCODER_ARGS=(-c:a flac) ;;
+        *)
             log_error "Unsupported target format: $FORMAT" >&2
-            echo "Try: mp3, wav, ogg, or m4a" >&2
-            return 1 
-            ;;
+            echo "Try: mp3, wav, ogg, m4a, or flac" >&2
+            return 1 ;;
     esac
 
-    run_ffmpeg_with_progress "$duration_seconds" \
-        "$FFMPEG_PATH" -hide_banner -loglevel info -stats -y -i "$INPUT" -vn "${ENCODER_ARGS[@]}" "$OUTPUT"
-    
-    if [[ $? -eq 0 ]]; then
-        log_success "Converted: $OUTPUT" >&2
-        echo "$OUTPUT"
-    else
-        log_error "Conversion failed." >&2
-        return 1
-    fi
+    local FFMPEG_PATH; FFMPEG_PATH=$(get_ffmpeg_path)
+    local UPPER_FORMAT; UPPER_FORMAT=$(echo "$FORMAT" | tr '[:lower:]' '[:upper:]')
+    local _ok=0 _fail=0 _total=${#input_files[@]}
+
+    for INPUT in "${input_files[@]}"; do
+        [[ $_total -gt 1 ]] && echo "── [$(( _ok + _fail + 1 ))/${_total}] $(basename "$INPUT") ──"
+        local OUTPUT="${INPUT%.*}.${FORMAT}"
+        if [[ "$INPUT" == "$OUTPUT" ]]; then
+            log_error "Input and target format are the same: $INPUT" >&2
+            (( _fail++ )); continue
+        fi
+        log_info "🔄 Converting $(basename "$INPUT") to ${UPPER_FORMAT}..." >&2
+        local duration_seconds
+        duration_seconds=$(ffprobe -v error -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 "$INPUT" 2>/dev/null | cut -d. -f1)
+        run_ffmpeg_with_progress "$duration_seconds" \
+            "$FFMPEG_PATH" -hide_banner -loglevel info -stats -y \
+            -i "$INPUT" -vn "${ENCODER_ARGS[@]}" "$OUTPUT"
+        if [[ $? -eq 0 ]]; then
+            log_success "Converted: $OUTPUT" >&2
+            echo "$OUTPUT"
+            (( _ok++ ))
+        else
+            log_error "Conversion failed: $INPUT" >&2
+            (( _fail++ ))
+        fi
+    done
+
+    [[ $_total -gt 1 ]] && { echo ""; echo "Batch convert: ${_ok}✅  ${_fail}❌  (${_total} files)"; }
+    return $(( _fail > 0 ? 1 : 0 ))
 }
 
 audio_extract() {
-    local INPUT="$1"
-    shift
-    if [[ -z "$INPUT" || ! -f "$INPUT" ]]; then
-        log_error "File not found: $INPUT" >&2
-        return 1
-    fi
-    
     # Source Config
     if [[ -f "$LIB_DIR/config.sh" ]]; then source "$LIB_DIR/config.sh"; else get_config() { echo "$3"; }; fi
-    local default_kbps=$(get_config "mp3" "bitrate" "320")
+    local default_kbps; default_kbps=$(get_config "mp3" "bitrate" "320")
     local kbps="$default_kbps"
     local split_mb="0"
-
-    # Backward compatible positional bitrate: amir audio extract file.mp4 192
-    if [[ -n "${1:-}" && "${1:-}" =~ ^[0-9]+$ ]]; then
-        kbps="$1"
-        shift
-    fi
+    local -a input_files=()
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --split)
-                split_mb="$2"
-                shift 2
-                ;;
+            --split) split_mb="$2"; shift 2 ;;
             *)
-                log_error "Unknown option for extract: $1" >&2
-                echo "Usage: amir audio extract <video_file> [bitrate] [--split <mb>]" >&2
-                return 1
-                ;;
+                if [[ -f "$1" ]]; then
+                    input_files+=("$1"); shift
+                elif [[ "$1" =~ ^[0-9]+$ ]]; then
+                    kbps="$1"; shift
+                else
+                    log_error "Unknown option for extract: $1" >&2
+                    echo "Usage: amir audio extract <video_file(s)> [bitrate] [--split <mb>]" >&2
+                    return 1
+                fi ;;
         esac
     done
 
+    if [[ ${#input_files[@]} -eq 0 ]]; then
+        log_error "No input files specified." >&2
+        echo "Usage: amir audio extract <video_file(s)> [bitrate] [--split <mb>]" >&2
+        return 1
+    fi
+
     if [[ "$split_mb" != "0" && ( ! "$split_mb" =~ ^[0-9]+$ || "$split_mb" -le 0 ) ]]; then
         log_error "Split size must be a positive integer in MB." >&2
-        echo "Usage: amir audio extract <video_file> [bitrate] [--split <mb>]" >&2
         return 1
     fi
-    
-    local OUTPUT="${INPUT%.*}.mp3"
-    
-    log_info "🎧 Extracting Audio at ${kbps}kbps: $(basename "$INPUT") ..." >&2
-    local FFMPEG_PATH=$(get_ffmpeg_path)
-    local duration_seconds=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$INPUT" 2>/dev/null | cut -d. -f1)
-    
-    run_ffmpeg_with_progress "$duration_seconds" \
-        "$FFMPEG_PATH" -hide_banner -loglevel info -stats -y -i "$INPUT" -vn -c:a libmp3lame -b:a "${kbps}k" "$OUTPUT"
-    
-    if [[ $? -eq 0 ]]; then
-        log_success "Created: $OUTPUT" >&2
-        echo "$OUTPUT"
-        if [[ "$split_mb" =~ ^[0-9]+$ && "$split_mb" -gt 0 ]]; then
-            echo ""
-            split_media_approx_by_size "$OUTPUT" "$split_mb"
+
+    local FFMPEG_PATH; FFMPEG_PATH=$(get_ffmpeg_path)
+    local _ok=0 _fail=0 _total=${#input_files[@]}
+
+    for INPUT in "${input_files[@]}"; do
+        [[ $_total -gt 1 ]] && echo "── [$(( _ok + _fail + 1 ))/${_total}] $(basename "$INPUT") ──"
+        local OUTPUT="${INPUT%.*}.mp3"
+        log_info "🎧 Extracting at ${kbps}kbps: $(basename "$INPUT") ..." >&2
+        local duration_seconds
+        duration_seconds=$(ffprobe -v error -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 "$INPUT" 2>/dev/null | cut -d. -f1)
+        run_ffmpeg_with_progress "$duration_seconds" \
+            "$FFMPEG_PATH" -hide_banner -loglevel info -stats -y \
+            -i "$INPUT" -vn -c:a libmp3lame -b:a "${kbps}k" "$OUTPUT"
+        if [[ $? -eq 0 ]]; then
+            log_success "Created: $OUTPUT" >&2
+            echo "$OUTPUT"
+            if [[ "$split_mb" =~ ^[0-9]+$ && "$split_mb" -gt 0 ]]; then
+                split_media_approx_by_size "$OUTPUT" "$split_mb"
+            fi
+            (( _ok++ ))
+        else
+            log_error "Extraction failed: $INPUT" >&2
+            (( _fail++ ))
         fi
-    else
-        log_error "Extraction failed." >&2
-        return 1
-    fi
+    done
+
+    [[ $_total -gt 1 ]] && { echo ""; echo "Batch extract: ${_ok}✅  ${_fail}❌  (${_total} files)"; }
+    return $(( _fail > 0 ? 1 : 0 ))
 }
 
 audio_concat() {
