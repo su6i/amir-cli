@@ -36,11 +36,19 @@ Known bugs:
 Where do we start?
 ```
 
+## TODO Update Rule (Non-Negotiable)
+
+**After completing any TODO item — before committing — update `TODO.md`:**
+- Mark the item as done: `- [x]` and add completion date
+- Move it to a `## Completed` section at the bottom
+- Update the status table if present
+
+This is part of the commit. A task is not done until `TODO.md` reflects it.
+
 ## Notes
 
 - If `TODO.md` does not exist: inform the user and offer to create it
 - `TODO.md` should be in `.gitignore` — it is a local workspace file, not tracked
-- After completing or updating any item, update `TODO.md` immediately
 - If the project has no `TODO.md`, check for `ROADMAP.md` or `TASKS.md` as alternatives
 
 ## Why This Rule Exists
