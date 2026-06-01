@@ -21,7 +21,11 @@ run_job() {
             _job_draft "$@"
             ;;
         sent)
-            _job_tracker sent "$@"
+            if [[ -z "$1" ]]; then
+                _job_python status.py --filter-status sent
+            else
+                _job_tracker sent "$@"
+            fi
             ;;
         reply)
             _job_tracker reply "$@"

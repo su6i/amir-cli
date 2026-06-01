@@ -21,7 +21,11 @@ run_phd() {
             _phd_draft "$@"
             ;;
         sent)
-            _phd_tracker sent "$@"
+            if [[ -z "$1" ]]; then
+                _phd_python status.py --filter-status sent
+            else
+                _phd_tracker sent "$@"
+            fi
             ;;
         reply)
             _phd_tracker reply "$@"
