@@ -7,12 +7,17 @@ run_apply() {
     local CV_DIR="${APPLYFORGE_DIR:-$HOME/@-github/ApplyForge}"
 
     if [[ -z "$1" ]]; then
+        _apply_sync_both
+        local rc=$?
+        echo ""
         echo "Usage:"
-        echo "  amir apply <job-url> [--template <name>] [--lang auto|fr|en] [--color <name>]"
-        echo "  amir apply preview   [--template <name>] [--role <ai|it|phd>] [--lang fr|en]"
-        echo "  amir apply phd       <status|show|draft|sent|reply|open|init>"
-        echo "  amir apply job       <status|show|new|draft|sent|reply|open|sync|init>"
-        return 1
+        echo "  amir apply               → sync (این دستور)"
+        echo "  amir apply sync          → sync صریح"
+        echo "  amir apply phd <cmd>     → status|show|draft|sent|reply|open|init"
+        echo "  amir apply job <cmd>     → status|show|new|draft|sent|reply|open|sync|init"
+        echo "  amir apply preview       → پیش‌نمایش CV"
+        echo "  amir apply <url>         → تولید CV/CL برای آگهی"
+        return $rc
     fi
 
     # ── sync (both phd + job) ─────────────────────────────────────────────────
