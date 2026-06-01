@@ -217,11 +217,12 @@ amir apply <cmd>
 ### قانون One-Folder (اجباری)
 هر اپلای PhD باید **یک پوشه** داشته باشد که همه چیز در آن باشد:
 ```
-ApplyForge/Applied/YYYY-MM-DD_<pos_id>/
-├── Amir_SHIRALI-POUR-CV_PhD_<lang>.pdf         ← رزومه از pipeline
+$HOME/@-Amir/Apply/2026-2027/PhD-Search/applied/<pos_id>/
+├── Amir_SHIRALI-POUR-CV_PhD_<lang>.pdf              ← رزومه از pipeline
 ├── Amir_SHIRALI-POUR-LettreMotivation_<pos>_fr.pdf  ← انگیزه‌نامه
-├── JobPosting_<pos_id>.md                       ← توضیحات آگهی
-└── Email_Candidature_<pos_id>.md                ← متن ایمیل draft
+├── JobPosting_<pos_id>.md                           ← توضیحات آگهی
+├── email_draft.md                                   ← متن ایمیل draft
+└── Recommandation_*.pdf                             ← توصیه‌نامه‌ها
 ```
 دستور ساخت این پوشه: `amir apply phd lettre <id>`
 

@@ -177,7 +177,7 @@ _phd_audit() {
 }
 
 _phd_lettre() {
-    # Scaffold the complete apply folder under ApplyForge/Applied/
+    # Scaffold the complete apply folder under PhD-Search/applied/<pos_id>/
     local pos_id="${1:-}"
     if [[ -z "$pos_id" ]]; then
         echo "Usage: amir apply phd lettre <position-id>" >&2
@@ -185,7 +185,7 @@ _phd_lettre() {
     fi
 
     local applyforge_dir="${APPLYFORGE_DIR:-$HOME/@-github/ApplyForge}"
-    local today; today=$(date +%Y-%m-%d)
+    local out_dir="$_PHD_SEARCH_DIR/applied/${pos_id}"
 
     # Locate position file
     local pos_file
@@ -193,12 +193,6 @@ _phd_lettre() {
     if [[ -z "$pos_file" ]]; then
         echo "❌  Position not found: $pos_id" >&2; return 1
     fi
-
-    # Determine folder name
-    local institution
-    institution=$(grep -i "université\|university\|institution\|lab\|institute" "$pos_file" | head -1 | sed 's/.*Valeur *|//;s/[*|]//g;s/^ *//;s/ *$//' | tr ' ' '_' | tr -d "'" | cut -c1-40)
-    local folder_name="${today}_${pos_id}"
-    local out_dir="$applyforge_dir/Applied/${folder_name}"
 
     mkdir -p "$out_dir"
 
@@ -221,10 +215,9 @@ _phd_lettre() {
     echo "  ✓ JobPosting copied"
 
     # Copy email draft if exists
-    local draft="$_PHD_SEARCH_DIR/applied/$pos_id/email_draft.md"
+    local draft="$out_dir/email_draft.md"
     if [[ -f "$draft" ]]; then
-        cp "$draft" "$out_dir/Email_Candidature_${pos_id}.md"
-        echo "  ✓ Email draft copied"
+        echo "  ✓ Email draft already present"
     fi
 
     echo ""
@@ -234,9 +227,7 @@ _phd_lettre() {
     ls -1 "$out_dir/"
     echo ""
     echo "  ⚠️  MISSING: Lettre de motivation PDF"
-    echo "  → Ask Claude Code: 'write lettre de motivation for $pos_id and save to:"
-    echo "    $out_dir/'"
-    echo "  → Claude Code will research supervisor, write .tex, compile PDF"
+    echo "  → Ask Claude Code: 'write lettre de motivation for $pos_id'"
     echo "  ──────────────────────────────────────────────────────"
     echo ""
 
