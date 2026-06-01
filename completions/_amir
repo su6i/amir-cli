@@ -362,7 +362,7 @@ _amir() {
 
             if (( CURRENT == 3 )); then
                 _alternative \
-                    'acmds:Audio Command:((extract\:Extract\ audio\ from\ video\ file convert\:Convert\ audio\ format cut\:Trim\ or\ delete\ segments split\:Split\ audio\ into\ chunks concat\:Join\ multiple\ audio\ files to-video\:Create\ video\ from\ audio\ and\ image youtube\:Download\ audio\ from\ YouTube\ link))' \
+                    'acmds:Audio Command:((extract\:Extract\ audio\ from\ video\ file convert\:Convert\ audio\ format cut\:Trim\ or\ delete\ segments normalize\:EBU\ R128\ loudness\ normalize fade\:Fade\ in/out trim-silence\:Remove\ leading/trailing\ silence split\:Split\ audio\ into\ chunks concat\:Join\ multiple\ audio\ files to-video\:Create\ video\ from\ audio\ and\ image youtube\:Download\ audio\ from\ YouTube\ link))' \
                     'afolders:Audio Folder:_files -/'
             else
                 case "$subcmd" in
@@ -437,6 +437,71 @@ _amir() {
                                     _files -g "*.(mp3|wav|m4a|flac|aac|MP3|WAV)"
                                 fi
                                 ;;
+                        esac
+                        ;;
+                    normalize)
+                        case "$prev" in
+                            -o|--output) _files ;;
+                            --target|-l) _message "Target LUFS (e.g. -16 for YouTube, -14 for Spotify)" ;;
+                            --peak|-p)   _message "Max true peak dBTP (e.g. -1)" ;;
+                            *)
+                                if [[ "$PREFIX" == -* ]]; then
+                                    local -a norm_opts
+                                    norm_opts=(
+                                        '--target:Target integrated loudness in LUFS (default: -16)'
+                                        '-l:Target integrated loudness in LUFS (default: -16)'
+                                        '--peak:Max true peak in dBTP (default: -1)'
+                                        '-p:Max true peak in dBTP (default: -1)'
+                                        '-o:Output file'
+                                        '--output:Output file'
+                                    )
+                                    _describe -t norm_opts 'options' norm_opts
+                                else
+                                    _files -g "*.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)"
+                                fi ;;
+                        esac
+                        ;;
+                    fade)
+                        case "$prev" in
+                            -o|--output) _files ;;
+                            --in|-i|--out|-O) _message "Duration in seconds (e.g. 2)" ;;
+                            *)
+                                if [[ "$PREFIX" == -* ]]; then
+                                    local -a fade_opts
+                                    fade_opts=(
+                                        '--in:Fade-in duration in seconds'
+                                        '-i:Fade-in duration in seconds'
+                                        '--out:Fade-out duration in seconds'
+                                        '-O:Fade-out duration in seconds'
+                                        '-o:Output file'
+                                        '--output:Output file'
+                                    )
+                                    _describe -t fade_opts 'options' fade_opts
+                                else
+                                    _files -g "*.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)"
+                                fi ;;
+                        esac
+                        ;;
+                    trim-silence)
+                        case "$prev" in
+                            -o|--output) _files ;;
+                            --threshold|-t) _message "dB threshold (e.g. -40, higher = more aggressive)" ;;
+                            --pad|-p) _message "Silence padding to keep at edges (seconds, e.g. 0.3)" ;;
+                            *)
+                                if [[ "$PREFIX" == -* ]]; then
+                                    local -a ts_opts
+                                    ts_opts=(
+                                        '--threshold:Silence level in dB (default: -40)'
+                                        '-t:Silence level in dB (default: -40)'
+                                        '--pad:Silence padding at edges in seconds (default: 0.3)'
+                                        '-p:Silence padding at edges in seconds (default: 0.3)'
+                                        '-o:Output file'
+                                        '--output:Output file'
+                                    )
+                                    _describe -t ts_opts 'options' ts_opts
+                                else
+                                    _files -g "*.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)"
+                                fi ;;
                         esac
                         ;;
                     youtube|yt)
