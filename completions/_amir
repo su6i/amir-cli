@@ -385,7 +385,11 @@ _amir() {
                                 _message "Time (HH:MM:SS or MM:SS or seconds)"
                                 ;;
                             *)
-                                if [[ "$PREFIX" == -* ]]; then
+                                local _ai=0 _i
+                                for (( _i=4; _i<CURRENT; _i++ )); do
+                                    [[ "${words[$_i]}" =~ \.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)$ ]] && { _ai=1; break }
+                                done
+                                if (( _ai )) || [[ "$PREFIX" == -* ]]; then
                                     local -a cut_opts
                                     cut_opts=(
                                         '-s:Start time (keep from here)'
@@ -445,7 +449,11 @@ _amir() {
                             --target|-l) _message "Target LUFS (e.g. -16 for YouTube, -14 for Spotify)" ;;
                             --peak|-p)   _message "Max true peak dBTP (e.g. -1)" ;;
                             *)
-                                if [[ "$PREFIX" == -* ]]; then
+                                local _ai=0 _i
+                                for (( _i=4; _i<CURRENT; _i++ )); do
+                                    [[ "${words[$_i]}" =~ \.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)$ ]] && { _ai=1; break }
+                                done
+                                if (( _ai )) || [[ "$PREFIX" == -* ]]; then
                                     local -a norm_opts
                                     norm_opts=(
                                         '--target:Target integrated loudness in LUFS (default: -16)'
@@ -466,7 +474,11 @@ _amir() {
                             -o|--output) _files ;;
                             --in|-i|--out|-O) _message "Duration in seconds (e.g. 2)" ;;
                             *)
-                                if [[ "$PREFIX" == -* ]]; then
+                                local _ai=0 _i
+                                for (( _i=4; _i<CURRENT; _i++ )); do
+                                    [[ "${words[$_i]}" =~ \.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)$ ]] && { _ai=1; break }
+                                done
+                                if (( _ai )) || [[ "$PREFIX" == -* ]]; then
                                     local -a fade_opts
                                     fade_opts=(
                                         '--in:Fade-in duration in seconds'
@@ -488,7 +500,11 @@ _amir() {
                             --threshold|-t) _message "dB threshold (e.g. -40, higher = more aggressive)" ;;
                             --pad|-p) _message "Silence padding to keep at edges (seconds, e.g. 0.3)" ;;
                             *)
-                                if [[ "$PREFIX" == -* ]]; then
+                                local _ai=0 _i
+                                for (( _i=4; _i<CURRENT; _i++ )); do
+                                    [[ "${words[$_i]}" =~ \.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)$ ]] && { _ai=1; break }
+                                done
+                                if (( _ai )) || [[ "$PREFIX" == -* ]]; then
                                     local -a ts_opts
                                     ts_opts=(
                                         '--threshold:Silence level in dB (default: -40)'
