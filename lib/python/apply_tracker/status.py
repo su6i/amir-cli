@@ -112,18 +112,22 @@ def collect_entries(search_dir: Path, filter_track: str | None = None,
 
 def print_status_table(search_dir: Path, filter_track: str | None = None,
                        urgent_only: bool = False, search_type: str = "phd",
-                       pending_only: bool = False) -> None:
+                       pending_only: bool = False,
+                       filter_status: str | None = None) -> None:
     entries = collect_entries(search_dir, filter_track, urgent_only)
-    # Exclude already-handled statuses from urgent view
     if urgent_only:
         entries = [e for e in entries if e["status"] not in
                    ("sent", "replied", "rejected", "bounced")]
     if pending_only:
         entries = [e for e in entries if e["status"] not in
                    ("sent", "replied", "rejected", "bounced")]
+    if filter_status:
+        entries = [e for e in entries if e["status"] == filter_status]
 
     if not entries:
-        if urgent_only:
+        if filter_status:
+            print(f"  No positions with status '{filter_status}'.")
+        elif urgent_only:
             print("  No urgent deadlines (≤14 days).")
         else:
             print("  No positions found. Run 'amir apply phd init' first.")
@@ -250,8 +254,9 @@ if __name__ == "__main__":
     p.add_argument("--track", default=None)
     p.add_argument("--urgent-header", action="store_true")
     p.add_argument("--urgent", action="store_true")
-    p.add_argument("--pending-only", action="store_true",
-                   help="Only show found/draft_ready — exclude sent/replied/rejected/bounced")
+    p.add_argument("--pending-only", action="store_true")
+    p.add_argument("--filter-status", default=None,
+                   help="Show only positions with this status (sent, replied, found, ...)")
     p.add_argument("--list", action="store_true")
     p.add_argument("--type", dest="search_type", default="phd")
     args = p.parse_args()
@@ -266,5 +271,7 @@ if __name__ == "__main__":
         print_id_list(sd, args.track, args.search_type)
     elif args.pending_only:
         print_status_table(sd, args.track, pending_only=True, search_type=args.search_type)
+    elif args.filter_status:
+        print_status_table(sd, args.track, filter_status=args.filter_status, search_type=args.search_type)
     else:
         print_status_table(sd, args.track, search_type=args.search_type)
