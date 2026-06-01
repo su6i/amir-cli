@@ -17,7 +17,8 @@ Built with modularity and ease of use in mind, `amir` works seamlessly across **
 
 ## ✨ Features
 
-- **🎬 Smart Video Compression:** Auto-detects hardware (Apple Silicon, NVENC, QSV) and optimizes settings for the best quality/size ratio. Features `--gpu`/`--cpu` encoding toggle, `extreme` profile for maximum reduction, custom frame rate via `--fps`, chunking via `--split <MB>`, real-time progress bar with ETA, output size validation, and "AI Learning" to adapt over time.
+- **🎬 Smart Video Processing:** Compress, cut (multi-range single-pass), convert formats, picture-in-picture overlay, screen recording, and concat with mixed-codec support (H.264 + HEVC MOV). Auto-detects hardware (Apple Silicon VideoToolbox), handles Apple HEVC `hvc1` correctly.
+- **🧠 Skill Management:** `amir skill harvest` searches GitHub by stars, fetches READMEs, and synthesizes `.agent/skills/` reference files for AI agents. Covers YouTube automation, TTS (Fish Speech, GPT-SoVITS, XTTS v2), video production, ComfyUI, music generation, and analytics.
 - **🖼️ Advanced Image Processing:** AI-powered upscaling (Real-ESRGAN), document enhancement lab (140 variations), smart stacking (front/back), and professional corner rounding.
 - **🌍 Advanced Subtitle System:** AI-powered multilingual subtitles supporting **32 languages**. Features automatic translation, multi-platform hardware encoding (Mac/Ubuntu) with 1:1 size parity, Whisper Turbo as default, and document export via `--save` (no argument defaults to `pdf`).
 - **🤖 AI Powered:** Chat with Gemini/Gemma, generate code, and fetch model lists from 5 LLM providers (Gemini, OpenAI, DeepSeek, Groq, Anthropic).
@@ -128,8 +129,10 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | :--- | :--- |
 | `amir video <URL> [opts]` | **Unified Download + Process**: Download from YouTube & 1000+ sites with smart reuse (existing matching downloads are reused to avoid `_2/_3` duplicates). Key flags: `--subtitle en fa` (Whisper AI), `--yt-subs --translate -t en fa` (platform subs → LLM translate), `--sub-only` (SRT only), `--only-subs`, `--formats` (list formats), `--resolution <h>` (explicit download height), `--extreme` (auto-min practical resolution), `--keep-thumb`, `--cookies`. |
 | `amir video <file/dir> [--gpu|--cpu]` | Advanced video processing (compress, cut, batch). Supports `extreme` (max compression profile), `--fps <N>` (e.g., 10fps), and `--split <MB>` (split encoded output to chunks). `--gpu` for hardware acceleration (default on Apple Silicon), `--cpu` for better compression ratio. |
-| `amir video concat <files...> [-o out.mp4]` | Concatenate multiple videos in the exact order provided. Uses safe re-encode for compatibility and creates `<first>_merged.mp4` when `-o` is omitted. Alias: `amir video merge ...`. |
-| `amir video cut <file> [opts]` | Cut video segments without re-encoding (instant) or with rendering. Supports `-d/--delete <start> <end>` to remove a middle range and auto-stitch, and `-x/--extract <start> <end>` to keep only that range (default output name: `_cut_<start>_<end>`). |
+| `amir video convert <file> [--to fmt] [-o out] [--reencode]` | Convert video container format (MOV→MP4, MKV, WEBM, AVI). Defaults to stream-copy (instant, no quality loss). Handles Apple HEVC (`hvc1`) correctly — no tag mangling. `--reencode` forces H.264 re-encode via VideoToolbox. |
+| `amir video pip <main> --pip <file> [--start T] [--end T] [--pos tl\|tr\|bl\|br\|X:Y] [--size %] ...` | Picture-in-picture overlay: place one or more videos on a main video at specific time windows and positions. Multiple `--pip` flags supported. Audio from each pip is mixed into the output during its active window. |
+| `amir video concat <files...> [-o out.mp4]` | Concatenate multiple videos in the exact order provided. Uses `filter_complex` per-input decoding — handles mixed codecs (H.264 MP4 + HEVC MOV) without freeze artifacts. Creates `<first>_merged.mp4` when `-o` is omitted. Alias: `amir video merge ...`. |
+| `amir video cut <file> [opts]` | Cut video segments without re-encoding (instant) or with rendering. Supports `-d/--delete <start> <end>` (repeatable — multiple ranges removed in a **single pass**) and `-x/--extract <start> <end>` to keep only that range. Multiple `-d` flags: `amir video cut v.mp4 -d 00:01:10 00:01:22 -d 00:08:45 00:09:02 -o out.mp4`. |
 | `amir video split <file> <mb>` | Split an existing video into approximate MB chunks (keyframe-bound, non re-encode). |
 | `amir split <file> <mb>` | Global splitter for both audio and video files (approximate MB chunks, no re-encode). |
 | `amir video tiktok <url> [opts]` | TikTok-optimized wrapper around `video download` with the same subtitle/translate pipeline flags. |
@@ -151,7 +154,17 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir pdf [files] [opts]` | **Multi-Engine PDF Generator**: Render Markdown/Text/Images to PDF. Supports piping (e.g., `amir clip | amir pdf`), Puppeteer (Default), WeasyPrint, PIL (Robust Fallback). Features: High-fidelity Persian RTL (B Nazanin), auto-pagination, ExFAT compatibility, `--free-size` (`-f`) for continuous/custom dimensions, and `--page-width/--page-height` (Puppeteer, pixels) for manual page sizing. Common widths: 1200, 1440, 1600, 1800, 2000, 2480. |
 | `amir watermark <file> [text]` | Add watermark to image (auto-saved or `-o output`). |
 | `amir subtitle <file/URL> [options]` | **AI-Powered Multilingual Subtitles**: Transcribe, translate (32 languages), and render. Source is auto-detected by default; practical default layout is source-top + Persian-bottom (`--sub auto fa`). Key flags: `--yt-subs` (force YouTube internal subs), `--ass-input <srt/ass>` (render from manual file; `.srt` files are automatically styled with Vazirmatn), `--resolution <h>` and `--quality <0-100>` (final render controls), `--style channel_brand_blue|shorts_brand_blue|news_guest_blue`, `--subtitle-banner-image/--subtitle-banner-color`, `--subtitle-logo [--subtitle-logo-animated]`, `--guest-tag "start,duration,name,title[,pos]"`, `--brand-kit <logo> [--brand-kit-shorts]`, `--save` (default export: `pdf`), and `--no-render` (SRT only). Default render height follows input video height when not provided. See [SUBTITLE.md](docs/SUBTITLE.md). |
+| `amir video record [--list] [--screen N] [--audio N] [--fps N] [-o FILE]` | Record screen to MP4 using macOS AVFoundation. `--list` shows available screens/audio devices. Ctrl+C to stop. Alias: `amir video rec`. |
 | `amir info <file>` | Show detailed technical metadata for any file. |
+
+### 🧠 Skill Management
+
+| Command | Description |
+| :--- | :--- |
+| `amir skill search <query> [--min-stars N]` | Search GitHub for repos matching query, ranked by stars — discover tools worth learning. |
+| `amir skill harvest <query> [--pick N] [-o file]` | Search GitHub → fetch top READMEs → synthesize a `.agent/skills/` reference file for AI agents. |
+| `amir skill list [--grep PATTERN]` | List all existing skill files in `.agent/skills/` with descriptions. |
+| `amir skill show <name>` | Display contents of a skill file. |
 
 ### 📡 Research & Trends
 
@@ -194,7 +207,10 @@ export RESEARCH_TOOLKIT_DIR=/path/to/research_toolkit
 | `amir chat "hello"` | Ask the AI assistant a question. |
 | `amir code "fix this"` | Request code generation or refactoring. |
 | `amir llm-lists <provider> [-e fmt]` | **NEW:** Fetch model lists from LLM providers (gemini, openai, deepseek, groq, anthropic). Export to PDF/MD/JPG. |
-| `amir todo add "task"` | Manage a lightweight local to-do list. |
+| `amir todo "task"` | Add a task to the local to-do list. |
+| `amir todo list` | Show all pending tasks. |
+| `amir todo done <n>` | Remove task number `<n>` from the list. |
+| `amir todo clear` | Clear all tasks. |
 | `amir dashboard` | Show a system status dashboard (CPU, RAM, Space). |
 
 ### 🛠 Utilities
@@ -210,6 +226,9 @@ export RESEARCH_TOOLKIT_DIR=/path/to/research_toolkit
 | `amir clean` | Interactive cleanup menu — toggle items on/off with Space/numbers, navigate with ↑↓, confirm with Enter. Covers: Trash, User Caches, System Logs, VS Code workspaceStorage, macOS Aerials Screensaver, Claude Desktop VM. |
 | `amir speed` | Test internet connection speed. |
 | `amir weather [city]` | Check weather (specify city or use default). |
+| `amir keyboard [fr\|en\|fa\|auto]` | Show keyboard layout for Apple Compact keyboard. Flags: `--opt` (Option layer), `--shift` (Shift layer), `--normal`, `--find <char>` (locate any character), `--auto` (detect active OS layout). Alias: `amir kb`. |
+| `amir init-project [dir]` | Scaffold the Agent Constitution (`.agent/` rules, skills, workflows) into a new project directory. |
+| `amir sync-constitution [dir]` | Sync `.agent/` rules and skills from the `agent-constitution` repo into an existing project. Preserves project-specific files; migrates legacy `.agents/`/`.cursor/` directories automatically. Override source with `AMIR_CONSTITUTION_PATH`. |
 
 
 ## 🤝 Contributing

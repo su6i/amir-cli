@@ -14,7 +14,7 @@ fi
 
 run_audio() {
     local SUBCOMMAND="$1"
-    
+
     # Smart Mode Detection: If first arg is a directory
     if [[ -d "$SUBCOMMAND" ]]; then
         smart_audio_flow "$@"
@@ -30,6 +30,9 @@ run_audio() {
         convert)
             audio_convert "$@"
             ;;
+        cut)
+            audio_cut "$@"
+            ;;
         split)
             audio_split "$@"
             ;;
@@ -42,13 +45,30 @@ run_audio() {
         youtube|yt)
             audio_youtube "$@"
             ;;
+        normalize)
+            audio_normalize "$@"
+            ;;
+        fade)
+            audio_fade "$@"
+            ;;
+        trim-silence)
+            audio_trim_silence "$@"
+            ;;
         *)
-            echo "Usage: amir audio {extract|convert|split|concat|to-video|youtube} [options]"
+            echo "Usage: amir audio {extract|convert|cut|normalize|fade|trim-silence|split|concat|to-video|youtube} [options]"
             echo "       amir audio <directory>  (Smart folder-to-video flow)"
             echo ""
             echo "Subcommands:"
             echo "  extract <video_file> [bitrate] [--split mb]  Extract MP3 from video"
             echo "  convert <audio_file> [format]   Convert audio format (wav, mp3, ogg, m4a)"
+            echo "  cut <audio_file> [-s start] [-e end]         Trim or delete segments"
+            echo "         -s 00:01:00 -e 00:03:00               Keep 1m–3m"
+            echo "         -d 00:01:00 00:03:00                  Delete 1m–3m, keep rest"
+            echo "         -d 00:01:00 00:02:00 -d 00:05:00 00:06:00  Multi-delete"
+            echo "         -x 00:01:00 00:03:00                  Extract named clip"
+            echo "  normalize <audio_file> [--target -16] [--peak -1]  Loudness normalize (EBU R128)"
+            echo "  fade <audio_file> [--in 2] [--out 3]         Fade in/out (seconds)"
+            echo "  trim-silence <audio_file> [--threshold -40] [--pad 0.3]  Remove leading/trailing silence"
             echo "  split <audio_file> <mb>         Split audio into ~N MB chunks"
             echo "  concat [files...] -o output     Join multiple audio files"
             echo "  to-video <audio> -i <image>     Create video from audio and image"
@@ -57,6 +77,504 @@ run_audio() {
             return 1
             ;;
     esac
+}
+
+audio_cut() {
+    local input_file=""
+    local start_time=""
+    local end_time=""
+    local extract_mode=0
+    local extract_start=""
+    local extract_end=""
+    local -a delete_starts=()
+    local -a delete_ends=()
+    local delete_mode=0
+    local output_file=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -s|--start) start_time="$2"; shift 2 ;;
+            -e|--end|-t|--to) end_time="$2"; shift 2 ;;
+            -x|--extract)
+                extract_mode=1
+                extract_start="$2"
+                extract_end="$3"
+                shift 3
+                ;;
+            -d|--delete)
+                if [[ -n "${2:-}" && "${2:-}" != -* && -n "${3:-}" && "${3:-}" != -* ]]; then
+                    delete_mode=1
+                    delete_starts+=("$2")
+                    delete_ends+=("$3")
+                    shift 3
+                else
+                    delete_mode=1
+                    shift 1
+                fi
+                ;;
+            -o|--output) output_file="$2"; shift 2 ;;
+            *)
+                if [[ -f "$1" && -z "$input_file" ]]; then
+                    input_file="$1"
+                    shift
+                else
+                    echo "❌ Unknown argument: $1" >&2
+                    echo "Usage: amir audio cut <file> [-s start] [-e end] [-d start end ...] [-x start end] [-o output]" >&2
+                    return 1
+                fi
+                ;;
+        esac
+    done
+
+    if [[ -z "$input_file" ]]; then
+        echo "❌ Error: No input file specified." >&2
+        echo "" >&2
+        echo "Usage: amir audio cut <file> [options]" >&2
+        echo "  -s 00:01:00 -e 00:03:00                    Keep 1m–3m (stream copy, fast)" >&2
+        echo "  -d 00:01:00 00:03:00                       Delete 1m–3m, keep rest" >&2
+        echo "  -d 00:01:00 00:02:00 -d 00:05:00 00:06:00  Multi-delete in one pass" >&2
+        echo "  -x 00:01:00 00:03:00                       Extract named clip" >&2
+        echo "  -o output.mp3                              Custom output filename" >&2
+        return 1
+    fi
+
+    # -s/-e --delete shorthand: treat start/end as the delete range
+    if [[ $delete_mode -eq 1 && ${#delete_starts[@]} -eq 0 ]]; then
+        if [[ -n "$start_time" && -n "$end_time" ]]; then
+            delete_starts+=("$start_time")
+            delete_ends+=("$end_time")
+            start_time=""; end_time=""
+        else
+            echo "❌ --delete requires a range: use -d START END  or  -s START -e END --delete" >&2
+            return 1
+        fi
+    fi
+
+    if [[ $extract_mode -eq 1 ]]; then
+        if [[ -z "$extract_start" || -z "$extract_end" ]]; then
+            echo "❌ --extract requires both start and end times." >&2
+            return 1
+        fi
+        start_time="$extract_start"
+        end_time="$extract_end"
+    fi
+
+    # Auto-generate output filename
+    local ext="${input_file##*.}"
+    if [[ -z "$output_file" ]]; then
+        local base="${input_file%.*}"
+        _act() { local v="$1"; v="${v//:/-}"; v="${v//./-}"; v="${v// /_}"; printf '%s' "$v"; }
+        if [[ $extract_mode -eq 1 ]]; then
+            output_file="${base}_cut_$(_act "$extract_start")_$(_act "$extract_end").${ext}"
+        else
+            output_file="${base}_cut.${ext}"
+        fi
+    fi
+
+    local FFMPEG_PATH
+    FFMPEG_PATH=$(get_ffmpeg_path)
+
+    # Convert HH:MM:SS or MM:SS or SS to fractional seconds
+    _acut_to_sec() {
+        awk -v t="$1" 'BEGIN {
+            n = split(t, a, ":")
+            if (n == 1) { printf "%.6f", a[1]+0 }
+            else if (n == 2) { printf "%.6f", a[1]*60+a[2] }
+            else { printf "%.6f", a[1]*3600+a[2]*60+a[3] }
+        }'
+    }
+
+    # Return ffmpeg audio encoder args for a given output extension
+    _acut_enc() {
+        case "${1##*.}" in
+            mp3)  echo "-c:a libmp3lame -b:a 192k" ;;
+            m4a|aac) echo "-c:a aac -b:a 192k" ;;
+            wav)  echo "-c:a pcm_s16le" ;;
+            ogg)  echo "-c:a libvorbis -q:a 4" ;;
+            flac) echo "-c:a flac" ;;
+            *)    echo "-c:a libmp3lame -b:a 192k" ;;
+        esac
+    }
+
+    local input_duration
+    input_duration=$(ffprobe -v error -show_entries format=duration \
+        -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
+    if [[ -z "$input_duration" ]]; then
+        echo "❌ Could not read audio duration from: $input_file" >&2
+        return 1
+    fi
+    local dur_secs="${input_duration%%.*}"
+
+    # ── Simple trim (no delete): stream copy, fast ─────────────────────────────
+    if [[ $delete_mode -eq 0 ]]; then
+        echo "✂️  Trimming: ${start_time:-(start)} → ${end_time:-(end)}"
+        local trim_args=()
+        [[ -n "$start_time" ]] && trim_args+=(-ss "$start_time")
+        [[ -n "$end_time" ]] && trim_args+=(-to "$end_time")
+
+        run_ffmpeg_with_progress "$dur_secs" \
+            "$FFMPEG_PATH" -hide_banner -loglevel info -stats -y \
+            "${trim_args[@]}" -i "$input_file" -c copy "$output_file"
+
+        if [[ $? -eq 0 ]]; then
+            echo ""
+            echo "✅ COMPLETE: $(basename "$output_file")"
+            echo "📍 Output: $(realpath "$output_file")"
+        else
+            echo "❌ Trim failed." >&2
+            return 1
+        fi
+        return 0
+    fi
+
+    # ── Delete mode: sort and validate ranges ──────────────────────────────────
+    local -a ds=() de=()
+    local i
+    for (( i=0; i<${#delete_starts[@]}; i++ )); do
+        ds+=("$(_acut_to_sec "${delete_starts[$i]}")")
+        de+=("$(_acut_to_sec "${delete_ends[$i]}")")
+    done
+
+    # Sort ranges by start time
+    local sorted_pairs
+    sorted_pairs=$(for (( i=0; i<${#ds[@]}; i++ )); do
+        printf '%s %s\n' "${ds[$i]}" "${de[$i]}"
+    done | awk '{printf "%.6f %.6f\n", $1, $2}' | sort -n)
+    ds=(); de=()
+    while IFS=' ' read -r s e; do
+        ds+=("$s"); de+=("$e")
+    done <<< "$sorted_pairs"
+
+    for (( i=0; i<${#ds[@]}; i++ )); do
+        if awk -v s="${ds[$i]}" -v e="${de[$i]}" 'BEGIN{exit (e<=s)?0:1}'; then
+            echo "❌ Delete range $((i+1)): end must be greater than start (${delete_starts[$i]} → ${delete_ends[$i]})" >&2
+            return 1
+        fi
+        if [[ $i -gt 0 ]]; then
+            if awk -v prev="${de[$((i-1))]}" -v cur="${ds[$i]}" 'BEGIN{exit (cur<prev)?0:1}'; then
+                echo "❌ Delete ranges overlap between range $i and $((i+1))." >&2
+                return 1
+            fi
+        fi
+    done
+
+    # Build keep segments (inverse of delete ranges)
+    local -a keep_starts=(0) keep_ends=()
+    for (( i=0; i<${#ds[@]}; i++ )); do
+        keep_ends+=("${ds[$i]}")
+        keep_starts+=("${de[$i]}")
+    done
+    keep_ends+=("$input_duration")
+
+    echo "✂️  Mode: Delete ($((${#ds[@]})) range(s)) — audio re-encode"
+    for (( i=0; i<${#ds[@]}; i++ )); do
+        printf '   🗑️  Delete %d: %s → %s\n' "$((i+1))" "${delete_starts[$i]}" "${delete_ends[$i]}"
+    done
+
+    # Build filter_complex (audio-only: atrim + asetpts + concat)
+    local filter="" seg=0
+    for (( i=0; i<${#keep_starts[@]}; i++ )); do
+        local ks="${keep_starts[$i]}" ke="${keep_ends[$i]}"
+        if awk -v s="$ks" -v e="$ke" 'BEGIN{exit (e-s > 0.05)?0:1}'; then
+            filter+="[0:a]atrim=start=${ks}:end=${ke},asetpts=PTS-STARTPTS[a${seg}];"
+            seg=$(( seg+1 ))
+        fi
+    done
+
+    if [[ $seg -eq 0 ]]; then
+        echo "❌ Delete ranges remove the entire audio." >&2
+        return 1
+    fi
+
+    local concat_in=""
+    for (( i=0; i<seg; i++ )); do concat_in+="[a${i}]"; done
+    filter+="${concat_in}concat=n=${seg}:v=0:a=1[outa]"
+
+    local filter_file
+    filter_file=$(mktemp /tmp/amir_audiocut_XXXXXX.txt)
+    printf '%s' "$filter" > "$filter_file"
+
+    local enc_args
+    read -r -a enc_args <<< "$(_acut_enc "$output_file")"
+
+    run_ffmpeg_with_progress "$dur_secs" \
+        "$FFMPEG_PATH" -hide_banner -loglevel info -stats -y \
+        -i "$input_file" \
+        -filter_complex_script "$filter_file" \
+        -map '[outa]' \
+        "${enc_args[@]}" \
+        "$output_file"
+    local exit_code=$?
+    rm -f "$filter_file"
+
+    if [[ $exit_code -eq 0 ]]; then
+        echo ""
+        echo "✅ COMPLETE: $(basename "$output_file")"
+        echo "📍 Output: $(realpath "$output_file")"
+    else
+        echo "❌ Audio cut failed." >&2
+        return 1
+    fi
+}
+
+audio_normalize() {
+    local input_file=""
+    local target_lufs="-16"
+    local true_peak="-1"
+    local output_file=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target|-l) target_lufs="$2"; shift 2 ;;
+            --peak|-p)   true_peak="$2";   shift 2 ;;
+            -o|--output) output_file="$2"; shift 2 ;;
+            *)
+                if [[ -f "$1" && -z "$input_file" ]]; then
+                    input_file="$1"; shift
+                else
+                    echo "❌ Unknown argument: $1" >&2
+                    echo "Usage: amir audio normalize <file> [--target -16] [--peak -1] [-o output]" >&2
+                    return 1
+                fi ;;
+        esac
+    done
+
+    if [[ -z "$input_file" ]]; then
+        echo "❌ No input file." >&2
+        echo "Usage: amir audio normalize <file> [--target -16] [--peak -1] [-o output]" >&2
+        echo "  --target  Target integrated loudness in LUFS (default: -16, YouTube standard)" >&2
+        echo "  --peak    Max true peak in dBTP (default: -1)" >&2
+        return 1
+    fi
+
+    local ext="${input_file##*.}"
+    [[ -z "$output_file" ]] && output_file="${input_file%.*}_normalized.${ext}"
+
+    local FFMPEG_PATH; FFMPEG_PATH=$(get_ffmpeg_path)
+
+    # Pass 1: measure loudness
+    echo "📊 Measuring loudness (pass 1)..."
+    local measured
+    measured=$("$FFMPEG_PATH" -hide_banner -i "$input_file" \
+        -af "loudnorm=I=${target_lufs}:TP=${true_peak}:LRA=11:print_format=json" \
+        -f null /dev/null 2>&1 | grep -A 20 '"input_i"')
+
+    if [[ -z "$measured" ]]; then
+        echo "❌ loudnorm measurement failed." >&2
+        return 1
+    fi
+
+    local input_i input_tp input_lra input_thresh
+    input_i=$(echo "$measured"    | grep '"input_i"'          | grep -o '"-\?[0-9.]*"' | tr -d '"')
+    input_tp=$(echo "$measured"   | grep '"input_tp"'         | grep -o '"-\?[0-9.]*"' | tr -d '"')
+    input_lra=$(echo "$measured"  | grep '"input_lra"'        | grep -o '"-\?[0-9.]*"' | tr -d '"')
+    input_thresh=$(echo "$measured" | grep '"input_thresh"'   | grep -o '"-\?[0-9.]*"' | tr -d '"')
+
+    echo "   Input:  ${input_i} LUFS  |  Peak: ${input_tp} dBTP  |  LRA: ${input_lra} LU"
+    echo "   Target: ${target_lufs} LUFS  |  Peak: ${true_peak} dBTP"
+
+    # Pass 2: apply normalization
+    echo "🔊 Applying normalization (pass 2)..."
+    local duration_seconds
+    duration_seconds=$(ffprobe -v error -show_entries format=duration \
+        -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null | cut -d. -f1)
+
+    local filter="loudnorm=I=${target_lufs}:TP=${true_peak}:LRA=11"
+    filter+=":measured_I=${input_i}:measured_TP=${input_tp}"
+    filter+=":measured_LRA=${input_lra}:measured_thresh=${input_thresh}"
+    filter+=":offset=0:linear=true:print_format=none"
+
+    local enc_args=()
+    case "$ext" in
+        mp3)  enc_args=(-c:a libmp3lame -b:a 192k) ;;
+        m4a|aac) enc_args=(-c:a aac -b:a 192k) ;;
+        wav)  enc_args=(-c:a pcm_s16le) ;;
+        ogg)  enc_args=(-c:a libvorbis -q:a 4) ;;
+        flac) enc_args=(-c:a flac) ;;
+        *)    enc_args=(-c:a libmp3lame -b:a 192k) ;;
+    esac
+
+    run_ffmpeg_with_progress "$duration_seconds" \
+        "$FFMPEG_PATH" -hide_banner -loglevel info -stats -y \
+        -i "$input_file" -af "$filter" "${enc_args[@]}" "$output_file"
+
+    if [[ $? -eq 0 ]]; then
+        echo ""
+        echo "✅ COMPLETE: $(basename "$output_file")"
+        echo "📍 Output: $(realpath "$output_file")"
+    else
+        echo "❌ Normalization failed." >&2
+        return 1
+    fi
+}
+
+audio_fade() {
+    local input_file=""
+    local fade_in=0
+    local fade_out=0
+    local output_file=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --in|-i)  fade_in="$2";  shift 2 ;;
+            --out|-O) fade_out="$2"; shift 2 ;;
+            -o|--output) output_file="$2"; shift 2 ;;
+            *)
+                if [[ -f "$1" && -z "$input_file" ]]; then
+                    input_file="$1"; shift
+                else
+                    echo "❌ Unknown argument: $1" >&2
+                    echo "Usage: amir audio fade <file> [--in 2] [--out 3] [-o output]" >&2
+                    return 1
+                fi ;;
+        esac
+    done
+
+    if [[ -z "$input_file" ]]; then
+        echo "❌ No input file." >&2
+        echo "Usage: amir audio fade <file> [--in 2] [--out 3] [-o output]" >&2
+        echo "  --in   Fade-in duration in seconds (default: 0)" >&2
+        echo "  --out  Fade-out duration in seconds (default: 0)" >&2
+        return 1
+    fi
+
+    if [[ "$fade_in" == "0" && "$fade_out" == "0" ]]; then
+        echo "❌ Specify at least --in or --out." >&2
+        return 1
+    fi
+
+    local duration
+    duration=$(ffprobe -v error -show_entries format=duration \
+        -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
+    if [[ -z "$duration" ]]; then
+        echo "❌ Could not read duration from: $input_file" >&2
+        return 1
+    fi
+
+    local ext="${input_file##*.}"
+    [[ -z "$output_file" ]] && output_file="${input_file%.*}_fade.${ext}"
+
+    # Build afade filter chain
+    local filters=()
+    if awk -v v="$fade_in" 'BEGIN{exit (v>0)?0:1}'; then
+        filters+=("afade=t=in:st=0:d=${fade_in}")
+    fi
+    if awk -v v="$fade_out" 'BEGIN{exit (v>0)?0:1}'; then
+        local fade_out_start
+        fade_out_start=$(awk -v d="$duration" -v fo="$fade_out" 'BEGIN{printf "%.6f", d-fo}')
+        filters+=("afade=t=out:st=${fade_out_start}:d=${fade_out}")
+    fi
+
+    local filter_str
+    printf -v filter_str '%s,' "${filters[@]}"
+    filter_str="${filter_str%,}"
+
+    local FFMPEG_PATH; FFMPEG_PATH=$(get_ffmpeg_path)
+    local dur_secs="${duration%%.*}"
+
+    echo "🎚️  Fade: in=${fade_in}s  out=${fade_out}s"
+
+    local enc_args=()
+    case "$ext" in
+        mp3)  enc_args=(-c:a libmp3lame -b:a 192k) ;;
+        m4a|aac) enc_args=(-c:a aac -b:a 192k) ;;
+        wav)  enc_args=(-c:a pcm_s16le) ;;
+        ogg)  enc_args=(-c:a libvorbis -q:a 4) ;;
+        flac) enc_args=(-c:a flac) ;;
+        *)    enc_args=(-c:a libmp3lame -b:a 192k) ;;
+    esac
+
+    run_ffmpeg_with_progress "$dur_secs" \
+        "$FFMPEG_PATH" -hide_banner -loglevel info -stats -y \
+        -i "$input_file" -af "$filter_str" "${enc_args[@]}" "$output_file"
+
+    if [[ $? -eq 0 ]]; then
+        echo ""
+        echo "✅ COMPLETE: $(basename "$output_file")"
+        echo "📍 Output: $(realpath "$output_file")"
+    else
+        echo "❌ Fade failed." >&2
+        return 1
+    fi
+}
+
+audio_trim_silence() {
+    local input_file=""
+    local threshold="-40"
+    local pad="0.3"
+    local output_file=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --threshold|-t) threshold="$2"; shift 2 ;;
+            --pad|-p)       pad="$2";       shift 2 ;;
+            -o|--output)    output_file="$2"; shift 2 ;;
+            *)
+                if [[ -f "$1" && -z "$input_file" ]]; then
+                    input_file="$1"; shift
+                else
+                    echo "❌ Unknown argument: $1" >&2
+                    echo "Usage: amir audio trim-silence <file> [--threshold -40] [--pad 0.3] [-o output]" >&2
+                    return 1
+                fi ;;
+        esac
+    done
+
+    if [[ -z "$input_file" ]]; then
+        echo "❌ No input file." >&2
+        echo "Usage: amir audio trim-silence <file> [--threshold -40] [--pad 0.3] [-o output]" >&2
+        echo "  --threshold  Silence level in dB (default: -40). Louder = more aggressive." >&2
+        echo "  --pad        Seconds of silence to keep at edges (default: 0.3)" >&2
+        return 1
+    fi
+
+    local ext="${input_file##*.}"
+    [[ -z "$output_file" ]] && output_file="${input_file%.*}_trimmed.${ext}"
+
+    local FFMPEG_PATH; FFMPEG_PATH=$(get_ffmpeg_path)
+    local duration_seconds
+    duration_seconds=$(ffprobe -v error -show_entries format=duration \
+        -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null | cut -d. -f1)
+
+    echo "✂️  Trimming silence (threshold: ${threshold}dB, pad: ${pad}s)..."
+
+    # silenceremove: remove leading silence (start_periods=1) and trailing silence (stop_periods=1)
+    # areverse trick: apply twice to handle both ends, since silenceremove only removes leading silence
+    local filter="silenceremove=start_periods=1:start_silence=${pad}:start_threshold=${threshold}dB"
+    filter+=",areverse"
+    filter+=",silenceremove=start_periods=1:start_silence=${pad}:start_threshold=${threshold}dB"
+    filter+=",areverse"
+
+    local enc_args=()
+    case "$ext" in
+        mp3)  enc_args=(-c:a libmp3lame -b:a 192k) ;;
+        m4a|aac) enc_args=(-c:a aac -b:a 192k) ;;
+        wav)  enc_args=(-c:a pcm_s16le) ;;
+        ogg)  enc_args=(-c:a libvorbis -q:a 4) ;;
+        flac) enc_args=(-c:a flac) ;;
+        *)    enc_args=(-c:a libmp3lame -b:a 192k) ;;
+    esac
+
+    run_ffmpeg_with_progress "$duration_seconds" \
+        "$FFMPEG_PATH" -hide_banner -loglevel info -stats -y \
+        -i "$input_file" -af "$filter" "${enc_args[@]}" "$output_file"
+
+    if [[ $? -eq 0 ]]; then
+        local new_dur
+        new_dur=$(ffprobe -v error -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 "$output_file" 2>/dev/null)
+        echo ""
+        echo "✅ COMPLETE: $(basename "$output_file")"
+        echo "📍 Output: $(realpath "$output_file")"
+        if [[ -n "$new_dur" && -n "$duration_seconds" ]]; then
+            local removed
+            removed=$(awk -v orig="$duration_seconds" -v new="$new_dur" 'BEGIN{printf "%.1f", orig-new}')
+            echo "   Removed ${removed}s of silence"
+        fi
+    else
+        echo "❌ trim-silence failed." >&2
+        return 1
+    fi
 }
 
 audio_split() {

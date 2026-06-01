@@ -495,6 +495,130 @@ video_abspath() {
     python3 -c "import os, sys; print(os.path.abspath(sys.argv[1]))" "$1"
 }
 
+video_convert() {
+    local input="" output="" target_fmt="" reencode=0
+
+    if [[ $# -eq 0 ]]; then
+        echo "Usage: amir video convert <input> [--to FORMAT] [-o OUTPUT] [--reencode]"
+        echo ""
+        echo "Formats: mp4  mov  mkv  webm  avi"
+        echo ""
+        echo "Examples:"
+        echo "  amir video convert clip.mov                    # → clip.mp4"
+        echo "  amir video convert clip.mov --to mkv           # → clip.mkv"
+        echo "  amir video convert clip.mov -o final.mp4"
+        echo "  amir video convert clip.webm --reencode        # force re-encode for compatibility"
+        return 1
+    fi
+
+    local supported_formats=("mp4" "mov" "mkv" "webm" "avi")
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --to|-f) target_fmt="$2"; shift 2 ;;
+            -o|--output) output="$2"; shift 2 ;;
+            --reencode) reencode=1; shift ;;
+            -*) echo "❌ Unknown option: $1"; return 1 ;;
+            *) input="$1"; shift ;;
+        esac
+    done
+
+    if [[ -z "$input" ]]; then
+        echo "❌ No input file specified."
+        return 1
+    fi
+
+    if [[ ! -f "$input" ]]; then
+        echo "❌ File not found: $input"
+        return 1
+    fi
+
+    # Determine target format
+    if [[ -n "$output" ]]; then
+        target_fmt="${output##*.}"
+    elif [[ -z "$target_fmt" ]]; then
+        target_fmt="mp4"
+    fi
+    target_fmt="$(echo "$target_fmt" | tr '[:upper:]' '[:lower:]')"
+
+    # Validate format
+    local valid=0
+    for fmt in "${supported_formats[@]}"; do
+        [[ "$fmt" == "$target_fmt" ]] && valid=1 && break
+    done
+    if [[ $valid -eq 0 ]]; then
+        echo "❌ Unsupported format: $target_fmt"
+        echo "   Supported: ${supported_formats[*]}"
+        return 1
+    fi
+
+    # Build output path
+    if [[ -z "$output" ]]; then
+        local stem="${input%.*}"
+        output="${stem}.${target_fmt}"
+    fi
+
+    if [[ "$input" == "$output" ]]; then
+        echo "❌ Input and output are the same file."
+        return 1
+    fi
+
+    # Detect codecs for smart copy decision
+    local vcodec acodec
+    vcodec=$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_name \
+        -of default=noprint_wrappers=1:nokey=1 "$input" 2>/dev/null | head -1)
+    acodec=$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name \
+        -of default=noprint_wrappers=1:nokey=1 "$input" 2>/dev/null | head -1)
+
+    # webm output requires VP8/VP9 — always re-encode
+    if [[ "$target_fmt" == "webm" ]]; then
+        reencode=1
+    fi
+
+    # ProRes cannot be stream-copied into MP4/MKV — must re-encode
+    if [[ "$vcodec" == "prores" ]]; then
+        reencode=1
+    fi
+
+    local video_args=() audio_args=() extra_args=()
+    if [[ $reencode -eq 1 ]]; then
+        case "$target_fmt" in
+            webm)
+                video_args=(-c:v libvpx-vp9 -crf 30 -b:v 0)
+                audio_args=(-c:a libopus -b:a 128k)
+                ;;
+            *)
+                # VideoToolbox for hardware-accelerated H.264 on Apple Silicon
+                if ffmpeg -encoders 2>/dev/null | grep -q h264_videotoolbox; then
+                    video_args=(-c:v h264_videotoolbox -b:v 20M)
+                else
+                    video_args=(-c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p)
+                fi
+                audio_args=(-c:a aac -b:a 160k)
+                ;;
+        esac
+        extra_args=(-movflags +faststart)
+        echo "🔄 Re-encoding: $input → $output"
+    else
+        video_args=(-c:v copy)
+        audio_args=(-c:a copy)
+        # Note: -movflags +faststart is intentionally omitted for stream copy —
+        # it breaks Apple HEVC (hvc1) in MP4 container on DaVinci Resolve / QuickTime.
+        echo "⚡ Stream-copy (fast): $input → $output"
+    fi
+
+    if ffmpeg -hide_banner -loglevel error -stats -y \
+        -i "$input" \
+        "${video_args[@]}" "${audio_args[@]}" "${extra_args[@]}" \
+        "$output"; then
+        echo "✅ Done: $output"
+    else
+        echo "❌ Conversion failed. Try adding --reencode if stream-copy is incompatible."
+        rm -f "$output"
+        return 1
+    fi
+}
+
 video_concat() {
     local output_file=""
     local input_files=()
@@ -556,20 +680,457 @@ video_concat() {
 
     local ffmpeg_path
     ffmpeg_path=$(get_ffmpeg_path)
-    # Re-encoding avoids concat failures when source files differ in codecs/timebase.
+
+    # Build filter_complex concat — each file gets its own decoder.
+    # This handles mixed codecs (H.264 MP4 + HEVC MOV) without freeze artifacts.
+    local -a input_args=()
+    local filter_in=""
+    local seg=0
+    for f in "${input_files[@]}"; do
+        [[ ! -f "$f" ]] && continue
+        input_args+=(-i "$f")
+        filter_in+="[${seg}:v][${seg}:a]"
+        seg=$(( seg + 1 ))
+    done
+    rm -f "$list_file"
+
+    local filter_file
+    filter_file=$(mktemp /tmp/concat_filter_XXXXXX.txt)
+    printf '%s' "${filter_in}concat=n=${seg}:v=1:a=1[outv][outa]" > "$filter_file"
+
     run_ffmpeg_with_progress "" \
         "$ffmpeg_path" -hide_banner -loglevel info -stats -y \
-        -f concat -safe 0 -i "$list_file" \
-        -c:v libx264 -crf 20 -preset medium \
+        "${input_args[@]}" \
+        -filter_complex_script "$filter_file" \
+        -map '[outv]' -map '[outa]' \
+        -c:v libx264 -crf 20 -preset medium -bf 0 \
         -c:a aac -b:a 192k -movflags +faststart "$output_file"
     local exit_code=$?
-    rm -f "$list_file"
+    rm -f "$filter_file"
 
     if [[ $exit_code -eq 0 ]]; then
         echo "✅ Concatenation complete: $output_file"
         echo "$output_file"
     else
         echo "❌ FFmpeg failed to merge video files."
+        return 1
+    fi
+}
+
+_pip_to_seconds() {
+    local t="$1"
+    [[ "$t" =~ ^[0-9]+$ ]] && echo "$t" && return
+    local h=0 m=0 s=0
+    IFS=':' read -r p1 p2 p3 <<< "$t"
+    # 10# prefix forces base-10 so leading zeros (e.g. 09) don't trigger octal
+    if [[ -n "$p3" ]]; then
+        h=$(( 10#$p1 )); m=$(( 10#$p2 )); s=$(( 10#$p3 ))
+    elif [[ -n "$p2" ]]; then
+        m=$(( 10#$p1 )); s=$(( 10#$p2 ))
+    else
+        s=$(( 10#$p1 ))
+    fi
+    echo $(( h*3600 + m*60 + s ))
+}
+
+video_pip() {
+    if [[ $# -eq 0 ]]; then
+        echo "Usage: amir video pip <main> --pip <file> [options] [--pip <file> [options]] [-o output]"
+        echo ""
+        echo "Options per --pip:"
+        echo "  --start TIME     When to show this pip on the main timeline (default: 0)"
+        echo "  --end   TIME     When to hide this pip (default: end of main)"
+        echo "  --pos   POSITION tl|tr|bl|br|center or X:Y in pixels (default: tr)"
+        echo "  --size  PERCENT  Width as % of main video width (default: 25)"
+        echo ""
+        echo "Global options:"
+        echo "  --margin N       Edge margin in pixels (default: 20)"
+        echo "  -o, --output     Output file (default: <main>_pip.mp4)"
+        echo ""
+        echo "Examples:"
+        echo "  # Two people, each 2 minutes, top-right and top-left"
+        echo "  amir video pip screen.mp4 \\"
+        echo "    --pip person1.mov --start 00:01:00 --end 00:03:00 --pos tr \\"
+        echo "    --pip person2.mov --start 00:03:00 --end 00:05:00 --pos tl \\"
+        echo "    -o final.mp4"
+        echo ""
+        echo "  # Custom pixel position"
+        echo "  amir video pip screen.mp4 --pip cam.mov --pos 50:50 --size 30"
+        return 1
+    fi
+
+    local main_video="" output="" margin=20
+    local -a pip_files pip_starts pip_ends pip_positions pip_sizes pip_has_audio
+    local current=-1
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --pip)
+                current=$(( ${#pip_files[@]} ))
+                pip_files+=("$2")
+                pip_starts+=(0)
+                pip_ends+=("")
+                pip_positions+=(tr)
+                pip_sizes+=(25)
+                shift 2 ;;
+            --start)
+                [[ $current -lt 0 ]] && echo "❌ --start must follow --pip" && return 1
+                pip_starts[$current]="$(_pip_to_seconds "$2")"; shift 2 ;;
+            --end)
+                [[ $current -lt 0 ]] && echo "❌ --end must follow --pip" && return 1
+                pip_ends[$current]="$(_pip_to_seconds "$2")"; shift 2 ;;
+            --pos)
+                [[ $current -lt 0 ]] && echo "❌ --pos must follow --pip" && return 1
+                pip_positions[$current]="$2"; shift 2 ;;
+            --size)
+                [[ $current -lt 0 ]] && echo "❌ --size must follow --pip" && return 1
+                pip_sizes[$current]="$2"; shift 2 ;;
+            --margin)
+                margin="$2"; shift 2 ;;
+            -o|--output)
+                output="$2"; shift 2 ;;
+            -*)
+                echo "❌ Unknown option: $1"; return 1 ;;
+            *)
+                if [[ -z "$main_video" ]]; then
+                    main_video="$1"
+                else
+                    echo "❌ Unexpected argument: $1"; return 1
+                fi
+                shift ;;
+        esac
+    done
+
+    [[ -z "$main_video" ]]       && echo "❌ No main video specified." && return 1
+    [[ ! -f "$main_video" ]]     && echo "❌ File not found: $main_video" && return 1
+    [[ ${#pip_files[@]} -eq 0 ]] && echo "❌ No --pip videos specified." && return 1
+
+    [[ -z "$output" ]] && output="${main_video%.*}_pip.mp4"
+
+    local main_w main_h
+    main_w=$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=width -of default=noprint_wrappers=1:nokey=1 \
+        "$main_video" 2>/dev/null | head -1)
+    main_h=$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=height -of default=noprint_wrappers=1:nokey=1 \
+        "$main_video" 2>/dev/null | head -1)
+    [[ -z "$main_w" ]] && echo "❌ Could not read main video dimensions." && return 1
+
+    echo "📹 Main : $main_video (${main_w}×${main_h})"
+
+    local -a ffmpeg_args=(-i "$main_video")
+    local i num_pips=${#pip_files[@]}
+
+    for (( i=0; i<num_pips; i++ )); do
+        [[ ! -f "${pip_files[$i]}" ]] && echo "❌ PiP file not found: ${pip_files[$i]}" && return 1
+        ffmpeg_args+=(-i "${pip_files[$i]}")
+        local _astream
+        _astream=$(ffprobe -v error -select_streams a:0 \
+            -show_entries stream=codec_type \
+            -of default=noprint_wrappers=1:nokey=1 \
+            "${pip_files[$i]}" 2>/dev/null | head -1)
+        pip_has_audio+=("$_astream")
+        echo "   PiP $((i+1)): ${pip_files[$i]} | ${pip_starts[$i]}s–${pip_ends[$i]:-end} | pos=${pip_positions[$i]} size=${pip_sizes[$i]}%"
+    done
+
+    # ── Build filter_complex ──────────────────────────────────────────────────
+    local filter=""
+
+    # Scale each pip
+    for (( i=0; i<num_pips; i++ )); do
+        local pw=$(( main_w * pip_sizes[$i] / 100 ))
+        filter+="[$(( i+1 )):v]scale=${pw}:-2[p${i}v];"
+    done
+
+    # Overlay chain with time-based enable
+    local prev_v="0:v"
+    for (( i=0; i<num_pips; i++ )); do
+        local st="${pip_starts[$i]}" en="${pip_ends[$i]}"
+        local pos="${pip_positions[$i]}" x y
+
+        case "$pos" in
+            tl)     x="$margin";        y="$margin" ;;
+            tr)     x="W-w-$margin";    y="$margin" ;;
+            bl)     x="$margin";        y="H-h-$margin" ;;
+            br)     x="W-w-$margin";    y="H-h-$margin" ;;
+            center) x="(W-w)/2";        y="(H-h)/2" ;;
+            *:*)    x="${pos%%:*}";      y="${pos##*:}" ;;
+            *)      x="W-w-$margin";    y="$margin" ;;
+        esac
+
+        local enable
+        if [[ -n "$en" ]]; then
+            enable="enable='between(t,${st},${en})'"
+        else
+            enable="enable='gte(t,${st})'"
+        fi
+
+        local out_v
+        [[ $i -eq $(( num_pips-1 )) ]] && out_v="outv" || out_v="tmp${i}"
+        filter+="[${prev_v}][p${i}v]overlay=x=${x}:y=${y}:${enable}[${out_v}];"
+        prev_v="$out_v"
+    done
+
+    # Audio: mix main + each pip (with time offset)
+    local audio_count=1
+    for (( i=0; i<num_pips; i++ )); do
+        [[ "${pip_has_audio[$i]}" != "audio" ]] && continue
+        local st="${pip_starts[$i]}" en="${pip_ends[$i]}"
+        local delay_ms=$(( st * 1000 ))
+        local pa_filter="[$(( i+1 )):a]"
+        if [[ -n "$en" ]]; then
+            local dur=$(( en - st ))
+            pa_filter+="atrim=start=0:end=${dur},"
+        fi
+        pa_filter+="adelay=delays=${delay_ms}:all=1[pa${i}];"
+        filter+="$pa_filter"
+        audio_count=$(( audio_count + 1 ))
+    done
+
+    local amix_in="[0:a]"
+    for (( i=0; i<num_pips; i++ )); do
+        [[ "${pip_has_audio[$i]}" == "audio" ]] && amix_in+="[pa${i}]"
+    done
+    if [[ $audio_count -gt 1 ]]; then
+        filter+="${amix_in}amix=inputs=${audio_count}:duration=first:normalize=0[outa]"
+    else
+        filter+="[0:a]acopy[outa]"
+    fi
+
+    # ── Write filter to temp file (avoids shell quoting issues) ──────────────
+    local filter_file
+    filter_file=$(mktemp /tmp/pip_filter_XXXXXX.txt)
+    printf '%s' "$filter" > "$filter_file"
+
+    local venc
+    if ffmpeg -encoders 2>/dev/null | grep -q h264_videotoolbox; then
+        venc="h264_videotoolbox -b:v 15M"
+    else
+        venc="libx264 -preset medium -crf 20 -pix_fmt yuv420p"
+    fi
+
+    echo ""
+    echo "🎬 Compositing PiP..."
+
+    if ffmpeg -hide_banner -loglevel error -stats -y \
+        "${ffmpeg_args[@]}" \
+        -filter_complex_script "$filter_file" \
+        -map '[outv]' -map '[outa]' \
+        -c:v $venc \
+        -c:a aac -b:a 192k \
+        "$output"; then
+        rm -f "$filter_file"
+        echo "✅ Done: $output"
+    else
+        rm -f "$filter_file"
+        echo "❌ PiP failed. Check times and file formats."
+        rm -f "$output"
+        return 1
+    fi
+}
+
+video_outro() {
+    if [[ $# -eq 0 ]]; then
+        echo "Usage: amir video outro <video> --image <img> [options]"
+        echo ""
+        echo "Options:"
+        echo "  --image FILE       Image to show as outro card (required)"
+        echo "  --fade N           Fade duration in seconds (default: 1)"
+        echo "  --hold N           How long to display the image (default: 3)"
+        echo "  -o, --output FILE  Output file (default: <video>_outro.mp4)"
+        echo ""
+        echo "Example:"
+        echo "  amir video outro presentation.mp4 --image outro_card.png --fade 1 --hold 4"
+        return 1
+    fi
+
+    local video="" image="" output="" fade_dur=1 hold_dur=3
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --image)    image="$2";    shift 2 ;;
+            --fade)     fade_dur="$2"; shift 2 ;;
+            --hold)     hold_dur="$2"; shift 2 ;;
+            -o|--output) output="$2"; shift 2 ;;
+            -*) echo "❌ Unknown option: $1"; return 1 ;;
+            *)
+                if [[ -z "$video" ]]; then
+                    video="$1"
+                else
+                    echo "❌ Unexpected argument: $1"; return 1
+                fi
+                shift ;;
+        esac
+    done
+
+    [[ -z "$video" ]]  && echo "❌ No video specified." && return 1
+    [[ -z "$image" ]]  && echo "❌ --image is required." && return 1
+    [[ ! -f "$video" ]] && echo "❌ File not found: $video" && return 1
+    [[ ! -f "$image" ]] && echo "❌ File not found: $image" && return 1
+
+    [[ -z "$output" ]] && output="${video%.*}_outro.mp4"
+
+    local width height duration
+    width=$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=width -of default=noprint_wrappers=1:nokey=1 \
+        "$video" 2>/dev/null | head -1)
+    height=$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=height -of default=noprint_wrappers=1:nokey=1 \
+        "$video" 2>/dev/null | head -1)
+    duration=$(ffprobe -v error -show_entries format=duration \
+        -of default=noprint_wrappers=1:nokey=1 "$video" 2>/dev/null | head -1)
+    local fps_raw
+    fps_raw=$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=r_frame_rate -of csv=p=0 \
+        "$video" 2>/dev/null | head -1)
+    local fps
+    fps=$(awk -F/ '{if ($2 && $2!=0) printf "%d", int($1/$2 + 0.5); else printf "%d", int($1)}' <<< "$fps_raw")
+    [[ -z "$fps" || "$fps" -eq 0 ]] && fps=30
+
+    local has_audio=0
+    ffprobe -v error -select_streams a:0 -show_entries stream=codec_type \
+        -of default=noprint_wrappers=1:nokey=1 "$video" 2>/dev/null \
+        | grep -q '^audio' && has_audio=1
+
+    local fade_out_start
+    fade_out_start=$(awk "BEGIN {printf \"%.3f\", $duration - $fade_dur}")
+
+    echo "📹 Video: $(basename "$video") (${width}x${height}, ${duration}s, ${fps}fps)"
+    echo "🖼️  Image: $(basename "$image")"
+    echo "⏱️  Fade: ${fade_dur}s out → ${fade_dur}s in | Hold: ${hold_dur}s"
+
+    local filter_v="[0:v]fade=t=out:st=${fade_out_start}:d=${fade_dur}[v_main];"
+    filter_v+="[1:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,"
+    filter_v+="pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
+    filter_v+="fade=t=in:st=0:d=${fade_dur}[v_img];"
+
+    local filter_a="" map_a=() audio_enc=()
+    if [[ $has_audio -eq 1 ]]; then
+        filter_a+="aevalsrc=0:c=stereo:s=44100:d=${hold_dur}[a_img];"
+        filter_a+="[v_main][0:a][v_img][a_img]concat=n=2:v=1:a=1[outv][outa]"
+        map_a=(-map "[outa]")
+        audio_enc=(-c:a aac -b:a 192k)
+    else
+        filter_a+="aevalsrc=0:c=stereo:s=44100:d=${duration}[a_main];"
+        filter_a+="aevalsrc=0:c=stereo:s=44100:d=${hold_dur}[a_img];"
+        filter_a+="[v_main][a_main][v_img][a_img]concat=n=2:v=1:a=1[outv][outa]"
+        map_a=(-map "[outa]")
+        audio_enc=(-c:a aac -b:a 128k)
+    fi
+
+    local filter_complex="${filter_v}${filter_a}"
+
+    ffmpeg -y \
+        -i "$video" \
+        -loop 1 -framerate "$fps" -t "$hold_dur" -i "$image" \
+        -filter_complex "$filter_complex" \
+        -map "[outv]" "${map_a[@]}" \
+        -c:v h264_videotoolbox -b:v 8M \
+        "${audio_enc[@]}" \
+        "$output" && echo "✅ Done: $output" || { echo "❌ Failed."; rm -f "$output"; return 1; }
+}
+
+video_record() {
+    local screen_idx="1"
+    local audio_idx="0"
+    local fps=30
+    local output=""
+    local no_audio=0
+    local do_list=0
+    local quality=20
+
+    if [[ $# -eq 0 || "$1" == "--help" || "$1" == "-h" ]]; then
+        echo "Usage: amir video record [options]"
+        echo ""
+        echo "Options:"
+        echo "  --list           List available screens and audio devices"
+        echo "  --screen N       Screen index to record (default: 1)"
+        echo "  --audio  N       Audio device index (default: 0)"
+        echo "  --fps    N       Frame rate (default: 30)"
+        echo "  --no-audio       Record without audio"
+        echo "  --quality N      CRF 0-51, lower=better quality (default: 20)"
+        echo "  -o, --output     Output filename (default: screen_YYYYMMDD_HHMMSS.mp4)"
+        echo ""
+        echo "Examples:"
+        echo "  amir video record                       # Main screen + default mic"
+        echo "  amir video record --list                # Show available devices"
+        echo "  amir video record --screen 2 -o demo.mp4"
+        echo "  amir video record --no-audio -o cast.mp4"
+        return 0
+    fi
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --list|-l)    do_list=1; shift ;;
+            --screen)     screen_idx="$2"; shift 2 ;;
+            --audio)      audio_idx="$2"; shift 2 ;;
+            --fps)        fps="$2"; shift 2 ;;
+            --no-audio)   no_audio=1; shift ;;
+            --quality|-q) quality="$2"; shift 2 ;;
+            -o|--output)  output="$2"; shift 2 ;;
+            *) echo "❌ Unknown option: $1"; return 1 ;;
+        esac
+    done
+
+    if [[ $do_list -eq 1 ]]; then
+        echo "📺 Available AVFoundation devices:"
+        echo ""
+        ffmpeg -f avfoundation -list_devices true -i "" 2>&1 \
+            | grep -E "AVFoundation (video|audio) devices|\[[0-9]+\]" \
+            | sed \
+                -e 's/.*AVFoundation video devices:/🖥️  Video devices:/g' \
+                -e 's/.*AVFoundation audio devices:/🎙️  Audio devices:/g' \
+                -e 's/.*\[\([0-9]*\)\] /  [\1] /g'
+        echo ""
+        echo "💡 Use --screen N for video, --audio N for audio."
+        return 0
+    fi
+
+    if [[ -z "$output" ]]; then
+        output="screen_$(date +%Y%m%d_%H%M%S).mp4"
+    fi
+
+    local device_input
+    if [[ $no_audio -eq 1 ]]; then
+        device_input="${screen_idx}"
+    else
+        device_input="${screen_idx}:${audio_idx}"
+    fi
+
+    local audio_enc_args=(-c:a aac -b:a 192k)
+    [[ $no_audio -eq 1 ]] && audio_enc_args=(-an)
+
+    echo "🎬 Screen Recording — press Ctrl+C to stop"
+    echo "   Screen : device ${screen_idx}"
+    [[ $no_audio -eq 0 ]] && echo "   Audio  : device ${audio_idx}" || echo "   Audio  : off"
+    echo "   FPS    : ${fps}"
+    echo "   Output : ${output}"
+    echo ""
+
+    # ultrafast preset required for real-time screen capture encoding
+    ffmpeg -hide_banner \
+        -f avfoundation -framerate "$fps" -capture_cursor 1 \
+        -i "${device_input}" \
+        -c:v libx264 -preset ultrafast -crf "$quality" -pix_fmt yuv420p \
+        "${audio_enc_args[@]}" \
+        "$output"
+
+    local ec=$?
+
+    # ffmpeg exits 255 on SIGINT (Ctrl+C) — treat as success if file exists
+    if [[ ( $ec -eq 0 || $ec -eq 255 ) && -f "$output" && -s "$output" ]]; then
+        local dur size
+        dur=$(ffprobe -v error -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 "$output" 2>/dev/null \
+            | awk '{printf "%d:%02d", int($1/60), int($1%60)}')
+        size=$(du -sh "$output" 2>/dev/null | cut -f1)
+        echo ""
+        echo "✅ Saved: $output  (${dur}, ${size})"
+    else
+        echo ""
+        echo "❌ Recording failed or empty file."
+        echo "💡 Grant permission: System Settings → Privacy & Security → Screen Recording → Terminal"
+        rm -f "$output"
         return 1
     fi
 }
@@ -588,6 +1149,18 @@ video() {
         return $?
     fi
 
+    if [[ "$1" == "convert" ]]; then
+        shift
+        video_convert "$@"
+        return $?
+    fi
+
+    if [[ "$1" == "outro" ]]; then
+        shift
+        video_outro "$@"
+        return $?
+    fi
+
     # Support explicit 'compress' subcommand by skipping it
     if [[ "$1" == "compress" ]]; then
         shift
@@ -596,7 +1169,11 @@ video() {
     # If no arguments, show help
     if [[ $# -eq 0 ]]; then
         echo "Usage: amir video compress <files...> [Resolution] [Quality] [--gpu|--cpu]"
+        echo "       amir video record [--list] [--screen N] [--audio N] [--fps N] [-o FILE]"
+        echo "       amir video pip <main> --pip <file> [--start T] [--end T] [--pos tl|tr|bl|br|X:Y] [--size %]"
+        echo "       amir video convert <file> [--to FORMAT] [-o OUTPUT] [--reencode]"
         echo "       amir video concat <files...> [-o output.mp4]"
+        echo "       amir video outro <video> --image <img> [--fade N] [--hold N] [-o FILE]"
         echo "       amir video cut / trim <file> [options]"
         echo "       amir video split <file> <mb>"
         echo "       amir video batch <dir> [Resolution]"
@@ -727,8 +1304,8 @@ run_video_cut() {
     local extract_start=""
     local extract_end=""
     local extract_mode=0
-    local delete_start=""
-    local delete_end=""
+    local -a delete_starts=()
+    local -a delete_ends=()
     local delete_mode=0
     local output_file=""
     local subtitle_file=""
@@ -770,15 +1347,20 @@ run_video_cut() {
                 shift 3
                 ;;
             -d|--delete)
-                # Backward compatibility: old -d <duration>
-                if [[ "$1" == "-d" && ( -z "${3:-}" || "${2:-}" == -* || "${3:-}" == -* ) ]]; then
+                # Backward compatibility: old -d <duration> (short flag only, one numeric arg)
+                if [[ "$1" == "-d" && ( -z "${3:-}" || "${2:-}" == -* || "${3:-}" == -* ) && "${2:-}" =~ ^[0-9] ]]; then
                     duration="$2"
                     shift 2
-                else
+                elif [[ -n "${2:-}" && "${2:-}" != -* && -n "${3:-}" && "${3:-}" != -* ]]; then
+                    # -d START END  or  --delete START END
                     delete_mode=1
-                    delete_start="$2"
-                    delete_end="$3"
+                    delete_starts+=("$2")
+                    delete_ends+=("$3")
                     shift 3
+                else
+                    # --delete as boolean flag; range comes from -s/-e
+                    delete_mode=1
+                    shift 1
                 fi
                 ;;
             -o|--output) output_file="$2"; shift 2 ;;
@@ -826,13 +1408,24 @@ run_video_cut() {
         return 1
     fi
 
-    if [[ $extract_mode -eq 1 && ( -n "$start_time" || -n "$end_time" || -n "$duration" || -n "$delete_start" || -n "$delete_end" ) ]]; then
+    if [[ $extract_mode -eq 1 && ( -n "$start_time" || -n "$end_time" || -n "$duration" || ${#delete_starts[@]} -gt 0 ) ]]; then
         echo "❌ Error: --extract cannot be combined with --start/--end/--duration/--delete in the same command."
         return 1
     fi
 
-    if [[ $delete_mode -eq 1 && ( -n "$start_time" || -n "$end_time" || -n "$duration" ) ]]; then
-        echo "❌ Error: --delete cannot be combined with --start/--end/--duration in the same command."
+    # Allow: -s START -e END --delete  → treat -s/-e as the delete range
+    if [[ $delete_mode -eq 1 && ${#delete_starts[@]} -eq 0 ]]; then
+        if [[ -n "$start_time" && -n "$end_time" ]]; then
+            delete_starts+=("$start_time")
+            delete_ends+=("$end_time")
+            start_time=""
+            end_time=""
+        else
+            echo "❌ --delete requires a range: use  -d START END  or  -s START -e END --delete"
+            return 1
+        fi
+    elif [[ $delete_mode -eq 1 && -n "$duration" ]]; then
+        echo "❌ --delete cannot be combined with --duration."
         return 1
     fi
 
@@ -931,7 +1524,134 @@ run_video_cut() {
         }'
     }
 
+    if [[ $delete_mode -eq 1 && ${#delete_starts[@]} -gt 1 ]]; then
+        # ── Multi-delete: single filter_complex pass ──────────────────────────
+        local input_duration
+        input_duration=$(ffprobe -v error -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null)
+        [[ -z "$input_duration" ]] && echo "❌ Could not read video duration." && return 1
+
+        local has_audio_track=0
+        ffprobe -v error -select_streams a:0 -show_entries stream=index \
+            -of default=noprint_wrappers=1:nokey=1 "$input_file" 2>/dev/null \
+            | head -1 | grep -q '^[0-9]' && has_audio_track=1
+
+        # Convert all times to seconds
+        local -a ds=() de=()
+        local i
+        for (( i=0; i<${#delete_starts[@]}; i++ )); do
+            ds+=("$(_to_seconds "${delete_starts[$i]}")")
+            de+=("$(_to_seconds "${delete_ends[$i]}")")
+        done
+
+        # Sort ranges by start time (awk-based)
+        local sorted_pairs
+        sorted_pairs=$(for (( i=0; i<${#ds[@]}; i++ )); do
+            printf '%s %s\n' "${ds[$i]}" "${de[$i]}"
+        done | awk '{printf "%.6f %.6f\n", $1, $2}' | sort -n)
+
+        ds=(); de=()
+        while IFS=' ' read -r s e; do
+            ds+=("$s"); de+=("$e")
+        done <<< "$sorted_pairs"
+
+        # Validate: no overlaps, all ranges within duration
+        for (( i=0; i<${#ds[@]}; i++ )); do
+            if awk -v s="${ds[$i]}" -v e="${de[$i]}" 'BEGIN{exit (e<=s)?0:1}'; then
+                echo "❌ Delete range $((i+1)): end must be greater than start (${delete_starts[$i]} → ${delete_ends[$i]})"
+                return 1
+            fi
+            if [[ $i -gt 0 ]]; then
+                if awk -v prev="${de[$((i-1))]}" -v cur="${ds[$i]}" 'BEGIN{exit (cur<prev)?0:1}'; then
+                    echo "❌ Delete ranges overlap: range $i ends after range $((i+1)) starts."
+                    return 1
+                fi
+            fi
+        done
+
+        # Build keep segments (inverse of delete ranges)
+        local -a keep_starts=() keep_ends=()
+        keep_starts+=(0)
+        for (( i=0; i<${#ds[@]}; i++ )); do
+            keep_ends+=("${ds[$i]}")
+            keep_starts+=("${de[$i]}")
+        done
+        keep_ends+=("$input_duration")
+
+        echo "✂️  Mode: Multi-Delete ($((${#ds[@]})) ranges) — single pass"
+        for (( i=0; i<${#ds[@]}; i++ )); do
+            printf '   🗑️  Delete %d: %s → %s\n' "$((i+1))" "${delete_starts[$i]}" "${delete_ends[$i]}"
+        done
+
+        # Build filter_complex
+        local filter="" seg=0
+        for (( i=0; i<${#keep_starts[@]}; i++ )); do
+            local ks="${keep_starts[$i]}" ke="${keep_ends[$i]}"
+            # Skip segments shorter than 0.05s
+            if awk -v s="$ks" -v e="$ke" 'BEGIN{exit (e-s > 0.05)?0:1}'; then
+                filter+="[0:v]trim=start=${ks}:end=${ke},setpts=PTS-STARTPTS[v${seg}];"
+                if [[ $has_audio_track -eq 1 ]]; then
+                    filter+="[0:a]atrim=start=${ks}:end=${ke},asetpts=PTS-STARTPTS[a${seg}];"
+                fi
+                seg=$(( seg+1 ))
+            fi
+        done
+
+        if [[ $seg -eq 0 ]]; then
+            echo "❌ All delete ranges together remove the entire video."
+            return 1
+        fi
+
+        # Concat all keep segments
+        local concat_in=""
+        for (( i=0; i<seg; i++ )); do
+            if [[ $has_audio_track -eq 1 ]]; then
+                concat_in+="[v${i}][a${i}]"
+            else
+                concat_in+="[v${i}]"
+            fi
+        done
+
+        if [[ $has_audio_track -eq 1 ]]; then
+            filter+="${concat_in}concat=n=${seg}:v=1:a=1[outv][outa]"
+        else
+            filter+="${concat_in}concat=n=${seg}:v=1:a=0[outv]"
+        fi
+
+        local filter_file
+        filter_file=$(mktemp /tmp/multicut_XXXXXX.txt)
+        printf '%s' "$filter" > "$filter_file"
+
+        local map_args=(-map '[outv]')
+        [[ $has_audio_track -eq 1 ]] && map_args+=(-map '[outa]')
+
+        local audio_enc_args=()
+        [[ $has_audio_track -eq 1 ]] && audio_enc_args=(-c:a aac -b:a 160k)
+        [[ $has_audio_track -eq 0 ]] && audio_enc_args=(-an)
+
+        if "$ffmpeg_cmd" -hide_banner -loglevel error -stats -y \
+            -i "$input_file" \
+            -filter_complex_script "$filter_file" \
+            "${map_args[@]}" \
+            -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p -bf 0 \
+            "${audio_enc_args[@]}" \
+            -movflags +faststart \
+            "$output_file"; then
+            rm -f "$filter_file"
+            echo ""
+            echo "✅ COMPLETE: $(basename "$output_file")"
+            echo "📍 Output: $(realpath "$output_file")"
+        else
+            rm -f "$filter_file"
+            echo "❌ Multi-delete failed."
+            return 1
+        fi
+        return 0
+    fi
+
     if [[ $delete_mode -eq 1 ]]; then
+        local delete_start="${delete_starts[0]}"
+        local delete_end="${delete_ends[0]}"
         local delete_start_seconds
         local delete_end_seconds
         local input_duration
@@ -1764,7 +2484,8 @@ find_existing_downloaded_video() {
 
         # Resolution-agnostic fallback: the actual downloaded height often differs from
         # the requested resolution (e.g. user asks 480p but video only has 426p).
-        # Scan all *_<N>p* files and match by title key regardless of resolution.
+        # Only reuse if the found file's resolution is ≥ 75% of the requested resolution
+        # to avoid reusing a 360p file when 1080p is explicitly requested.
         for _candidate in "${_out_dir}"/*_[0-9]*p*.mp4; do
             [[ -f "$_candidate" ]] || continue
             is_reusable_download_video "$_candidate" || continue
@@ -1774,6 +2495,14 @@ find_existing_downloaded_video() {
             _cand_base="$(printf '%s' "$_cand_stem" | sed -E 's/_[0-9]+p(_[0-9]+)?$//')"
             _cand_key="$(stem_compare_key "$_cand_base")"
             if [[ -n "$_cand_key" && "$_cand_key" == "$_target_key" ]]; then
+                local _found_res
+                _found_res="$(printf '%s' "$_cand_stem" | grep -oE '[0-9]+p' | tail -1 | tr -d 'p')"
+                if [[ "$_found_res" =~ ^[0-9]+$ && "$_resolution" =~ ^[0-9]+$ ]]; then
+                    # Skip if found resolution is less than 75% of requested (avoid reusing 360p for 1080p)
+                    if ! awk -v f="$_found_res" -v r="$_resolution" 'BEGIN { exit (f >= r * 0.75) ? 0 : 1 }'; then
+                        continue
+                    fi
+                fi
                 printf "%s" "$_candidate"
                 return 0
             fi
@@ -2277,14 +3006,12 @@ video_download() {
         return 1
     fi
 
-    # Build cookie arguments
-    # YouTube can return HTTP 403 when browser cookies are auto-injected.
-    # Keep explicit user choice, but avoid implicit browser cookies for YouTube links.
-    local -a COOKIE_ARGS=()
+    # Detect URL type so downstream logic can branch correctly
     local IS_YOUTUBE_URL=false
-    if [[ "$URL" =~ ^https?://([^/]+\.)?(youtube\.com|youtu\.be|youtube-nocookie\.com)(/|$) ]]; then
-        IS_YOUTUBE_URL=true
-    fi
+    [[ "$URL" =~ (youtube\.com|youtu\.be) ]] && IS_YOUTUBE_URL=true
+
+    # Build cookie arguments
+    local -a COOKIE_ARGS=()
 
     if [[ -n "$COOKIES_FILE" ]]; then
         COOKIE_ARGS=(--cookies "$COOKIES_FILE")
@@ -2292,26 +3019,38 @@ video_download() {
         COOKIE_ARGS=(--cookies "cookies.txt")
     elif [[ -f "$HOME/su6i-yar/cookies.txt" ]]; then
         COOKIE_ARGS=(--cookies "$HOME/su6i-yar/cookies.txt")
-    elif $BROWSER_EXPLICIT && [[ -n "$BROWSER" && "$BROWSER" != "none" ]]; then
-        COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
-    elif $IS_YOUTUBE_URL; then
-        COOKIE_ARGS=()
     elif [[ -n "$BROWSER" && "$BROWSER" != "none" ]]; then
         COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
     fi
 
     # Cloudflare / anti-bot compatibility:
-    # Default to Chrome impersonation, but allow disabling/override via env.
+    # Default to Chrome impersonation for non-YouTube sites, but allow disabling/override via env.
+    # YouTube does not need impersonation; skip it to avoid curl_cffi crashes.
     # Examples:
     #   AMIR_YTDLP_IMPERSONATE=none   -> disable
     #   AMIR_YTDLP_IMPERSONATE=safari -> custom target
     local -a IMPERSONATE_ARGS=()
     local IMPERSONATE_TARGET="${AMIR_YTDLP_IMPERSONATE:-chrome}"
-    if [[ -n "$IMPERSONATE_TARGET" && "$IMPERSONATE_TARGET" != "none" ]]; then
-        IMPERSONATE_ARGS=(--impersonate "$IMPERSONATE_TARGET" --extractor-args "generic:impersonate=$IMPERSONATE_TARGET")
+    if [[ -n "$IMPERSONATE_TARGET" && "$IMPERSONATE_TARGET" != "none" && "$IS_YOUTUBE_URL" == false ]]; then
+        # Only use --impersonate when curl_cffi actually supports the target
+        if yt-dlp --list-impersonate-targets 2>/dev/null | awk -v t="${IMPERSONATE_TARGET}" \
+            'tolower($1)==tolower(t) && $0 !~ /unavailable/{found=1} END{exit !found}'; then
+            IMPERSONATE_ARGS=(--impersonate "$IMPERSONATE_TARGET" --extractor-args "generic:impersonate=$IMPERSONATE_TARGET")
+        else
+            IMPERSONATE_ARGS=(--extractor-args "generic:impersonate")
+        fi
     else
-        # Keep generic extractor behavior available even when explicit impersonation is disabled.
+        # YouTube or disabled: keep generic extractor hint without requiring curl_cffi.
         IMPERSONATE_ARGS=(--extractor-args "generic:impersonate")
+    fi
+
+    # YouTube SABR workaround: yt-dlp's built-in default uses android_vr which
+    # YouTube may route to SABR-only streaming (no direct URL per issue #12482).
+    # Explicitly requesting player_client=default avoids android_vr and returns
+    # standard DASH streams up to 1080p without SABR restrictions.
+    local -a YT_CLIENT_ARGS=()
+    if $IS_YOUTUBE_URL; then
+        YT_CLIENT_ARGS=(--extractor-args "youtube:player_client=default")
     fi
 
     # ── Extreme download defaults ─────────────────────────────────────────
@@ -2492,6 +3231,7 @@ PY
         yt-dlp \
             "${COOKIE_ARGS[@]}" \
             "${IMPERSONATE_ARGS[@]}" \
+            "${YT_CLIENT_ARGS[@]}" \
             --remote-components "ejs:github" \
             --newline \
             --continue \
@@ -2526,6 +3266,7 @@ PY
             log_info "↻ Retry without browser auth/session hints for YouTube..." >&2
             : > "$_PATHFILE"
             yt-dlp \
+                "${YT_CLIENT_ARGS[@]}" \
                 --remote-components "ejs:github" \
                 --newline \
                 --continue \
@@ -3008,6 +3749,15 @@ run_video() {
         shift
         source "$LIB_DIR/commands/subtitle.sh"
         run_subtitle "$@"
+    elif [[ "$1" == "record" || "$1" == "rec" ]]; then
+        shift
+        video_record "$@"
+    elif [[ "$1" == "pip" ]]; then
+        shift
+        video_pip "$@"
+    elif [[ "$1" == "convert" ]]; then
+        shift
+        video_convert "$@"
     elif [[ "$1" == "download" || "$1" == "dl" ]]; then
         shift
         video_download "$@"
