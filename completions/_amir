@@ -49,8 +49,33 @@ _amir() {
             _arguments '*:target directory:_directories'
             ;;
 
-        trend|research)
+        trend)
             _trend_arguments
+            ;;
+
+        research)
+            local research_sub
+            research_sub="${words[3]}"
+            case "$research_sub" in
+                discover)
+                    _arguments -s \
+                        '--keywords[Topic keywords for supervisor search]+: :' \
+                        '--sources[Sources to search]:source:(arxiv dblp)' \
+                        '--since-year[Include papers since year]:year:(2020 2021 2022 2023 2024)' \
+                        '--min-papers[Minimum relevant papers per author]:count:(1 2 3 5)' \
+                        '--top[Number of top candidates]:count:(5 10 15 20)' \
+                        '--format[Output format]:format:(txt md xlsx)' \
+                        '--categories[ArXiv category filter]+: :' \
+                        '--profile[Candidate profile markdown file]:file:_files' \
+                        '--save[Override output file path]:file:_files' \
+                        {-h,--help}'[Show help]'
+                    ;;
+                *)
+                    _values 'subcommand' \
+                        'discover[Find PhD supervisors by topic keywords (ArXiv + DBLP)]' \
+                        && _trend_arguments
+                    ;;
+            esac
             ;;
 
         pdf)
