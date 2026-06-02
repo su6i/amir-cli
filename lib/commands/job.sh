@@ -4,8 +4,11 @@
 _JOB_SEARCH_DIR="${JOB_SEARCH_DIR:-$HOME/@-Amir/Apply/2026-2027/Job-Search}"
 
 run_job() {
-    local cmd="${1:-pending}"
-    shift || true
+    if [[ -z "$1" || "$1" == --* ]]; then
+        _job_python status.py --pending-only "$@"
+        return $?
+    fi
+    local cmd="$1"; shift
 
     case "$cmd" in
         status)

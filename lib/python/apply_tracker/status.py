@@ -9,6 +9,15 @@ from apply_tracker.tracker import (
     load_tracking, parse_position_md, days_left, init_tracking
 )
 from apply_tracker.db import get_db, query as db_query
+from apply_tracker.service import get_positions, SORT_CHOICES
+
+_SORT_MAP: dict[str, str] = {
+    "fit":         "fit_score DESC NULLS LAST, CASE WHEN deadline IS NULL THEN 1 ELSE 0 END, deadline",
+    "deadline":    "CASE WHEN deadline IS NULL THEN 1 ELSE 0 END, deadline",
+    "country":     "country NULLS LAST, deadline",
+    "status":      "status, deadline",
+    "institution": "institution, deadline",
+}
 
 # ── display helpers ───────────────────────────────────────────────────────────
 
@@ -89,18 +98,22 @@ def _db_rows_to_entries(rows: list[dict], urgent_only: bool = False) -> list[dic
 
 def collect_entries(search_dir: Path, filter_track: str | None = None,
                     urgent_only: bool = False,
-                    kind: str | None = None) -> list[dict]:
-    """Collect entries — tries SQLite first, falls back to JSON."""
+                    kind: str | None = None,
+                    sort_by: str | None = None,
+                    country: str | None = None,
+                    min_fit: float | None = None) -> list[dict]:
+    """Collect entries — tries service layer (SQLite) first, falls back to JSON."""
     base_dir = search_dir.parent
     try:
-        conn = get_db(base_dir)
-        # Infer kind from path if not given
         if kind is None:
-            name = search_dir.name.lower()
-            kind = "phd" if "phd" in name else "job"
-        rows = db_query(conn, kind=kind, track=filter_track)
+            kind = "phd" if "phd" in search_dir.name.lower() else "job"
+        rows = get_positions(base_dir, kind, track=filter_track,
+                             country=country, min_fit=min_fit, sort_by=sort_by)
         if rows:
-            return _db_rows_to_entries(rows, urgent_only)
+            if urgent_only:
+                rows = [r for r in rows if r.get("days_left") is not None
+                        and r["days_left"] <= 14]
+            return rows
     except Exception:
         pass  # fall through to JSON
 
@@ -157,8 +170,12 @@ def collect_entries(search_dir: Path, filter_track: str | None = None,
 def print_status_table(search_dir: Path, filter_track: str | None = None,
                        urgent_only: bool = False, search_type: str = "phd",
                        pending_only: bool = False,
-                       filter_status: str | None = None) -> None:
-    entries = collect_entries(search_dir, filter_track, urgent_only)
+                       filter_status: str | None = None,
+                       sort_by: str | None = None,
+                       country: str | None = None,
+                       min_fit: float | None = None) -> None:
+    entries = collect_entries(search_dir, filter_track, urgent_only,
+                              sort_by=sort_by, country=country, min_fit=min_fit)
     if urgent_only:
         entries = [e for e in entries if e["status"] not in
                    ("sent", "replied", "rejected", "bounced")]
@@ -299,23 +316,28 @@ if __name__ == "__main__":
     p.add_argument("--urgent-header", action="store_true")
     p.add_argument("--urgent", action="store_true")
     p.add_argument("--pending-only", action="store_true")
-    p.add_argument("--filter-status", default=None,
-                   help="Show only positions with this status (sent, replied, found, ...)")
+    p.add_argument("--filter-status", default=None)
     p.add_argument("--list", action="store_true")
     p.add_argument("--type", dest="search_type", default="phd")
+    p.add_argument("--sort", default=None,
+                   choices=["fit", "deadline", "country", "status", "institution"])
+    p.add_argument("--country", default=None)
+    p.add_argument("--min-fit", type=float, default=None, dest="min_fit")
     args = p.parse_args()
 
     sd = Path(args.search_dir)
+    _kw = dict(sort_by=args.sort, country=args.country, min_fit=args.min_fit,
+               search_type=args.search_type)
 
     if args.urgent_header:
         print_urgent_header(sd, args.search_type)
     elif args.urgent:
-        print_status_table(sd, args.track, urgent_only=True, search_type=args.search_type)
+        print_status_table(sd, args.track, urgent_only=True, **_kw)
     elif args.list:
         print_id_list(sd, args.track, args.search_type)
     elif args.pending_only:
-        print_status_table(sd, args.track, pending_only=True, search_type=args.search_type)
+        print_status_table(sd, args.track, pending_only=True, **_kw)
     elif args.filter_status:
-        print_status_table(sd, args.track, filter_status=args.filter_status, search_type=args.search_type)
+        print_status_table(sd, args.track, filter_status=args.filter_status, **_kw)
     else:
-        print_status_table(sd, args.track, search_type=args.search_type)
+        print_status_table(sd, args.track, **_kw)

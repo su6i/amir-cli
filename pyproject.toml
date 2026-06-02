@@ -9,6 +9,7 @@ dependencies = [
     "arabic-reshaper>=3.0.0",
     "av>=16.1.0",
     "configparser>=7.2.0",
+    "fastapi>=0.136.3",
     "faster-whisper>=1.2.1 ; platform_machine != 'arm64' or sys_platform != 'darwin'",
     "google-genai>=1.64.0",
     "huggingface-hub>=1.4.1",
@@ -23,11 +24,14 @@ dependencies = [
     "pyannote-audio>=4.0.4 ; sys_platform != 'linux' or platform_machine == 'x86_64'",
     "python-bidi>=0.6.7",
     "python-dotenv>=1.2.1",
+    "python-multipart>=0.0.30",
     "sentencepiece>=0.2.1",
     "static-ffmpeg>=3.0",
+    "textual>=8.2.7",
     "torch>=2.10.0",
     "tqdm>=4.67.3",
     "transformers>=5.2.0",
+    "uvicorn[standard]>=0.48.0",
     "weasyprint>=68.1",
 ]
 
