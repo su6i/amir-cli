@@ -59,6 +59,18 @@ _ORDER: dict[str, tuple[str, str]] = {
         "COALESCE(added_date,'1900-01-01') DESC, id ASC",
         "COALESCE(added_date,'1900-01-01') ASC, id DESC",
     ),
+    "days":        (
+        "CASE WHEN deadline IS NULL THEN 1 ELSE 0 END, deadline ASC",
+        "CASE WHEN deadline IS NULL THEN 1 ELSE 0 END, deadline DESC",
+    ),
+    "track":       (
+        "track ASC NULLS LAST, deadline ASC NULLS LAST",
+        "track DESC NULLS LAST, deadline ASC NULLS LAST",
+    ),
+    "experience":  (
+        "experience ASC NULLS LAST",
+        "experience DESC NULLS LAST",
+    ),
 }
 _DEFAULT_ORDER = _ORDER["deadline"][0]
 
