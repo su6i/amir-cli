@@ -113,6 +113,9 @@ tr:last-child td { border-bottom:none; } tr:hover td { background:#f8fffc; }
 .detail-panel .actions{display:flex;gap:8px;flex-wrap:wrap}
 .ab.folder{background:#fff3e0;color:#e65100} .ab.folder:hover{background:#ffe0b2}
 .ab.draft{background:#f3e5f5;color:#6a1b9a} .ab.draft:hover{background:#e1bee7}
+.ab.reject{background:#fce4ec;color:#c62828} .ab.reject:hover{background:#ffcdd2}
+.exp-badge{display:inline-block;padding:1px 6px;border-radius:10px;font-size:.68rem;
+           font-weight:600;background:#e8eaf6;color:#283593;white-space:nowrap}
 tr.clickable{cursor:pointer} tr.clickable:hover td{background:#f0faf5}
 .sync-btn{padding:5px 14px;border:1px solid rgba(255,255,255,.4);border-radius:6px;
           background:rgba(255,255,255,.15);color:white;cursor:pointer;
@@ -203,6 +206,7 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool) -> str:
         f"{_th('Deadline','deadline',sort,asc)}"
         f"{_th('Days','days',sort,asc)}"
         f"{_th('Fit','fit',sort,asc)}"
+        f"{_th('Exp','experience',sort,asc)}"
         f"{_th('Track','track',sort,asc)}"
         f"{_th('Country','country',sort,asc)}"
         f"{_th('Status','status',sort,asc)}"
@@ -226,6 +230,15 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool) -> str:
             f'<input type="hidden" name="kind" value="{kind}">'
             f'<input type="hidden" name="status" value="sent">'
             f'<button class="ab sent" type="submit">Mark sent</button></form>')
+        reject_btn = "" if r.get("status") in ("rejected","sent","replied") else (
+            f'<form method="post" action="/api/status" style="display:inline">'
+            f'<input type="hidden" name="pos_id" value="{pid}">'
+            f'<input type="hidden" name="kind" value="{kind}">'
+            f'<input type="hidden" name="status" value="rejected">'
+            f'<button class="ab reject" type="submit">✗ Reject</button></form>')
+
+        exp_cell = (f'<span class="exp-badge">{experience[:22]}</span>'
+                    if experience else '<span style="color:#ccc">—</span>')
 
         # Detail expand panel
         folder_btn = (
@@ -239,11 +252,10 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool) -> str:
             f'<div class="info">'
             f'<strong>{title[:80]}</strong><br>'
             f'{"📧 " + contact + "<br>" if contact else ""}'
-            f'{"⏳ Exp: " + experience + "<br>" if experience else ""}'
             f'{"📝 " + notes[:100] + "<br>" if notes else ""}'
             f'</div>'
             f'<div class="actions">'
-            f'{open_btn} {folder_btn} {sent_btn}'
+            f'{open_btn} {folder_btn} {sent_btn} {reject_btn}'
             f'<span style="font-size:.75rem;color:#888;align-self:center">'
             f'CLI: <code>{draft_cmd}</code></span>'
             f'</div></div>'
@@ -256,6 +268,7 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool) -> str:
             f"<td>{_deadline_fmt(r.get('deadline'))}</td>"
             f"<td>{_days_badge(r['days_left'])}</td>"
             f"<td>{_fit_badge(r.get('fit'))}</td>"
+            f"<td>{exp_cell}</td>"
             f"<td>{r.get('track','')}</td>"
             f"<td>{r.get('country') or '—'}</td>"
             f"<td>{_status_badge(r.get('status','found'))}</td>"
@@ -263,7 +276,7 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool) -> str:
             f"<td></td>"
             f"</tr>"
             f'<tr class="detail-row" id="detail-{pid}">'
-            f'<td colspan="9">{detail}</td>'
+            f'<td colspan="10">{detail}</td>'
             f"</tr>"
         )
     return f"<table><thead>{header}</thead><tbody>{body}</tbody></table>"
