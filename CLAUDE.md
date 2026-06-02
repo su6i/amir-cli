@@ -335,7 +335,7 @@ git add -f lib/commands/specific_file.sh
 | `lib/python/subtitle/quality.py` | کیفیت‌سنج SRT + ساخت language timeline چندزبانه |
 | `lib/python/subtitle/workflow/source_stage.py` | تهیه SRT منبع + YouTube auto-pipeline |
 | `lib/python/subtitle/translation/deepseek_pipeline.py` | DeepSeek V4-Flash translation |
-| `lib/commands/init-project.sh` | `amir init-project` — کپی `.agent/` به پروژه جدید |
+| `lib/commands/init-project.sh` | `amir init-project` — اضافه کردن `agent-constitution` به عنوان submodule به پروژه جدید |
 | `lib/commands/trend.sh` | `amir trend` / `amir research` — bridge به research_toolkit |
 | `lib/commands/skill.sh` | `amir skill` — search/harvest/list/show برای skill management از GitHub |
 | `completions/_amir` | Zsh autocompletion — شامل `trend`، `video record`، `skill` و تمام آپشن‌هایشان |
