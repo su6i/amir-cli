@@ -180,7 +180,7 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool) -> str:
             f'<input type="hidden" name="pos_id" value="{pid}">'
             f'<input type="hidden" name="kind" value="{kind}">'
             f'<input type="hidden" name="status" value="sent">'
-            f'<button class="ab sent" type="submit">✓ Sent</button></form>')
+            f'<button class="ab sent" type="submit">Mark sent</button></form>')
         body += (
             f"<tr>"
             f"<td><strong>{r.get('institution') or pid}</strong>"
@@ -301,8 +301,8 @@ async def replied_page():
             notes      = r.get("notes") or ""
             contact    = r.get("contact") or "—"
             link       = r.get("link") or ""
-            open_btn   = (f'<a href="{link}" target="_blank">'
-                          f'<button class="ab open" style="float:right">Open</button></a>') if link else ""
+            open_btn   = (f'<a href="{link}" target="_blank" style="float:right">'
+                          f'<button class="ab open">↗ Open</button></a>') if link else ""
             color = {"positive": "#2e7d32", "negative": "#c62828",
                      "bounce": "#e65100", "info": "#1565c0"}.get(reply_type, "#555")
             html += f"""<div class="replied-card">
