@@ -2,23 +2,11 @@
 
 run_init_project() {
 
-    # ── 1. Locate agent-constitution repo ─────────────────────────────────────
-    local SOURCE_ROOT=""
+    # Constitution submodule config (override URL with AMIR_CONSTITUTION_URL)
+    local CONSTITUTION_URL="${AMIR_CONSTITUTION_URL:-git@github.com:su6i/agent-constitution.git}"
+    local CONSTITUTION_PATH=".agent/constitution"
 
-    if [[ -n "$AMIR_CONSTITUTION_PATH" && -d "$AMIR_CONSTITUTION_PATH" ]]; then
-        SOURCE_ROOT="$AMIR_CONSTITUTION_PATH"
-    else
-        local SIBLING="$SCRIPT_DIR/../agent-constitution"
-        [[ -d "$SIBLING" ]] && SOURCE_ROOT="$(cd "$SIBLING" && pwd)"
-    fi
-
-    if [[ -z "$SOURCE_ROOT" ]]; then
-        echo "❌ Could not locate 'agent-constitution' repository."
-        echo "   Set AMIR_CONSTITUTION_PATH or place it alongside amir-cli."
-        return 1
-    fi
-
-    # ── 2. Determine target & mode ─────────────────────────────────────────────
+    # ── 1. Determine target & mode ─────────────────────────────────────────────
     local TARGET_DIR="${1:-.}"
     [[ "$TARGET_DIR" == "." || "$TARGET_DIR" == "./" ]] && TARGET_DIR="$(pwd)"
     TARGET_DIR="$(cd "$(dirname "$TARGET_DIR")" 2>/dev/null && pwd)/$(basename "$TARGET_DIR")" || TARGET_DIR="$(pwd)/$1"
@@ -26,28 +14,27 @@ run_init_project() {
     local PROJECT_NAME
     PROJECT_NAME="$(basename "$TARGET_DIR")"
 
-    # Detect mode
     local MODE
     if [[ ! -d "$TARGET_DIR" ]]; then
-        MODE="NEW"              # directory doesn't exist → brand new project
+        MODE="NEW"
     elif [[ ! -d "$TARGET_DIR/.agent" ]]; then
-        MODE="SCAFFOLD"         # dir exists, no .agent yet → existing project, first time
+        MODE="SCAFFOLD"
     else
-        MODE="UPDATE"           # .agent already there → refresh/update
+        MODE="UPDATE"
     fi
 
     echo ""
     echo "⚡ amir init-project"
-    echo "   Source  : $SOURCE_ROOT"
-    echo "   Target  : $TARGET_DIR"
+    echo "   Constitution : $CONSTITUTION_URL"
+    echo "   Target       : $TARGET_DIR"
     case "$MODE" in
         NEW)      echo "   Mode    : ✨ New project (will create dir + git init)" ;;
         SCAFFOLD) echo "   Mode    : 🏗  Scaffold existing project (first time)" ;;
-        UPDATE)   echo "   Mode    : 🔄 Update existing constitution" ;;
+        UPDATE)   echo "   Mode    : 🔄 Update existing constitution submodule" ;;
     esac
     echo ""
 
-    # ── 3. Create dir + git init for new projects ──────────────────────────────
+    # ── 2. Create dir + git init ───────────────────────────────────────────────
     if [[ "$MODE" == "NEW" ]]; then
         mkdir -p "$TARGET_DIR"
         echo "   ➕ Created $PROJECT_NAME/"
@@ -57,53 +44,45 @@ run_init_project() {
     else
         cd "$TARGET_DIR" || return 1
         if [[ ! -d ".git" ]]; then
-            echo "   ⚠️  Not a git repo. Running git init..."
+            echo "   ⚠️  Not a git repo — running git init..."
             git init -q
             echo "   ✅ git init"
         fi
     fi
 
-    # ── 4. Copy constitution artifacts ────────────────────────────────────────
-    echo "📂 Installing constitution..."
+    # ── 3. Add agent-constitution as submodule ─────────────────────────────────
+    echo "📦 Setting up agent-constitution submodule..."
+    mkdir -p ".agent"
 
-    # Copy a single file (no .bak, just overwrite)
-    _copy_file() {
-        local src="$1" dst="$2"
-        mkdir -p "$(dirname "$dst")"
-        if [[ -f "$src" ]]; then
-            cp -f "$src" "$dst" && echo "   ✅ $(basename "$dst")"
-        else
-            echo "   ⚠️  Not found: $(basename "$src")"
+    local submodule_exists=false
+    if [[ -f ".gitmodules" ]] && grep -qF "$CONSTITUTION_PATH" ".gitmodules" 2>/dev/null; then
+        submodule_exists=true
+    fi
+
+    if $submodule_exists; then
+        echo "   🔸 Submodule already registered"
+        if [[ "$MODE" == "UPDATE" ]]; then
+            git submodule update --remote --merge "$CONSTITUTION_PATH" 2>/dev/null && \
+                echo "   ✅ Submodule updated to latest" || \
+                echo "   ⚠️  Update failed — run: git submodule update --remote $CONSTITUTION_PATH"
         fi
-    }
+    else
+        git submodule add "$CONSTITUTION_URL" "$CONSTITUTION_PATH" 2>/dev/null && \
+            echo "   ✅ Submodule added ($CONSTITUTION_URL)" || {
+            echo "   ❌ git submodule add failed."
+            echo "      Check SSH access: ssh -T git@github.com"
+            return 1
+        }
+    fi
 
-    # Sync a directory: copy files FROM src INTO dst (never deletes dst-only files)
-    _sync_dir() {
-        local src_dir="$1" dst_dir="$2"
-        mkdir -p "$dst_dir"
-        for f in "$src_dir"/*; do
-            [[ -f "$f" ]] && _copy_file "$f" "$dst_dir/$(basename "$f")"
-        done
-    }
+    # ── 4. Local rules placeholder ─────────────────────────────────────────────
+    if [[ ! -d ".agent/local-rules" ]]; then
+        mkdir -p ".agent/local-rules"
+        echo "   ➕ .agent/local-rules/ (project-specific overrides)"
+    fi
 
-    # Rules: sync file-by-file (project-specific rule files are preserved)
-    echo "   📋 Rules..."
-    _sync_dir "$SOURCE_ROOT/.agent/rules" ".agent/rules"
-
-    # Workflows (essential only)
-    echo "   🔄 Workflows..."
-    mkdir -p ".agent/workflows"
-    for wf in init-project.md documentation.md ai-optimization.md quality-assurance.md communication.md; do
-        _copy_file "$SOURCE_ROOT/.agent/workflows/$wf" ".agent/workflows/$wf"
-    done
-
-    # Skills: sync file-by-file (preserves project-specific skills)
-    echo "   🧠 Skills (76)..."
-    _sync_dir "$SOURCE_ROOT/.agent/skills" ".agent/skills"
-
-    # ── 5. Generate CLAUDE.md ─────────────────────────────────────────────────
+    # ── 5. Generate CLAUDE.md ──────────────────────────────────────────────────
     if [[ ! -f "CLAUDE.md" ]]; then
-        # Auto-detect tech stack
         local STACK="<!-- e.g. Python 3.12, FastAPI, PostgreSQL -->"
         local SKILLS_HINT="<!-- e.g. python-core-standards, fastapi-best-practices -->"
 
@@ -131,16 +110,22 @@ run_init_project() {
 ${STACK}
 
 ## Relevant Skills
-Read these from \`.agent/skills/\` before implementing domain-specific logic:
+Read these from \`.agent/constitution/skills/\` before implementing domain-specific logic:
 ${SKILLS_HINT}
 
 ## Key Constraints
 <!-- TODO: any project-specific rules -->
 
 ## Rules & Workflows
-- Rules     : \`.agent/rules/\` — read 000-core.md, global.md, 040-git.md before every task
-- Workflows : \`.agent/workflows/\` — pick the relevant one per task type
-- Skills    : \`.agent/skills/\` — 75 domain knowledge modules
+- Rules     : \`.agent/constitution/rules/\` — read 000-core.md, global.md, 040-git.md before every task
+- Local     : \`.agent/local-rules/\` — project-specific overrides (take precedence over constitution)
+- Workflows : \`.agent/constitution/workflows/\` — pick the relevant one per task type
+- Skills    : \`.agent/constitution/skills/\` — domain knowledge modules
+
+## Updating the constitution
+\`\`\`bash
+git submodule update --remote .agent/constitution
+\`\`\`
 
 ## Global Rules
 Git protocol, cost control, and code quality are in ~/.claude/CLAUDE.md (auto-loaded).
@@ -157,7 +142,7 @@ CLAUDEOF
     done
 
     # ── 7. .gitignore ──────────────────────────────────────────────────────────
-    local GITIGNORE_TEMPLATE="$SOURCE_ROOT/templates/gitignore.template"
+    local GITIGNORE_TEMPLATE="$CONSTITUTION_PATH/templates/gitignore.template"
     if [[ ! -f ".gitignore" ]]; then
         if [[ -f "$GITIGNORE_TEMPLATE" ]]; then
             cp "$GITIGNORE_TEMPLATE" ".gitignore"
@@ -167,7 +152,6 @@ CLAUDEOF
             echo "   ✅ .gitignore (minimal fallback)"
         fi
     else
-        # Ensure critical ignores are present
         for rule in ".storage/" ".env" "__pycache__/"; do
             grep -qF "$rule" ".gitignore" || echo "$rule" >> ".gitignore"
         done
@@ -176,11 +160,13 @@ CLAUDEOF
 
     # ── 8. Git stage ───────────────────────────────────────────────────────────
     echo "💾 Staging..."
-    git add .agent/ CLAUDE.md .gitignore src/ tests/ docs/ assets/ lib/ 2>/dev/null
+    git add .gitmodules .agent/ CLAUDE.md .gitignore src/ tests/ docs/ assets/ lib/ 2>/dev/null
     echo "   ✅ Staged"
 
     echo ""
     echo "🎉 Done! ${PROJECT_NAME} is now agent-governed."
+    echo "   Constitution : ${CONSTITUTION_PATH}/ (submodule — $(git -C "$CONSTITUTION_PATH" describe --tags --always 2>/dev/null || echo 'latest'))"
+    echo "   Update later : git submodule update --remote ${CONSTITUTION_PATH}"
     if grep -q "TODO" "CLAUDE.md" 2>/dev/null; then
         echo "   ✏️  Open CLAUDE.md and fill in the TODOs before your first session."
     fi

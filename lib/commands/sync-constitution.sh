@@ -2,23 +2,9 @@
 
 run_sync_constitution() {
 
-    # ── 1. Locate agent-constitution ──────────────────────────────────────────
-    local SOURCE_ROOT=""
+    local CONSTITUTION_PATH=".agent/constitution"
 
-    if [[ -n "$AMIR_CONSTITUTION_PATH" && -d "$AMIR_CONSTITUTION_PATH" ]]; then
-        SOURCE_ROOT="$AMIR_CONSTITUTION_PATH"
-    else
-        local SIBLING="$SCRIPT_DIR/../agent-constitution"
-        [[ -d "$SIBLING" ]] && SOURCE_ROOT="$(cd "$SIBLING" && pwd)"
-    fi
-
-    if [[ -z "$SOURCE_ROOT" ]]; then
-        echo "❌ Could not locate 'agent-constitution' repository."
-        echo "   Set AMIR_CONSTITUTION_PATH or place it alongside amir-cli."
-        return 1
-    fi
-
-    # ── 2. Target ─────────────────────────────────────────────────────────────
+    # ── 1. Target ─────────────────────────────────────────────────────────────
     local TARGET_DIR="${1:-.}"
     [[ "$TARGET_DIR" == "." || "$TARGET_DIR" == "./" ]] && TARGET_DIR="$(pwd)"
     TARGET_DIR="$(cd "$TARGET_DIR" 2>/dev/null && pwd)"
@@ -28,13 +14,46 @@ run_sync_constitution() {
         return 1
     fi
 
+    cd "$TARGET_DIR" || return 1
+
     echo ""
     echo "🔄 amir sync-constitution"
-    echo "   Source : $SOURCE_ROOT"
     echo "   Target : $TARGET_DIR"
     echo ""
 
-    cd "$TARGET_DIR" || return 1
+    # ── 2. Submodule path (preferred) ─────────────────────────────────────────
+    if [[ -f ".gitmodules" ]] && grep -qF "$CONSTITUTION_PATH" ".gitmodules" 2>/dev/null; then
+        echo "📦 Updating submodule..."
+        git submodule update --remote --merge "$CONSTITUTION_PATH" && \
+            echo "   ✅ Constitution updated to latest" || \
+            echo "   ❌ Update failed — check SSH access: ssh -T git@github.com"
+        local ref
+        ref="$(git -C "$CONSTITUTION_PATH" describe --tags --always 2>/dev/null || echo 'unknown')"
+        echo "   Version: $ref"
+        echo ""
+        echo "Review changes:  git diff $CONSTITUTION_PATH"
+        echo ""
+        return 0
+    fi
+
+    # ── 3. Fallback: locate constitution repo for copy-based sync ─────────────
+    local SOURCE_ROOT=""
+    if [[ -n "$AMIR_CONSTITUTION_PATH" && -d "$AMIR_CONSTITUTION_PATH" ]]; then
+        SOURCE_ROOT="$AMIR_CONSTITUTION_PATH"
+    else
+        local SIBLING="$SCRIPT_DIR/../agent-constitution"
+        [[ -d "$SIBLING" ]] && SOURCE_ROOT="$(cd "$SIBLING" && pwd)"
+    fi
+
+    if [[ -z "$SOURCE_ROOT" ]]; then
+        echo "❌ No submodule found and cannot locate agent-constitution repo."
+        echo "   Run 'amir init-project .' to set up the submodule, or"
+        echo "   set AMIR_CONSTITUTION_PATH to the repo path."
+        return 1
+    fi
+
+    echo "   Source : $SOURCE_ROOT (copy-based fallback)"
+    echo ""
 
     # ── 3. Detect legacy agent directories ───────────────────────────────────
     local LEGACY_DIRS=()
@@ -73,7 +92,7 @@ run_sync_constitution() {
             $is_standard && echo "   ⏭️  Skipping standard: $rel_path" && continue
 
             # Skip if already exists in standard skills
-            if [[ -f "$SOURCE_ROOT/.agent/skills/$basename_f" ]]; then
+            if [[ -f "$SOURCE_ROOT/skills/$basename_f" ]]; then
                 echo "   ⏭️  Already in constitution skills: $basename_f"
                 continue
             fi
@@ -139,16 +158,16 @@ run_sync_constitution() {
     }
 
     echo "📋 Syncing rules (project-specific rules preserved)..."
-    _sync_dir "$SOURCE_ROOT/.agent/rules" ".agent/rules" "rules"
+    _sync_dir "$SOURCE_ROOT/rules" ".agent/rules" "rules"
 
     echo "🧠 Syncing skills..."
-    _sync_dir "$SOURCE_ROOT/.agent/skills" ".agent/skills" "skills"
+    _sync_dir "$SOURCE_ROOT/skills" ".agent/skills" "skills"
 
     echo "🔄 Syncing core workflows..."
     mkdir -p ".agent/workflows"
     local wf_count=0
     for wf in init-project.md documentation.md ai-optimization.md quality-assurance.md communication.md; do
-        local src="$SOURCE_ROOT/.agent/workflows/$wf"
+        local src="$SOURCE_ROOT/workflows/$wf"
         [[ -f "$src" ]] && cp -f "$src" ".agent/workflows/$wf" && (( wf_count++ ))
     done
     echo "   ✅ workflows: $wf_count files synced"
@@ -159,7 +178,7 @@ run_sync_constitution() {
         [[ -f "$f" ]] || continue
         local skill_name
         skill_name="$(basename "$f")"
-        if [[ ! -f "$SOURCE_ROOT/.agent/skills/$skill_name" ]]; then
+        if [[ ! -f "$SOURCE_ROOT/skills/$skill_name" ]]; then
             exclusive_skills+=("$skill_name")
         fi
     done
