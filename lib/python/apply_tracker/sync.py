@@ -33,6 +33,7 @@ POSITION_MD_TEMPLATE = """\
 | **Lien** | {link} |
 | **Contact** | {contact} |
 | **Fit score** | {fit} |
+| **Expérience** | {experience} |
 | **Source** | {source} |
 
 ## Notes
@@ -78,6 +79,8 @@ def parse_sync_content(text: str) -> list[dict]:
                 pos["contact"] = val
             elif key == "SOURCE":
                 pos["source"] = val
+            elif key in ("EXPERIENCE", "YEARS_EXP", "EXP"):
+                pos["experience"] = val
         if "track" in pos and "id" in pos:
             positions.append(pos)
     return positions
@@ -134,6 +137,7 @@ def apply_positions(positions: list[dict], base_dir: Path) -> tuple[int, int]:
             link=pos.get("link", ""),
             contact=pos.get("contact", ""),
             fit=pos.get("fit", "?"),
+            experience=pos.get("experience", ""),
             source=pos.get("source", "routine"),
             today=today,
         )
@@ -148,6 +152,7 @@ def apply_positions(positions: list[dict], base_dir: Path) -> tuple[int, int]:
                 "track": track_name,
                 "deadline": _parse_deadline(pos.get("deadline", "")),
                 "fit": pos.get("fit", "?"),
+                "experience": pos.get("experience", ""),
                 "title": pos.get("title", pos_id),
                 "institution": pos.get("institution", ""),
                 "location": pos.get("location", ""),

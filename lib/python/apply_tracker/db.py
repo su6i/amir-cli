@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS positions (
     deadline     TEXT,
     fit          TEXT,
     fit_score    REAL,
+    experience   TEXT,
     link         TEXT,
     contact      TEXT,
     lang         TEXT,
@@ -100,6 +101,13 @@ def get_db(base_dir: Path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
     conn.commit()
+    # Column migrations (ALTER TABLE IF NOT EXISTS workaround)
+    for col, definition in [("experience", "TEXT")]:
+        try:
+            conn.execute(f"ALTER TABLE positions ADD COLUMN {col} {definition}")
+            conn.commit()
+        except Exception:
+            pass
     return conn
 
 
@@ -119,13 +127,13 @@ def upsert(conn: sqlite3.Connection, pos: dict, kind: str) -> None:
     conn.execute("""
         INSERT INTO positions
             (id, kind, track, status, title, institution, country, location,
-             deadline, fit, fit_score, link, contact, lang, source, notes,
-             sent_date, reply_date, reply_type, added_date, updated_date)
+             deadline, fit, fit_score, experience, link, contact, lang, source,
+             notes, sent_date, reply_date, reply_type, added_date, updated_date)
         VALUES
             (:id, :kind, :track, :status, :title, :institution, :country,
-             :location, :deadline, :fit, :fit_score, :link, :contact, :lang,
-             :source, :notes, :sent_date, :reply_date, :reply_type,
-             date('now'), date('now'))
+             :location, :deadline, :fit, :fit_score, :experience, :link,
+             :contact, :lang, :source, :notes, :sent_date, :reply_date,
+             :reply_type, date('now'), date('now'))
         ON CONFLICT(id, kind) DO UPDATE SET
             track        = excluded.track,
             title        = COALESCE(excluded.title,       positions.title),
@@ -135,6 +143,7 @@ def upsert(conn: sqlite3.Connection, pos: dict, kind: str) -> None:
             deadline     = COALESCE(excluded.deadline,    positions.deadline),
             fit          = COALESCE(excluded.fit,         positions.fit),
             fit_score    = COALESCE(excluded.fit_score,   positions.fit_score),
+            experience   = COALESCE(excluded.experience,  positions.experience),
             link         = COALESCE(excluded.link,        positions.link),
             contact      = COALESCE(excluded.contact,     positions.contact),
             lang         = COALESCE(excluded.lang,        positions.lang),
@@ -159,6 +168,7 @@ def upsert(conn: sqlite3.Connection, pos: dict, kind: str) -> None:
         "deadline":    pos.get("deadline"),
         "fit":         pos.get("fit"),
         "fit_score":   fit_s,
+        "experience":  pos.get("experience"),
         "link":        pos.get("link"),
         "contact":     pos.get("contact"),
         "lang":        pos.get("lang"),

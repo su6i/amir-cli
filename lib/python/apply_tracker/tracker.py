@@ -95,6 +95,8 @@ def parse_position_md(md_path: Path) -> dict:
             info["link"] = val
         elif "financement" in key or "funding" in key:
             info["funding"] = val
+        elif "expérience" in key or "experience" in key or "années" in key or "years" in key:
+            info["experience"] = val
 
     return info
 
