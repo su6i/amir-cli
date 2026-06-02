@@ -38,6 +38,14 @@ run_apply() {
         shift
         local port="${1:-8765}"
         local base_dir="${APPLY_BASE_DIR:-$HOME/@-Amir/Apply/2026-2027}"
+        # Kill any existing process on this port
+        local old_pid
+        old_pid=$(lsof -ti:"$port" 2>/dev/null)
+        if [[ -n "$old_pid" ]]; then
+            echo "  ↻ Restarting (killing old process on :$port)..."
+            kill "$old_pid" 2>/dev/null
+            sleep 0.5
+        fi
         PYTHONPATH="$LIB_DIR/python" uv run python \
             "$LIB_DIR/python/apply_tracker/web.py" "$base_dir" "$port"
         return $?
