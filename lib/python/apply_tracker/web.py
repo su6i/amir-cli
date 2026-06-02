@@ -18,6 +18,7 @@ from apply_tracker.service import (
     mark_sent, mark_status,
 )
 from apply_tracker.tracker import days_left
+import apply_tracker.gmail_sync as _gmail
 
 import os as _os
 BASE_DIR = Path(_os.environ.get("APPLY_BASE_DIR",
@@ -105,6 +106,14 @@ tr:last-child td { border-bottom:none; } tr:hover td { background:#f8fffc; }
 .ab{padding:3px 9px;border:none;border-radius:4px;cursor:pointer;font-size:.73rem;font-weight:600}
 .ab.sent{background:#e8f5e9;color:#2e7d32} .ab.open{background:#e3f2fd;color:#1565c0}
 .ab.sent:hover{background:#c8e6c9} .ab.open:hover{background:#bbdefb}
+.sync-btn{padding:5px 14px;border:1px solid rgba(255,255,255,.4);border-radius:6px;
+          background:rgba(255,255,255,.15);color:white;cursor:pointer;
+          font-size:.8rem;font-weight:600;text-decoration:none;display:inline-block}
+.sync-btn:hover{background:rgba(255,255,255,.25)}
+.sync-btn.warn{border-color:#ffcc80;background:rgba(255,152,0,.25);color:#ffe0b2}
+.flash{padding:10px 16px;border-radius:8px;margin-bottom:14px;font-size:.85rem;font-weight:600}
+.flash.ok{background:#e8f5e9;color:#1b5e20;border-left:4px solid #2e7d32}
+.flash.err{background:#fce4ec;color:#b71c1c;border-left:4px solid #c62828}
 .replied-card{background:white;border-radius:10px;padding:16px 20px;margin-bottom:14px;
               box-shadow:0 2px 8px rgba(0,0,0,.06);border-left:4px solid #1565c0}
 .replied-card h4{font-size:.9rem;margin-bottom:6px}
@@ -115,8 +124,21 @@ footer{text-align:center;padding:14px;font-size:.71rem;color:#aaa;margin-top:16p
 """
 
 
-def _page(content: str, active: str = "phd") -> str:
+def _gmail_btn() -> str:
+    try:
+        if _gmail.has_valid_token():
+            return ('<form method="post" action="/api/sync-gmail" style="display:inline">'
+                    '<button class="sync-btn" type="submit">🔄 Sync Gmail</button></form>')
+        if _gmail.creds_file_exists():
+            return '<a href="/auth/gmail" class="sync-btn warn">🔑 Connect Gmail</a>'
+        return '<a href="/auth/gmail/setup" class="sync-btn warn">⚙ Gmail Setup</a>'
+    except Exception:
+        return ""
+
+
+def _page(content: str, active: str = "phd", flash: str = "", flash_type: str = "ok") -> str:
     today = date.today().strftime("%d %B %Y")
+    flash_html = (f'<div class="flash {flash_type}">{flash}</div>' if flash else "")
     return f"""<!DOCTYPE html><html lang="fr"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Apply Tracker</title><style>{_CSS}</style></head><body>
@@ -128,9 +150,10 @@ def _page(content: str, active: str = "phd") -> str:
     <a href="/replied" {'class="active"' if active=="replied" else ""}>Replied</a>
     <a href="/stats" {'class="active"' if active=="stats" else ""}>Stats</a>
     <a href="/api/docs" target="_blank">API</a>
+    {_gmail_btn()}
   </nav>
 </header>
-<div class="container">{content}</div>
+<div class="container">{flash_html}{content}</div>
 <footer>Amir SHIRALI POUR · Apply Tracker · {today}</footer>
 <script>
 const fi=document.getElementById('lf');
@@ -253,7 +276,8 @@ async def root():
 
 @app.get("/phd", response_class=HTMLResponse)
 async def phd_page(sort: str = "deadline", asc: int = 1,
-                   country: str = "", min_fit: float = 0, status: str = ""):
+                   country: str = "", min_fit: float = 0, status: str = "",
+                   msg: str = "", err: str = ""):
     rows = get_positions(BASE_DIR, "phd", sort_by=sort,
                          country=country or None, min_fit=min_fit or None,
                          status=status or None)
@@ -265,7 +289,8 @@ async def phd_page(sort: str = "deadline", asc: int = 1,
         + _toolbar("/phd", sort, asc, ctr, country, min_fit, status, "phdf")
         + _positions_html(rows, "phd", sort, bool(asc))
     )
-    return HTMLResponse(_page(content, "phd"))
+    return HTMLResponse(_page(content, "phd",
+                               flash=msg or err, flash_type="ok" if msg else "err"))
 
 
 @app.get("/job", response_class=HTMLResponse)
@@ -390,6 +415,83 @@ async def api_status(pos_id: str = Form(...), kind: str = Form(...),
 @app.get("/api/stats")
 async def api_stats():
     return get_stats(BASE_DIR)
+
+
+# ── Gmail sync ────────────────────────────────────────────────────────────────
+
+@app.get("/auth/gmail/setup", response_class=HTMLResponse)
+async def auth_gmail_setup():
+    creds_path = str(_gmail.CREDS_FILE)
+    content = f"""
+    <h2 style="margin-bottom:16px">⚙ Gmail Setup</h2>
+    <div style="background:white;border-radius:12px;padding:24px 28px;
+                box-shadow:0 2px 8px rgba(0,0,0,.06);max-width:680px">
+      <p style="margin-bottom:16px;color:#555;line-height:1.6">
+        برای Sync خودکار، یک‌بار باید OAuth credentials از Google Cloud بسازی.
+        فقط ۵ دقیقه وقت می‌برد.
+      </p>
+      <ol style="line-height:2.2;color:#333;padding-left:20px">
+        <li>به <a href="https://console.cloud.google.com/apis/credentials"
+            target="_blank" style="color:#145a45">console.cloud.google.com/apis/credentials</a> برو</li>
+        <li>یک پروژه انتخاب یا بساز</li>
+        <li>در منوی بالا: <strong>+ CREATE CREDENTIALS → OAuth client ID</strong></li>
+        <li>Application type: <strong>Desktop app</strong></li>
+        <li>Name: هر چیزی (مثلاً <em>amir-apply-tracker</em>)</li>
+        <li>Download JSON → فایل را اینجا ذخیره کن:<br>
+            <code style="background:#f5f5f5;padding:3px 8px;border-radius:4px;font-size:.85rem">
+            {creds_path}</code></li>
+        <li>مطمئن شو <strong>Gmail API</strong> فعال است در
+            <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com"
+            target="_blank" style="color:#145a45">APIs &amp; Services → Library</a></li>
+      </ol>
+      <div style="margin-top:20px">
+        <a href="/auth/gmail/setup">
+          <button class="ab open" style="padding:8px 20px;font-size:.85rem">
+            🔄 Refresh (بعد از ذخیره فایل)
+          </button>
+        </a>
+      </div>
+    </div>"""
+    return HTMLResponse(_page(content, ""))
+
+
+@app.get("/auth/gmail", response_class=HTMLResponse)
+async def auth_gmail(request: Request):
+    """Start Google OAuth2 flow."""
+    if not _gmail.creds_file_exists():
+        return RedirectResponse("/auth/gmail/setup")
+    callback = str(request.url_for("auth_gmail_callback"))
+    try:
+        auth_url = _gmail.start_auth_flow(callback)
+        return RedirectResponse(auth_url)
+    except Exception as e:
+        content = (f'<div class="flash err">OAuth error: {e}<br>'
+                   f'بررسی کن که فایل credentials درست است.</div>')
+        return HTMLResponse(_page(content, ""))
+
+
+@app.get("/auth/gmail/callback")
+async def auth_gmail_callback(code: str = "", error: str = "", state: str = ""):
+    """Receive OAuth2 callback, save token, redirect to /phd."""
+    if error:
+        return RedirectResponse(f"/phd?err=Gmail+auth+error:+{error}")
+    if not code:
+        return RedirectResponse("/phd?err=No+code+received+from+Google")
+    ok = _gmail.complete_auth_flow(code)
+    if ok:
+        return RedirectResponse("/phd?msg=✓+Gmail+connected!+Now+click+Sync+Gmail.")
+    return RedirectResponse("/phd?err=Auth+failed.+Check+credentials+file.")
+
+
+@app.post("/api/sync-gmail")
+async def api_sync_gmail():
+    """Fetch AMIR-SYNC drafts from Gmail and process them."""
+    result = _gmail.fetch_and_process(BASE_DIR)
+    if not result.get("ok"):
+        return RedirectResponse(
+            f"/phd?err={result.get('message','Sync failed')}", status_code=303)
+    return RedirectResponse(
+        f"/phd?msg={result['message']}", status_code=303)
 
 
 # ── entry point ───────────────────────────────────────────────────────────────
