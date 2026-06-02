@@ -6,6 +6,7 @@
   ![Bash](https://img.shields.io/badge/Shell-Bash/Zsh-black.svg)
   ![License](https://img.shields.io/badge/License-MIT-green.svg)
   [![Technical Docs](https://img.shields.io/badge/Docs-Technical-orange.svg)](docs/TECHNICAL.md)
+  [![Apply Tracker](https://img.shields.io/badge/Docs-Apply%20Tracker-green.svg)](docs/APPLY_TRACKER.md)
   <a href="https://www.linkedin.com/in/su6i/">
     <img src="assets/linkedin_su6i.svg" height="20" alt="LinkedIn">
   </a>
