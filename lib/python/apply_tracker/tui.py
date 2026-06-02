@@ -98,6 +98,7 @@ class ApplyTrackerTUI(App):
         Binding("slash", "toggle_filter", "Filter /"),
         Binding("escape","clear_filter",  "Clear"),
         Binding("m",     "mark_sent",     "Mark sent"),
+        Binding("x",     "reject",        "Reject"),
         Binding("o",     "open_url",      "Open URL"),
         Binding("tab",   "switch_kind",   "PhD ↔ Job"),
         Binding("r",     "refresh",       "Refresh"),
@@ -225,6 +226,14 @@ class ApplyTrackerTUI(App):
             return
         mark_sent(self.base_dir, row["id"], self.kind)
         self.notify(f"✓ {row['id']} marked as sent", severity="information")
+        self._load()
+
+    def action_reject(self) -> None:
+        row = self._current_row()
+        if not row:
+            return
+        mark_status(self.base_dir, row["id"], self.kind, "rejected")
+        self.notify(f"✗ {row['id']} rejected", severity="warning")
         self._load()
 
     def action_open_url(self) -> None:
