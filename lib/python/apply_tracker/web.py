@@ -211,12 +211,13 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool) -> str:
     )
     body = ""
     for r in rows:
-        pid     = r["id"]
-        link    = r.get("link") or ""
-        contact = r.get("contact") or ""
-        notes   = r.get("notes") or ""
-        added   = (r.get("added_date") or "")[-5:].replace("-", "/")  # MM/DD
-        title   = r.get("title") or pid
+        pid        = r["id"]
+        link       = r.get("link") or ""
+        contact    = r.get("contact") or ""
+        notes      = r.get("notes") or ""
+        experience = r.get("experience") or ""
+        added      = (r.get("added_date") or "")[-5:].replace("-", "/")  # MM/DD
+        title      = r.get("title") or pid
         open_btn = (f'<a href="{link}" target="_blank">'
                     f'<button class="ab open">Open</button></a>') if link else ""
         sent_btn = "" if r.get("status") in ("sent","replied") else (
@@ -238,6 +239,7 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool) -> str:
             f'<div class="info">'
             f'<strong>{title[:80]}</strong><br>'
             f'{"📧 " + contact + "<br>" if contact else ""}'
+            f'{"⏳ Exp: " + experience + "<br>" if experience else ""}'
             f'{"📝 " + notes[:100] + "<br>" if notes else ""}'
             f'</div>'
             f'<div class="actions">'
