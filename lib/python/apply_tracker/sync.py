@@ -85,8 +85,17 @@ def parse_sync_content(text: str) -> list[dict]:
 
 def apply_positions(positions: list[dict], base_dir: Path) -> tuple[int, int]:
     """Create .md files and update tracking.json. Returns (added, skipped)."""
+    global _db_conn_cache
     added = skipped = 0
     today = date.today().isoformat()
+
+    # Open SQLite connection once for the whole batch
+    _db_conn_cache: dict = {}
+    try:
+        from apply_tracker.db import get_db
+        _db_conn_cache[base_dir] = get_db(base_dir)
+    except Exception:
+        pass
 
     # Resolve search dirs
     phd_dir = base_dir / "PhD-Search"
@@ -134,21 +143,33 @@ def apply_positions(positions: list[dict], base_dir: Path) -> tuple[int, int]:
         tj_file = track_dir / "tracking.json"
         data = json.loads(tj_file.read_text()) if tj_file.exists() else {}
         if pos_id not in data:
-            data[pos_id] = {
+            entry = {
                 "status": "found",
                 "track": track_name,
                 "deadline": _parse_deadline(pos.get("deadline", "")),
                 "fit": pos.get("fit", "?"),
                 "title": pos.get("title", pos_id),
                 "institution": pos.get("institution", ""),
+                "location": pos.get("location", ""),
                 "link": pos.get("link", ""),
                 "contact": pos.get("contact", ""),
+                "source": pos.get("source", ""),
                 "sent_date": None,
                 "reply_date": None,
                 "reply_type": None,
                 "notes": f"sync:{today}",
             }
+            data[pos_id] = entry
             tj_file.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+
+            # Dual-write to SQLite
+            try:
+                entry["id"] = pos_id
+                _db_conn_cache[base_dir].execute  # check open
+                from apply_tracker.db import upsert as db_upsert
+                db_upsert(_db_conn_cache[base_dir], entry, kind)
+            except Exception:
+                pass
 
         print(f"  + {pos_id}  [{track_name}]  {pos.get('title','')[:55]}")
         added += 1

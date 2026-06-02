@@ -39,6 +39,20 @@ def update_entry(track_dir: Path, pos_id: str, **fields) -> dict:
     for k, v in fields.items():
         entry[k] = v
     save_tracking(track_dir, data)
+
+    # Dual-write to SQLite
+    try:
+        from apply_tracker.db import get_db, update_status as db_update
+        # Infer base_dir and kind from track_dir path
+        # track_dir = .../PhD-Search/found/ai_general
+        search_dir = track_dir.parent.parent
+        base_dir   = search_dir.parent
+        kind = "phd" if "phd" in search_dir.name.lower() else "job"
+        conn = get_db(base_dir)
+        db_update(conn, pos_id, kind, **{k: v for k, v in fields.items()})
+    except Exception:
+        pass
+
     return entry
 
 
