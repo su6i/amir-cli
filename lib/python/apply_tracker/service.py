@@ -31,20 +31,43 @@ def _kind_from_path(search_dir: Path) -> str:
 
 # ── sort map ──────────────────────────────────────────────────────────────────
 
-SORT_CHOICES = ["deadline", "fit", "country", "status", "institution"]
+SORT_CHOICES = ["deadline", "fit", "country", "status", "institution", "newest"]
 
-_ORDER = {
-    "deadline":    "CASE WHEN deadline IS NULL THEN 1 ELSE 0 END, deadline, fit_score DESC",
-    "fit":         "fit_score DESC NULLS LAST, CASE WHEN deadline IS NULL THEN 1 ELSE 0 END, deadline",
-    "country":     "country NULLS LAST, deadline",
-    "status":      "status, deadline",
-    "institution": "institution, deadline",
+# Each entry: (asc_sql, desc_sql)
+_ORDER: dict[str, tuple[str, str]] = {
+    "deadline":    (
+        "CASE WHEN deadline IS NULL THEN 1 ELSE 0 END, deadline",
+        "CASE WHEN deadline IS NULL THEN 1 ELSE 0 END, deadline DESC",
+    ),
+    "fit":         (
+        "fit_score ASC NULLS LAST",
+        "fit_score DESC NULLS LAST",
+    ),
+    "country":     (
+        "country NULLS LAST, deadline",
+        "country DESC NULLS LAST",
+    ),
+    "status":      (
+        "status, deadline",
+        "status DESC, deadline",
+    ),
+    "institution": (
+        "institution NULLS LAST, deadline",
+        "institution DESC NULLS LAST",
+    ),
+    "newest":      (
+        "added_date DESC",
+        "added_date ASC",
+    ),
 }
-_DEFAULT_ORDER = _ORDER["deadline"]
+_DEFAULT_ORDER = _ORDER["deadline"][0]
 
 
-def _order(sort_by: str | None) -> str:
-    return _ORDER.get(sort_by or "", _DEFAULT_ORDER)
+def _order(sort_by: str | None, asc: bool = True) -> str:
+    entry = _ORDER.get(sort_by or "")
+    if entry is None:
+        return _DEFAULT_ORDER
+    return entry[0] if asc else entry[1]
 
 
 # ── shared entry dict ─────────────────────────────────────────────────────────
@@ -68,13 +91,14 @@ def get_positions(
     country: str | None = None,
     min_fit: float | None = None,
     sort_by: str | None = None,
+    asc: bool = True,
 ) -> list[dict]:
     """Return enriched position dicts for any UI to consume."""
     conn = get_db(base_dir)
     rows = _db_query(
         conn, kind=kind, track=track, status=status,
         pending_only=pending_only, country=country,
-        min_fit=min_fit, order_by=_order(sort_by),
+        min_fit=min_fit, order_by=_order(sort_by, asc),
     )
     return [_enrich(r) for r in rows]
 
