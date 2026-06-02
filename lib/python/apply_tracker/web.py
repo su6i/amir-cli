@@ -106,6 +106,14 @@ tr:last-child td { border-bottom:none; } tr:hover td { background:#f8fffc; }
 .ab{padding:3px 9px;border:none;border-radius:4px;cursor:pointer;font-size:.73rem;font-weight:600}
 .ab.sent{background:#e8f5e9;color:#2e7d32} .ab.open{background:#e3f2fd;color:#1565c0}
 .ab.sent:hover{background:#c8e6c9} .ab.open:hover{background:#bbdefb}
+.detail-row td{background:#f8fffc;padding:12px 16px;border-bottom:2px solid #e0f2e9}
+.detail-row{display:none}
+.detail-panel{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.detail-panel .info{flex:1;min-width:200px;font-size:.82rem;color:#444;line-height:1.7}
+.detail-panel .actions{display:flex;gap:8px;flex-wrap:wrap}
+.ab.folder{background:#fff3e0;color:#e65100} .ab.folder:hover{background:#ffe0b2}
+.ab.draft{background:#f3e5f5;color:#6a1b9a} .ab.draft:hover{background:#e1bee7}
+tr.clickable{cursor:pointer} tr.clickable:hover td{background:#f0faf5}
 .sync-btn{padding:5px 14px;border:1px solid rgba(255,255,255,.4);border-radius:6px;
           background:rgba(255,255,255,.15);color:white;cursor:pointer;
           font-size:.8rem;font-weight:600;text-decoration:none;display:inline-block}
@@ -159,8 +167,11 @@ def _page(content: str, active: str = "phd", flash: str = "", flash_type: str = 
 const fi=document.getElementById('lf');
 if(fi) fi.addEventListener('input',()=>{{
   const q=fi.value.toLowerCase();
-  document.querySelectorAll('tbody tr').forEach(tr=>{{
-    tr.style.display=tr.textContent.toLowerCase().includes(q)?'':'none';
+  document.querySelectorAll('tbody tr.clickable').forEach(tr=>{{
+    const show=tr.textContent.toLowerCase().includes(q);
+    tr.style.display=show?'':'none';
+    const det=document.getElementById('detail-'+tr.querySelector('td small')?.textContent?.trim());
+    if(det) det.style.display='none';
   }});
 }});
 document.querySelectorAll('th[data-col]').forEach(th=>{{
@@ -172,6 +183,11 @@ document.querySelectorAll('th[data-col]').forEach(th=>{{
     window.location=u;
   }});
 }});
+function toggleDetail(pid){{
+  const row=document.getElementById('detail-'+pid);
+  if(!row) return;
+  row.style.display=row.style.display==='table-row'?'none':'table-row';
+}}
 </script></body></html>"""
 
 
@@ -190,12 +206,17 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool) -> str:
         f"{_th('Track','track',sort,asc)}"
         f"{_th('Country','country',sort,asc)}"
         f"{_th('Status','status',sort,asc)}"
+        f"{_th('Added','newest',sort,asc)}"
         f"<th>Actions</th></tr>"
     )
     body = ""
     for r in rows:
-        pid  = r["id"]
-        link = r.get("link") or ""
+        pid     = r["id"]
+        link    = r.get("link") or ""
+        contact = r.get("contact") or ""
+        notes   = r.get("notes") or ""
+        added   = (r.get("added_date") or "")[-5:].replace("-", "/")  # MM/DD
+        title   = r.get("title") or pid
         open_btn = (f'<a href="{link}" target="_blank">'
                     f'<button class="ab open">Open</button></a>') if link else ""
         sent_btn = "" if r.get("status") in ("sent","replied") else (
@@ -204,8 +225,30 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool) -> str:
             f'<input type="hidden" name="kind" value="{kind}">'
             f'<input type="hidden" name="status" value="sent">'
             f'<button class="ab sent" type="submit">Mark sent</button></form>')
+
+        # Detail expand panel
+        folder_btn = (
+            f'<form method="post" action="/api/open-folder" style="display:inline">'
+            f'<input type="hidden" name="pos_id" value="{pid}">'
+            f'<input type="hidden" name="kind" value="{kind}">'
+            f'<button class="ab folder" type="submit">📂 Open folder</button></form>')
+        draft_cmd = f"amir apply {kind} draft {pid}"
+        detail = (
+            f'<div class="detail-panel">'
+            f'<div class="info">'
+            f'<strong>{title[:80]}</strong><br>'
+            f'{"📧 " + contact + "<br>" if contact else ""}'
+            f'{"📝 " + notes[:100] + "<br>" if notes else ""}'
+            f'</div>'
+            f'<div class="actions">'
+            f'{open_btn} {folder_btn} {sent_btn}'
+            f'<span style="font-size:.75rem;color:#888;align-self:center">'
+            f'CLI: <code>{draft_cmd}</code></span>'
+            f'</div></div>'
+        )
+
         body += (
-            f"<tr>"
+            f'<tr class="clickable" onclick="toggleDetail(\'{pid}\')">'
             f"<td><strong>{r.get('institution') or pid}</strong>"
             f"<br><small style='color:#aaa'>{pid}</small></td>"
             f"<td>{_deadline_fmt(r.get('deadline'))}</td>"
@@ -214,7 +257,11 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool) -> str:
             f"<td>{r.get('track','')}</td>"
             f"<td>{r.get('country') or '—'}</td>"
             f"<td>{_status_badge(r.get('status','found'))}</td>"
-            f"<td>{open_btn} {sent_btn}</td>"
+            f"<td style='color:#aaa;font-size:.75rem'>{added}</td>"
+            f"<td></td>"
+            f"</tr>"
+            f'<tr class="detail-row" id="detail-{pid}">'
+            f'<td colspan="9">{detail}</td>'
             f"</tr>"
         )
     return f"<table><thead>{header}</thead><tbody>{body}</tbody></table>"
@@ -275,10 +322,10 @@ async def root():
 
 
 @app.get("/phd", response_class=HTMLResponse)
-async def phd_page(sort: str = "deadline", asc: int = 1,
+async def phd_page(sort: str = "newest", asc: int = 1,
                    country: str = "", min_fit: float = 0, status: str = "",
                    msg: str = "", err: str = ""):
-    rows = get_positions(BASE_DIR, "phd", sort_by=sort,
+    rows = get_positions(BASE_DIR, "phd", sort_by=sort, asc=bool(asc),
                          country=country or None, min_fit=min_fit or None,
                          status=status or None)
     st   = get_stats(BASE_DIR)["phd"]
@@ -294,9 +341,9 @@ async def phd_page(sort: str = "deadline", asc: int = 1,
 
 
 @app.get("/job", response_class=HTMLResponse)
-async def job_page(sort: str = "deadline", asc: int = 1,
+async def job_page(sort: str = "newest", asc: int = 1,
                    country: str = "", min_fit: float = 0, status: str = ""):
-    rows = get_positions(BASE_DIR, "job", sort_by=sort,
+    rows = get_positions(BASE_DIR, "job", sort_by=sort, asc=bool(asc),
                          country=country or None, min_fit=min_fit or None,
                          status=status or None)
     st   = get_stats(BASE_DIR)["job"]
@@ -391,6 +438,32 @@ async def stats_page():
 
 
 # ── REST API ──────────────────────────────────────────────────────────────────
+
+@app.post("/api/open-folder")
+async def api_open_folder(request: Request, pos_id: str = Form(...), kind: str = Form(...)):
+    """Open position folder in Finder (macOS)."""
+    import subprocess
+    search_name = "PhD-Search" if kind == "phd" else "Job-Search"
+    search_dir  = BASE_DIR / search_name
+
+    # Prefer applied/ folder; fall back to found/<track>/<id>.md
+    applied = BASE_DIR / search_name / "applied" / pos_id
+    if applied.exists():
+        path = applied
+    else:
+        from apply_tracker.tracker import _find_track_dir
+        td = _find_track_dir(search_dir, pos_id, None)
+        path = (td / f"{pos_id}.md") if td else search_dir
+
+    try:
+        subprocess.Popen(["open", str(path)])
+    except Exception:
+        pass
+
+    # Return to same page
+    ref = request.headers.get("referer", f"/{kind}")
+    return RedirectResponse(ref, status_code=303)
+
 
 @app.get("/api/positions")
 async def api_positions(kind: str = "phd", status: str | None = None,
