@@ -30,6 +30,13 @@ run_job() {
                 _job_tracker sent "$@"
             fi
             ;;
+        reject)
+            if [[ -z "$1" ]]; then
+                _job_python status.py --filter-status rejected
+            else
+                _job_python service_cli.py reject "$1" job
+            fi
+            ;;
         reply)
             _job_tracker reply "$@"
             ;;
