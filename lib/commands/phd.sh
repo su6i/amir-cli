@@ -4,8 +4,12 @@
 _PHD_SEARCH_DIR="${PHD_SEARCH_DIR:-$HOME/@-Amir/Apply/2026-2027/PhD-Search}"
 
 run_phd() {
-    local cmd="${1:-pending}"
-    shift || true
+    # If no args or first arg is a flag, default to pending view
+    if [[ -z "$1" || "$1" == --* ]]; then
+        _phd_python status.py --pending-only "$@"
+        return $?
+    fi
+    local cmd="$1"; shift
 
     case "$cmd" in
         status)

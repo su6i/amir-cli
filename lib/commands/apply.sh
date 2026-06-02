@@ -11,13 +11,44 @@ run_apply() {
         local rc=$?
         echo ""
         echo "Usage:"
-        echo "  amir apply               → sync (این دستور)"
-        echo "  amir apply sync          → sync صریح"
-        echo "  amir apply phd <cmd>     → status|show|draft|sent|reply|open|init"
-        echo "  amir apply job <cmd>     → status|show|new|draft|sent|reply|open|sync|init"
+        echo "  amir apply               → sync + help"
+        echo "  amir apply sync          → sync از Gmail"
+        echo "  amir apply phd [flags]   → pending PhD  (--sort fit|deadline|country  --country France  --min-fit 8)"
+        echo "  amir apply job [flags]   → pending Job"
+        echo "  amir apply tui [phd|job] → TUI ترمینال گرافیکی (کلیدهای جهت‌دار)"
+        echo "  amir apply web [port]    → Web interface روی localhost:8765"
+        echo "  amir apply stats         → آمار کلی"
         echo "  amir apply preview       → پیش‌نمایش CV"
         echo "  amir apply <url>         → تولید CV/CL برای آگهی"
         return $rc
+    fi
+
+    # ── tui ───────────────────────────────────────────────────────────────────
+    if [[ "$1" == "tui" ]]; then
+        shift
+        local kind="${1:-phd}"
+        local base_dir="${APPLY_BASE_DIR:-$HOME/@-Amir/Apply/2026-2027}"
+        PYTHONPATH="$LIB_DIR/python" uv run python \
+            "$LIB_DIR/python/apply_tracker/tui.py" "$base_dir" "$kind"
+        return $?
+    fi
+
+    # ── web ───────────────────────────────────────────────────────────────────
+    if [[ "$1" == "web" ]]; then
+        shift
+        local port="${1:-8765}"
+        local base_dir="${APPLY_BASE_DIR:-$HOME/@-Amir/Apply/2026-2027}"
+        PYTHONPATH="$LIB_DIR/python" uv run python \
+            "$LIB_DIR/python/apply_tracker/web.py" "$base_dir" "$port"
+        return $?
+    fi
+
+    # ── stats ─────────────────────────────────────────────────────────────────
+    if [[ "$1" == "stats" ]]; then
+        local base_dir="${APPLY_BASE_DIR:-$HOME/@-Amir/Apply/2026-2027}"
+        PYTHONPATH="$LIB_DIR/python" uv run python \
+            "$LIB_DIR/python/apply_tracker/stats_cli.py" "$base_dir"
+        return $?
     fi
 
     # ── sync (both phd + job) ─────────────────────────────────────────────────
