@@ -90,7 +90,7 @@ def apply_positions(positions: list[dict], base_dir: Path) -> tuple[int, int]:
     today = date.today().isoformat()
 
     # Open SQLite connection once for the whole batch
-    _db_conn_cache: dict = {}
+    _db_conn_cache = {}
     try:
         from apply_tracker.db import get_db
         _db_conn_cache[base_dir] = get_db(base_dir)
