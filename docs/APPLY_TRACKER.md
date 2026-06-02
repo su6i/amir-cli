@@ -1,228 +1,221 @@
-# Apply Tracker — راهنمای کامل
+# Apply Tracker — Complete Guide
 
-ابزار ردیابی درخواست‌های PhD و Job با رابط وب، TUI، و CLI.
+Track PhD and job applications with a SQLite backend, FastAPI web UI, Textual TUI, and Gmail sync.
+
+> 🇮🇷 [نسخه فارسی](fa/APPLY_TRACKER_FA.md)
 
 ---
 
-## معماری کلی
+## Architecture
 
 ```
 amir apply <cmd>
-  ├─ phd / job                → status.py (CLI table)
-  ├─ tui                      → tui.py (Textual TUI)
-  ├─ web [port]               → web.py (FastAPI at localhost:8765)
-  └─ stats                    → stats_cli.py (bar charts)
+  ├─ phd / job              → status.py  (CLI table)
+  ├─ tui [phd|job]          → tui.py     (Textual TUI)
+  ├─ web [port]             → web.py     (FastAPI — localhost:8765)
+  └─ stats                  → stats_cli.py (terminal bar charts)
 
 lib/python/apply_tracker/
-  ├─ db.py          SQLite CRUD — source of truth
-  ├─ service.py     Business logic — یک entry point برای همه UI‌ها
-  ├─ web.py         FastAPI web interface
-  ├─ tui.py         Textual TUI
-  ├─ gmail_sync.py  Gmail OAuth2 + AMIR-SYNC processing
-  ├─ status.py      CLI table output
-  ├─ tracker.py     tracking.json CRUD + parser
-  ├─ sync.py        AMIR-SYNC draft parser + position creator
-  ├─ generate_html.py  HTML tracker auto-generation
-  └─ stats_cli.py   Terminal bar charts
+  ├─ db.py             SQLite CRUD — schema + migrations
+  ├─ service.py        Business logic — single entry point for all UIs
+  ├─ service_cli.py    Bash → service.py bridge (reject, watch)
+  ├─ web.py            FastAPI web interface
+  ├─ tui.py            Textual TUI
+  ├─ gmail_sync.py     Gmail OAuth2 + AMIR-SYNC draft processing
+  ├─ status.py         CLI table renderer
+  ├─ tracker.py        tracking.json CRUD + .md file parser
+  ├─ sync.py           AMIR-SYNC format parser + position creator
+  ├─ generate_html.py  HTML tracker auto-generation (post-sync)
+  └─ stats_cli.py      Terminal bar charts
 ```
 
-**Data flow:** Write → SQLite + JSON (dual-write). Read → SQLite only (service.py).
+**Data flow:** All writes go to SQLite **and** JSON (dual-write). All reads come from SQLite via `service.py` only — `db.py` is never called directly by UI layers.
 
 ---
 
-## دستورات
+## Commands
 
 ```bash
-amir apply                  # sync + help
-amir apply phd              # لیست موارد pending (not sent)
-amir apply phd sent         # لیست ارسال‌شده‌ها
-amir apply phd show <id>    # جزئیات یک موقعیت
-amir apply phd draft <id>   # ساخت draft ایمیل با DeepSeek
-amir apply phd sent <id>    # علامت‌گذاری به عنوان ارسال‌شده
-amir apply job              # همانند phd برای کار
-amir apply tui              # رابط ترمینال (arrow keys)
-amir apply web [port]       # رابط وب (پیش‌فرض 8765)
-amir apply stats            # آمار بار chart ترمینال
-amir apply sync             # sync از sync_queue.txt
+# ── Overview ──────────────────────────────────────────────────────
+amir apply                    # urgent deadline alerts + help
+
+# ── PhD ───────────────────────────────────────────────────────────
+amir apply phd                # list pending positions (not sent), sorted by urgency
+amir apply phd sent           # list sent applications
+amir apply phd reject         # list rejected positions
+amir apply phd reject <id>    # mark a position as rejected
+amir apply phd show <id>      # show full details of one position
+amir apply phd draft <id>     # generate email draft with DeepSeek AI
+amir apply phd sent <id>      # mark as sent
+
+# ── Job ───────────────────────────────────────────────────────────
+amir apply job                # same as phd but for jobs
+amir apply job reject <id>    # reject a job position
+
+# ── UIs ───────────────────────────────────────────────────────────
+amir apply tui [phd|job]      # Textual TUI
+amir apply web [port]         # FastAPI web UI (default port 8765)
+amir apply stats              # bar chart statistics
+
+# ── Data ──────────────────────────────────────────────────────────
+amir apply sync               # process sync_queue.txt → create positions
 ```
 
-### فیلتر و مرتب‌سازی (CLI)
+### CLI Filters & Sort
 
 ```bash
-amir apply phd --sort fit           # بر اساس fit score
-amir apply phd --sort deadline      # بر اساس deadline
-amir apply phd --country France     # فقط فرانسه
-amir apply phd --min-fit 7          # حداقل fit 7
-amir apply phd sent                 # فقط sent
+amir apply phd --sort deadline      # nearest deadline first (default)
+amir apply phd --sort fit           # highest fit score first
+amir apply phd --sort newest        # most recently added first
+amir apply phd --sort country       # alphabetical by country
+amir apply phd --sort institution   # alphabetical by institution
+amir apply phd --sort status        # grouped by status
+amir apply phd --country France     # filter by country
+amir apply phd --min-fit 7          # minimum fit score
 ```
 
 ---
 
-## ساختار دایرکتوری داده
-
-```
-$HOME/@-Amir/Apply/2026-2027/
-├── PhD-Search/
-│   ├── found/
-│   │   ├── ai_general/
-│   │   │   ├── tracking.json       ← source of truth (JSON backup)
-│   │   │   └── <position-id>.md    ← جزئیات موقعیت
-│   │   └── ai_finance/
-│   ├── applied/
-│   │   └── <position-id>/
-│   │       ├── email_draft.md
-│   │       ├── CV.pdf
-│   │       └── LettreMotivation.pdf
-│   └── suivi_candidatures_PhD.html ← HTML tracker (auto-generated)
-├── Job-Search/
-│   └── ... (همانند PhD)
-├── apply_tracker.db            ← SQLite database
-└── sync_queue.txt              ← ورودی sync (موقت)
-```
-
----
-
-## رابط وب (FastAPI)
+## Web UI (FastAPI)
 
 ```bash
-amir apply web          # شروع روی port 8765
-amir apply web 9000     # port دلخواه
+amir apply web          # start on port 8765
+amir apply web 9000     # custom port
 ```
 
-باز می‌شود: `http://localhost:8765`
+Open: `http://localhost:8765`
 
-### صفحات
+### Pages
 
-| صفحه | توضیح |
-|------|-------|
-| `/phd` | لیست موقعیت‌های PhD با فیلتر/مرتب‌سازی |
-| `/job` | لیست موقعیت‌های Job |
-| `/replied` | کارت‌های پاسخ‌های دریافتی |
-| `/stats` | آمار بر اساس status و country |
+| Page | Description |
+|------|-------------|
+| `/phd` | PhD positions with filter toolbar, bidirectional sort on all columns |
+| `/job` | Job positions |
+| `/replied` | Cards showing each supervisor/employer's reply |
+| `/stats` | Status and country breakdown |
 
-### دکمه‌های جدول
+### Table Features
 
-- **Open** — باز کردن لینک آگهی
-- **Mark sent** — علامت‌گذاری به عنوان ارسال‌شده
-- **🔄 Sync Gmail** — دریافت موقعیت‌های جدید از Gmail (نیاز به setup زیر)
+- **Column sort**: click any header to sort; click again to reverse direction
+- **Sort options**: Institution, Deadline, Days left, Fit, Experience, Track, Country, Status, Added
+- **Live filter**: type in the search box to filter rows instantly
+- **Row click**: expands a detail panel with title, contact, notes, and action buttons
+- **Action buttons** (in detail panel):
+  - **Open** — open the job/PhD posting URL
+  - **📂 Open folder** — reveal position folder in Finder (macOS)
+  - **Mark sent** — record as submitted
+  - **✗ Reject** — mark as rejected (removes from pending list)
+
+### Sync Gmail Button
+
+When Gmail is connected, the **🔄 Sync Gmail** button appears in the header. Clicking it:
+1. Fetches Gmail drafts containing `TRACK:` content
+2. Creates `.md` files + updates SQLite + JSON
+3. Moves processed drafts to Trash
+4. Regenerates HTML trackers
 
 ---
 
-## Gmail Sync — راه‌اندازی
+## Gmail Sync — Setup (one-time, ~5 minutes)
 
-### پیش‌نیاز: یک‌بار setup (۵ دقیقه)
+### Step 1 — Enable Gmail API
 
-#### مرحله ۱ — فعال‌سازی Gmail API
+1. Go to [console.cloud.google.com](https://console.cloud.google.com)
+2. Select or create a project
+3. Left menu: **APIs & Services → Library**
+4. Search `Gmail API` → **Enable**
 
-1. برو به [console.cloud.google.com](https://console.cloud.google.com)
-2. پروژه مناسب را انتخاب کن (یا New Project بساز)
-3. منوی چپ: **APIs & Services → Library**
-4. جستجو: `Gmail API` → کلیک → **Enable**
+### Step 2 — Create OAuth Credentials
 
-#### مرحله ۲ — ساخت OAuth Credentials
+1. Left menu: **APIs & Services → Credentials**
+2. **+ CREATE CREDENTIALS → OAuth client ID**
+3. If prompted for consent screen: choose **External**, fill app name + email, click **Save and Continue** × 3
+4. Back to Credentials → **+ CREATE CREDENTIALS → OAuth client ID**
+5. "What data will you be accessing?" → **User data** → **Next**
+6. Application type: **Desktop app**
+7. Name: `amir-apply-tracker` → **CREATE** → **Download JSON**
 
-1. منوی چپ: **APIs & Services → Credentials**
-2. بالای صفحه: **+ CREATE CREDENTIALS → OAuth client ID**
-3. اگر "Configure consent screen" خواست:
-   - **External** انتخاب کن
-   - App name: هر چیزی (مثلاً `amir-tracker`)
-   - User support email: ایمیل خودت
-   - **Save and Continue** × 3 بار تا برگردی به Dashboard
-4. دوباره: **+ CREATE CREDENTIALS → OAuth client ID**
-5. گزینه **"Which API are you using?"** نمایش می‌دهد:
-   - What data will you be accessing? → **User data** انتخاب کن → **Next**
-6. در صفحه بعد:
-   - Application type: **Desktop app**
-   - Name: `amir-apply-tracker`
-7. **CREATE** → **Download JSON**
-
-#### مرحله ۳ — ذخیره فایل
+### Step 3 — Save the File
 
 ```bash
 mv ~/Downloads/client_secret_*.json ~/.amir/gmail_credentials.json
 ```
 
-#### مرحله ۴ — اتصال (یک‌بار)
+### Step 4 — Connect (one-time browser auth)
 
-```bash
-amir apply web
-```
+1. Run `amir apply web`
+2. Click **🔑 Connect Gmail** in the header
+3. Google OAuth screen appears → grant access
+4. Redirected back — **🔄 Sync Gmail** button is now active
 
-در مرورگر:
-1. دکمه **🔑 Connect Gmail** در header کلیک کن
-2. به Google هدایت می‌شوی → حساب Google خود را انتخاب کن
-3. مجوز دسترسی به Gmail بده
-4. به Apply Tracker برمی‌گردی با پیام تأیید
-5. از این به بعد دکمه **🔄 Sync Gmail** فعال است
+### Step 5 — Add Test User (if you see "access_denied")
 
-### نحوه کار Sync
+In Google Cloud Console → **Google Auth Platform → Audience → Test users** → add your Google account email.
 
-1. در Gmail یک draft با محتوای `[AMIR-SYNC]` بساز (با Claude Code)
-2. در web UI روی **🔄 Sync Gmail** کلیک کن
-3. سیستم:
-   - Draft‌های AMIR-SYNC را پیدا می‌کند
-   - موقعیت‌های جدید را parse می‌کند
-   - فایل‌های `.md` و `tracking.json` می‌سازد
-   - SQLite را به‌روز می‌کند
-   - Draft‌ها را به Trash منتقل می‌کند
-   - HTML tracker را regenerate می‌کند
-4. نتیجه در header صفحه نمایش داده می‌شود
+### OAuth Files
 
-### فرمت AMIR-SYNC draft
+| File | Contents |
+|------|----------|
+| `~/.amir/gmail_credentials.json` | OAuth client ID/secret (from Google Cloud) |
+| `~/.amir/gmail_token.json` | Access/refresh token (auto-created after first auth) |
 
-```
-TRACK: ai_general
-ID: univ_paris_ml_2026
-TITLE: PhD in Machine Learning
-INSTITUTION: Université Paris-Saclay
-LOCATION: Orsay, France
-DEADLINE: 30/06/2026
-LINK: https://...
-FIT: 9/10
-CONTACT: prof.name@univ.fr
-SOURCE: adum
+Both files are local only and never committed.
 
 ---
 
+## AMIR-SYNC Draft Format
+
+Create a Gmail draft with this structure. Claude Code reads it via Gmail MCP, writes to `sync_queue.txt`, then `amir apply sync` processes it.
+
+```
 TRACK: ai_ml
-ID: company_ml_engineer
+ID: company_name_role
 TITLE: ML Engineer
+INSTITUTION: Company Name
+LOCATION: Paris, France
+DEADLINE: 30/06/2026
+LINK: https://...
+FIT: 8/10
+EXPERIENCE: 3+ years
+CONTACT: recruiter@company.com
+SOURCE: linkedin
+
+---
+
+TRACK: phd_ai_general
+ID: FR_univ_topic
+TITLE: PhD in Machine Learning
 ...
 ```
 
-هر موقعیت با `---` جدا می‌شود.
+Separate each position with `---`. Supported tracks: `ai_ml`, `devops`, `devops_alternance`, `polyvalent`, `phd_ai_general`, `phd_ai_finance`.
 
-### فایل‌های ذخیره‌شده OAuth
-
-| فایل | محتوا |
-|------|-------|
-| `~/.amir/gmail_credentials.json` | OAuth client ID/secret (از Google Cloud) |
-| `~/.amir/gmail_token.json` | Access/refresh token (auto-created بعد از اتصال) |
-
-**امنیت:** هر دو فایل فقط در دستگاه محلی هستند و هرگز commit نمی‌شوند.
+**Experience field** is automatically parsed and stored. Supported keywords in `.md` files: `Expérience`, `Experience`, `Années`, `Years`.
 
 ---
 
 ## TUI (Textual)
 
 ```bash
-amir apply tui          # هر دو PhD و Job
-amir apply tui phd      # فقط PhD
-amir apply tui job      # فقط Job
+amir apply tui          # both PhD and Job
+amir apply tui phd      # PhD only
+amir apply tui job      # Job only
 ```
 
-### کلیدها
+### Key Bindings
 
-| کلید | عملکرد |
-|------|--------|
-| `↑ ↓` | navigation |
-| `Tab` | جابجایی PhD ↔ Job |
-| `s` | چرخش sort (deadline/fit/country/status/institution) |
-| `/` | نمایش/پنهان‌کردن filter bar |
-| `m` | علامت‌گذاری به عنوان ارسال‌شده |
-| `o` | باز کردن URL در مرورگر |
-| `r` | refresh |
-| `q` | خروج |
+| Key | Action |
+|-----|--------|
+| `↑` `↓` | Navigate rows |
+| `Tab` | Switch PhD ↔ Job |
+| `s` | Cycle sort (deadline/fit/country/status/institution) |
+| `/` | Show/hide filter bar |
+| `Esc` | Clear filter |
+| `m` | Mark current row as sent |
+| `x` | Reject current row |
+| `o` | Open URL in browser |
+| `r` | Refresh data |
+| `q` | Quit |
 
 ---
 
@@ -240,7 +233,8 @@ CREATE TABLE positions (
   location     TEXT,
   deadline     TEXT,                 -- ISO: YYYY-MM-DD
   fit          TEXT,                 -- e.g. "8/10"
-  fit_score    REAL,                 -- parsed float for sorting
+  fit_score    REAL,                 -- parsed float for numeric sort
+  experience   TEXT,                 -- e.g. "3+ ans", "Junior", "Master requis"
   link         TEXT,
   contact      TEXT,
   lang         TEXT,
@@ -255,46 +249,72 @@ CREATE TABLE positions (
 );
 ```
 
-**Statuses:** `found → draft_ready → sent → replied / bounced / rejected / watching`
+**Status lifecycle:** `found → draft_ready → sent → replied / bounced / rejected / watching`
+
+New columns are added automatically via migration in `get_db()` — no manual SQL needed.
 
 ---
 
-## service.py API (برای توسعه‌دهندگان)
+## service.py API (for developers)
 
 ```python
 from apply_tracker.service import (
-    get_positions,   # list[dict] — main query
+    get_positions,   # list[dict] — main query with enriched days_left
     get_stats,       # {"phd": {...}, "job": {...}}
-    get_countries,   # sorted list of countries
-    mark_sent,       # dual-write sent status
-    mark_status,     # dual-write any status
-    SORT_CHOICES,    # ["deadline","fit","country","status","institution"]
+    get_countries,   # sorted list of countries in DB
+    mark_sent,       # dual-write: SQLite + JSON
+    mark_status,     # dual-write any status change
+    SORT_CHOICES,    # ["deadline","fit","country","status","institution","newest"]
 )
 
-# مثال
 rows = get_positions(
     base_dir,
-    kind="phd",
-    track="ai_general",      # optional filter
-    status="found",          # optional filter
-    pending_only=True,       # exclude sent/replied/rejected
-    country="France",        # optional filter
-    min_fit=7.0,             # optional filter
-    sort_by="deadline",      # see SORT_CHOICES
+    kind="phd",           # "phd" or "job"
+    track="ai_general",   # optional
+    status="found",       # optional filter
+    pending_only=True,    # exclude sent/replied/rejected
+    country="France",     # optional
+    min_fit=7.0,          # optional
+    sort_by="deadline",   # see SORT_CHOICES
+    asc=True,             # True = ascending, False = descending
 )
-# هر row شامل days_left محاسبه‌شده است
+# each row has a computed "days_left" field added by _enrich()
 ```
 
 ---
 
-## راه‌اندازی اولیه
+## Data Directory Structure
+
+```
+$HOME/@-Amir/Apply/2026-2027/
+├── PhD-Search/
+│   ├── found/
+│   │   ├── ai_general/
+│   │   │   ├── tracking.json          ← JSON backup (dual-write)
+│   │   │   └── <position-id>.md       ← position details
+│   │   └── ai_finance/
+│   ├── applied/
+│   │   └── <position-id>/
+│   │       ├── email_draft.md
+│   │       ├── CV.pdf
+│   │       └── LettreMotivation.pdf
+│   └── suivi_candidatures_PhD.html    ← auto-generated HTML tracker
+├── Job-Search/
+│   └── ... (same structure)
+├── apply_tracker.db                   ← SQLite (source of truth)
+└── sync_queue.txt                     ← sync input (temporary)
+```
+
+---
+
+## Initial Setup
 
 ```bash
-# ساخت tracking.json از .md files موجود
+# build tracking.json from existing .md files
 amir apply phd init ai_general
 amir apply phd init ai_finance
 amir apply job init ai_ml
 
-# یا پس از اولین sync خودکار ساخته می‌شود
+# or it's built automatically on first sync
 amir apply sync
 ```

@@ -7,6 +7,7 @@
   ![License](https://img.shields.io/badge/License-MIT-green.svg)
   [![Technical Docs](https://img.shields.io/badge/Docs-Technical-orange.svg)](docs/TECHNICAL.md)
   [![Apply Tracker](https://img.shields.io/badge/Docs-Apply%20Tracker-green.svg)](docs/APPLY_TRACKER.md)
+  [![Apply Tracker FA](https://img.shields.io/badge/Docs-Apply%20Tracker%20🇮🇷-green.svg)](docs/fa/APPLY_TRACKER_FA.md)
   <a href="https://www.linkedin.com/in/su6i/">
     <img src="assets/linkedin_su6i.svg" height="20" alt="LinkedIn">
   </a>
@@ -23,6 +24,7 @@ Built with modularity and ease of use in mind, `amir` works seamlessly across **
 - **🖼️ Advanced Image Processing:** AI-powered upscaling (Real-ESRGAN), document enhancement lab (140 variations), smart stacking (front/back), and professional corner rounding.
 - **🌍 Advanced Subtitle System:** AI-powered multilingual subtitles supporting **32 languages**. Features automatic translation, multi-platform hardware encoding (Mac/Ubuntu) with 1:1 size parity, Whisper Turbo as default, and document export via `--save` (no argument defaults to `pdf`).
 - **🤖 AI Powered:** Chat with Gemini/Gemma, generate code, and fetch model lists from 5 LLM providers (Gemini, OpenAI, DeepSeek, Groq, Anthropic).
+- **🎓 Apply Tracker:** Full PhD and job application pipeline — SQLite backend, FastAPI web UI, Textual TUI, Gmail sync with one click, bidirectional sort, reject/sent/reply tracking, and experience requirements field.
 - **📡 Research & Trends:** Multi-Agent RAG pipeline that searches YouTube, GitHub, arXiv, Reddit, ProductHunt, and Indie Hackers. Find trending content, filter by language/region, and generate cross-source ideas.
 - **🛠️ System Utilities:** One-command system cleanup, password generation, file locking/unlocking, and QR code generation.
 - **☁️ File Transfer:** Instantly upload files to temporary hosting services and get a shareable link.
@@ -222,6 +224,26 @@ export RESEARCH_TOOLKIT_DIR=/path/to/research_toolkit
 | `amir todo done <n>` | Remove task number `<n>` from the list. |
 | `amir todo clear` | Clear all tasks. |
 | `amir dashboard` | Show a system status dashboard (CPU, RAM, Space). |
+
+### 🎓 Apply Tracker
+
+Full PhD and job application tracker with SQLite backend, web UI, and Gmail sync. See [full docs](docs/APPLY_TRACKER.md).
+
+| Command | Description |
+| :--- | :--- |
+| `amir apply` | Urgent deadline alerts + help |
+| `amir apply phd` | Pending PhD positions sorted by urgency |
+| `amir apply phd sent` | List sent PhD applications |
+| `amir apply phd reject <id>` | Mark a position as rejected |
+| `amir apply phd draft <id>` | Generate email draft with DeepSeek AI |
+| `amir apply job` | Pending job positions |
+| `amir apply job reject <id>` | Reject a job position |
+| `amir apply web [port]` | Launch web UI at `localhost:8765` — table with sort/filter, Gmail sync button, reject/sent actions |
+| `amir apply tui [phd\|job]` | Terminal UI — arrow navigation, `m`=sent, `x`=reject, `s`=sort, `/`=filter |
+| `amir apply stats` | Bar chart statistics by status and country |
+| `amir apply sync` | Process AMIR-SYNC queue file → create positions |
+
+**Gmail Sync setup** (one-time): see [APPLY_TRACKER.md → Gmail Sync](docs/APPLY_TRACKER.md#gmail-sync----راه‌اندازی).
 
 ### 🛠 Utilities
 | Command | Description |

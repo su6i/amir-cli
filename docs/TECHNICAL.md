@@ -674,3 +674,77 @@ export AMIR_CONFIG_DIR="$HOME/.my_custom_tool_data"
 ```
 
 The CLI automatically detects this variable and uses it instead of the default.
+
+---
+
+## Apply Tracker Architecture
+
+> Full usage docs: [APPLY_TRACKER.md](APPLY_TRACKER.md) | [فارسی](fa/APPLY_TRACKER_FA.md)
+
+### Design Principles
+
+**Single entry, multi interfaces.** All three UIs (CLI, TUI, Web) read and write exclusively through `service.py`. The database layer (`db.py`) is never called directly from UI code. This means:
+- Adding a new UI requires zero changes to business logic
+- A bug fix in `service.py` fixes it for all three interfaces simultaneously
+
+**Dual-write, SQLite-read.** Every status change writes to both SQLite and the JSON `tracking.json` files. JSON acts as a human-readable backup. All queries go to SQLite for speed and filtering power.
+
+**Column migrations without downtime.** New schema columns are added via `ALTER TABLE ... ADD COLUMN` inside `get_db()` wrapped in try/except — the database upgrades itself on first open after a code update.
+
+### Key Files
+
+| File | Role |
+|------|------|
+| `db.py` | Schema, upsert with conflict resolution, country inference |
+| `service.py` | `get_positions()`, `mark_sent()`, `mark_status()`, `get_stats()` |
+| `service_cli.py` | Thin bash→service bridge: `reject`, `watch` |
+| `web.py` | FastAPI routes + inline HTML/CSS/JS (no template engine) |
+| `tui.py` | Textual `App` with `DataTable`, key bindings, filter bar |
+| `gmail_sync.py` | OAuth2 flow, token persistence, Gmail API draft fetch + trash |
+| `sync.py` | AMIR-SYNC format parser → `.md` + `tracking.json` + SQLite upsert |
+| `generate_html.py` | HTML tracker regeneration after every sync |
+
+### SQLite Upsert Logic
+
+On conflict (re-sync of existing position), the `ON CONFLICT DO UPDATE` clause preserves manually-set fields:
+- `status` is only overwritten if the incoming value is not `'found'` — a re-sync never reverts a sent/replied position to found
+- `sent_date`, `reply_date`, `reply_type` use `COALESCE(existing, incoming)` — once set manually, never overwritten
+
+### Gmail OAuth2 Flow (Web UI)
+
+```
+User clicks "Connect Gmail"
+  → GET /auth/gmail
+  → gmail_sync.start_auth_flow(callback_url) → stores Flow in module var
+  → redirect to Google OAuth consent screen
+  → User grants permission
+  → Google redirects to GET /auth/gmail/callback?code=...
+  → gmail_sync.complete_auth_flow(code) → saves token to ~/.amir/gmail_token.json
+  → redirect to /phd with success flash message
+
+User clicks "Sync Gmail"
+  → POST /api/sync-gmail
+  → gmail_sync.fetch_and_process(BASE_DIR)
+     ├─ load token, refresh if expired
+     ├─ Gmail API: list drafts with query "AMIR-SYNC"
+     ├─ fetch each draft body (base64url decode)
+     ├─ sync.parse_sync_content() + sync.apply_positions()
+     ├─ Gmail API: delete processed drafts
+     └─ generate_html.regenerate_all() for both PhD and Job
+  → redirect to /phd?msg=...
+```
+
+### Sort System
+
+`service.py` defines `_ORDER` as a dict of `(asc_sql, desc_sql)` tuples per sort key. The `_order(sort_by, asc)` function selects the correct SQL fragment. This is passed directly to `db.query(order_by=...)` — no Python-side sorting occurs.
+
+```python
+_ORDER = {
+    "deadline":  ("... deadline ASC", "... deadline DESC"),
+    "fit":       ("fit_score ASC NULLS LAST", "fit_score DESC NULLS LAST"),
+    "newest":    ("added_date DESC, id ASC", "added_date ASC, id DESC"),
+    ...
+}
+```
+
+The `id` tiebreaker in `newest` ensures consistent ordering even when multiple positions share the same `added_date`.
