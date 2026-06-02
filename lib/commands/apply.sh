@@ -43,9 +43,14 @@ run_apply() {
         old_pid=$(lsof -ti:"$port" 2>/dev/null)
         if [[ -n "$old_pid" ]]; then
             echo "  ↻ Restarting (killing old process on :$port)..."
-            kill "$old_pid" 2>/dev/null
-            sleep 0.5
+            kill -9 $old_pid 2>/dev/null
+            # Wait until port is actually free (max 3s)
+            local waited=0
+            while lsof -ti:"$port" &>/dev/null && (( waited < 6 )); do
+                sleep 0.5; (( waited++ ))
+            done
         fi
+        export APPLY_BASE_DIR="$base_dir"
         PYTHONPATH="$LIB_DIR/python" uv run python \
             "$LIB_DIR/python/apply_tracker/web.py" "$base_dir" "$port"
         return $?

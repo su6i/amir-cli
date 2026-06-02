@@ -19,7 +19,9 @@ from apply_tracker.service import (
 )
 from apply_tracker.tracker import days_left
 
-BASE_DIR = Path.home() / "@-Amir/Apply/2026-2027"
+import os as _os
+BASE_DIR = Path(_os.environ.get("APPLY_BASE_DIR",
+                str(Path.home() / "@-Amir/Apply/2026-2027")))
 app = FastAPI(title="Apply Tracker", docs_url="/api/docs")
 
 # ── shared formatters (HTML output) ──────────────────────────────────────────
@@ -392,12 +394,26 @@ async def api_stats():
 
 # ── entry point ───────────────────────────────────────────────────────────────
 
-def run_web(base_dir: Path, port: int = 8765) -> None:
+def run_web(base_dir: Path, port: int = 8765, reload: bool = True) -> None:
     global BASE_DIR
     BASE_DIR = base_dir
     print(f"  🌐 Apply Tracker Web UI → http://localhost:{port}")
     print(f"  🌐 API docs             → http://localhost:{port}/api/docs")
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    if reload:
+        print(f"  👁 Watchdog active — auto-reload on file change")
+        # reload=True requires app as import string
+        import os
+        os.environ["APPLY_BASE_DIR"] = str(base_dir)
+        uvicorn.run(
+            "apply_tracker.web:app",
+            host="127.0.0.1",
+            port=port,
+            log_level="warning",
+            reload=True,
+            reload_dirs=[str(Path(__file__).parent)],
+        )
+    else:
+        uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
 if __name__ == "__main__":
