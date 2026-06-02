@@ -8,6 +8,7 @@ from pathlib import Path
 from apply_tracker.tracker import (
     load_tracking, parse_position_md, days_left, init_tracking
 )
+from apply_tracker.db import get_db, query as db_query
 
 # ── display helpers ───────────────────────────────────────────────────────────
 
@@ -59,9 +60,51 @@ def format_deadline(dl: str | None) -> str:
 
 # ── main display functions ────────────────────────────────────────────────────
 
+def _db_rows_to_entries(rows: list[dict], urgent_only: bool = False) -> list[dict]:
+    """Convert SQLite rows to the display dict format."""
+    entries = []
+    for r in rows:
+        d_left = days_left(r.get("deadline"))
+        if urgent_only and (d_left is None or d_left > 14):
+            continue
+        entries.append({
+            "id":          r["id"],
+            "track":       r["track"],
+            "deadline":    r.get("deadline"),
+            "days_left":   d_left,
+            "fit":         r.get("fit") or "?",
+            "fit_score":   r.get("fit_score"),
+            "status":      r.get("status", "found"),
+            "institution": r.get("institution") or "",
+            "title":       r.get("title") or r["id"],
+            "country":     r.get("country") or "",
+            "location":    r.get("location") or "",
+        })
+    entries.sort(key=lambda e: (
+        e["days_left"] is None,
+        e["days_left"] if e["days_left"] is not None else 9999,
+    ))
+    return entries
+
+
 def collect_entries(search_dir: Path, filter_track: str | None = None,
-                    urgent_only: bool = False) -> list[dict]:
-    """Collect all entries from all tracks under found/."""
+                    urgent_only: bool = False,
+                    kind: str | None = None) -> list[dict]:
+    """Collect entries — tries SQLite first, falls back to JSON."""
+    base_dir = search_dir.parent
+    try:
+        conn = get_db(base_dir)
+        # Infer kind from path if not given
+        if kind is None:
+            name = search_dir.name.lower()
+            kind = "phd" if "phd" in name else "job"
+        rows = db_query(conn, kind=kind, track=filter_track)
+        if rows:
+            return _db_rows_to_entries(rows, urgent_only)
+    except Exception:
+        pass  # fall through to JSON
+
+    # ── JSON fallback ────────────────────────────────────────────────────────
     found_dir = search_dir / "found"
     if not found_dir.exists():
         return []
@@ -75,7 +118,6 @@ def collect_entries(search_dir: Path, filter_track: str | None = None,
 
         tj = td / "tracking.json"
         if not tj.exists():
-            # Auto-init if .md files exist
             mds = [f for f in td.glob("*.md") if f.stem not in
                    {"summary", "suivi_candidatures_phd", "rapport_envois"}]
             if mds:
@@ -92,20 +134,22 @@ def collect_entries(search_dir: Path, filter_track: str | None = None,
             if urgent_only and (d_left is None or d_left > 14):
                 continue
             entries.append({
-                "id": pos_id,
-                "track": td.name,
-                "deadline": dl,
-                "days_left": d_left,
-                "fit": entry.get("fit", "?"),
-                "status": entry.get("status", "found"),
+                "id":          pos_id,
+                "track":       td.name,
+                "deadline":    dl,
+                "days_left":   d_left,
+                "fit":         entry.get("fit", "?"),
+                "fit_score":   None,
+                "status":      entry.get("status", "found"),
                 "institution": entry.get("institution", ""),
-                "title": entry.get("title", pos_id),
+                "title":       entry.get("title", pos_id),
+                "country":     "",
+                "location":    "",
             })
 
-    # Sort: urgent first (by days_left), then no-deadline last
     entries.sort(key=lambda e: (
         e["days_left"] is None,
-        e["days_left"] if e["days_left"] is not None else 9999
+        e["days_left"] if e["days_left"] is not None else 9999,
     ))
     return entries
 
