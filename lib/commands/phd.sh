@@ -31,6 +31,13 @@ run_phd() {
                 _phd_tracker sent "$@"
             fi
             ;;
+        reject)
+            if [[ -z "$1" ]]; then
+                _phd_python status.py --filter-status rejected
+            else
+                _phd_python service_cli.py reject "$1" phd
+            fi
+            ;;
         reply)
             _phd_tracker reply "$@"
             ;;
