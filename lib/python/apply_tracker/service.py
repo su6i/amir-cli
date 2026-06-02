@@ -56,8 +56,8 @@ _ORDER: dict[str, tuple[str, str]] = {
         "institution DESC NULLS LAST",
     ),
     "newest":      (
-        "added_date DESC",
-        "added_date ASC",
+        "COALESCE(added_date,'1900-01-01') DESC, id ASC",
+        "COALESCE(added_date,'1900-01-01') ASC, id DESC",
     ),
 }
 _DEFAULT_ORDER = _ORDER["deadline"][0]

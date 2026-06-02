@@ -474,14 +474,15 @@ async def api_positions(kind: str = "phd", status: str | None = None,
 
 
 @app.post("/api/status")
-async def api_status(pos_id: str = Form(...), kind: str = Form(...),
+async def api_status(request: Request, pos_id: str = Form(...), kind: str = Form(...),
                      status: str = Form(...)):
     kwargs = {}
     if status == "sent":
         kwargs["sent_date"] = date.today().isoformat()
     ok = mark_status(BASE_DIR, pos_id, kind, status, **kwargs)
     if ok:
-        return RedirectResponse(url=f"/{kind}", status_code=303)
+        ref = request.headers.get("referer", f"/{kind}")
+        return RedirectResponse(url=ref, status_code=303)
     return JSONResponse({"error": "position not found"}, status_code=404)
 
 
