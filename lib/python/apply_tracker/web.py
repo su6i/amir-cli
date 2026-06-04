@@ -395,10 +395,10 @@ def _toolbar(action_url: str, sort: str, asc: int,
     if cur_fit:
         active += f'<a href="{action_url}?{_qs(fit="")}" class="chip chip-replied active" style="font-size:.7rem">⭐ fit={cur_fit} ✕</a>'
 
-    return f"""<div class="chips">{chips}{(" <span style='color:#ccc'>|</span> " + active) if active else ""}</div>
-    <div class="toolbar">
+    return f"""<div class="toolbar">
       <label>🔍 <input id="lf" type="text" placeholder="Filter…" style="width:220px"></label>
-    </div>"""
+    </div>
+    <div class="chips">{chips}{(" <span style='color:#ccc'>|</span> " + active) if active else ""}</div>"""
 
 
 # ── routes ────────────────────────────────────────────────────────────────────
