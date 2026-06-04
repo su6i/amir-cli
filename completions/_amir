@@ -990,8 +990,9 @@ _amir() {
                 3)
                     local -a apply_cmds
                     apply_cmds=(
-                        'phd:PhD application tracker (status/show/draft/sent/reply/open)'
+                        'phd:PhD application tracker (status/show/draft/sent/reply/open/sync)'
                         'job:Job application tracker (status/show/new/draft/sent/reply/open/sync)'
+                        'sync:Sync AMIR-SYNC drafts (--gmail for direct OAuth)'
                         'preview:Generate CV preview'
                     )
                     _describe -t commands 'apply subcommand' apply_cmds
@@ -1073,6 +1074,11 @@ _amir() {
                                     else
                                         _values 'track' 'devops' 'ai_engineer' 'polyvalent' 'all'
                                     fi
+                                    ;;
+                                sync)
+                                    local -a sync_opts
+                                    sync_opts=('--gmail:Sync directly via Gmail OAuth (no sync_queue.txt needed)')
+                                    _describe -t opts 'options' sync_opts
                                     ;;
                             esac
                             ;;
