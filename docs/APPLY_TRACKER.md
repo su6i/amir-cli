@@ -58,7 +58,7 @@ amir apply web [port]         # FastAPI web UI (default port 8765)
 amir apply stats              # bar chart statistics
 
 # ── Data ──────────────────────────────────────────────────────────
-amir apply sync               # process sync_queue.txt → create positions
+amir apply sync               # fetch AMIR-SYNC drafts from Gmail (direct OAuth)
 ```
 
 ### CLI Filters & Sort
@@ -165,7 +165,7 @@ Both files are local only and never committed.
 
 ## AMIR-SYNC Draft Format
 
-Create a Gmail draft with this structure. Claude Code reads it via Gmail MCP, writes to `sync_queue.txt`, then `amir apply sync` processes it.
+Create a Gmail draft with this structure. `amir apply sync` fetches it directly via Gmail OAuth, processes it, and trashes the draft automatically.
 
 ```
 TRACK: ai_ml
@@ -301,8 +301,7 @@ $HOME/@-Amir/Apply/2026-2027/
 │   └── suivi_candidatures_PhD.html    ← auto-generated HTML tracker
 ├── Job-Search/
 │   └── ... (same structure)
-├── apply_tracker.db                   ← SQLite (source of truth)
-└── sync_queue.txt                     ← sync input (temporary)
+└── apply_tracker.db                   ← SQLite (source of truth)
 ```
 
 ---
