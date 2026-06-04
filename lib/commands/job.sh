@@ -225,19 +225,20 @@ _job_add_source() {
 _job_sync_cmd() {
     local base_dir="${APPLY_BASE_DIR:-$HOME/@-Amir/Apply/2026-2027}"
     local sync_file="$base_dir/sync_queue.txt"
+    local use_gmail=0
+    for arg in "$@"; do [[ "$arg" == "--gmail" ]] && use_gmail=1; done
     echo ""
     echo "  SYNC REQUEST — Job tracks only"
-    if [[ -f "$sync_file" ]]; then
+    if (( use_gmail )); then
+        _gmail_sync_direct "$base_dir"
+    elif [[ -f "$sync_file" ]]; then
         PYTHONPATH="$LIB_DIR/python" uv run python \
             "$LIB_DIR/python/apply_tracker/sync.py" "$base_dir" \
             --sync-file "$sync_file"
     else
         echo "  CLAUDE_ACTION: GMAIL_SYNC_JOB"
-        echo "  Check Gmail for [AMIR-SYNC] drafts (Job positions only),"
+        echo "  Tip: run 'amir apply job sync --gmail' to sync directly from Gmail OAuth"
         echo "  write to: $sync_file  then re-run: amir apply job sync"
-        echo ""
-        echo "  Or ask Claude Code:"
-        echo "    > sync new job positions from Gmail newsletters (APEC, LinkedIn)"
     fi
 }
 
