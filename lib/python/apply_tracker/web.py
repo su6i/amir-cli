@@ -213,7 +213,27 @@ def _th(label: str, col: str, sort: str, asc: bool) -> str:
     return f'<th{cls} data-col="{col}">{label} {arrow}</th>'
 
 
-def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool) -> str:
+class _FilterState:
+    """Carries current filter params so cells can build click-to-filter URLs."""
+    def __init__(self, base: str, sort: str, asc: int,
+                 country: str, min_fit: str, status: str,
+                 track: str, fit: str):
+        self.base = base
+        self.sort = sort; self.asc = asc
+        self.country = country; self.min_fit = min_fit
+        self.status = status; self.track = track; self.fit = fit
+
+    def url(self, **overrides) -> str:
+        p = dict(sort=self.sort, asc=self.asc, country=self.country,
+                 min_fit=self.min_fit, status=self.status,
+                 track=self.track, fit=self.fit)
+        p.update(overrides)
+        qs = "&".join(f"{k}={v}" for k, v in p.items() if v not in (None, ""))
+        return f"{self.base}?{qs}"
+
+
+def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool,
+                    fs: "_FilterState | None" = None) -> str:
     header = (
         f"<tr>{_th('Institution','institution',sort,asc)}"
         f"{_th('Deadline','deadline',sort,asc)}"
@@ -274,16 +294,43 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool) -> str:
             f'</div></div>'
         )
 
+        # Click-to-filter links for country, track, fit
+        raw_country = r.get('country') or ''
+        raw_track   = r.get('track') or ''
+        raw_fit     = r.get('fit')
+        if fs and raw_country:
+            country_cell = (f'<a href="{fs.url(country=raw_country)}" '
+                            f'title="Filter: {raw_country}" '
+                            f'style="color:inherit;text-decoration:none;cursor:pointer"'
+                            f' onclick="event.stopPropagation()">{raw_country}</a>')
+        else:
+            country_cell = raw_country or '—'
+        if fs and raw_track:
+            track_cell = (f'<a href="{fs.url(track=raw_track)}" '
+                          f'title="Filter: {raw_track}" '
+                          f'style="color:inherit;text-decoration:none;cursor:pointer;'
+                          f'font-size:.75rem;background:#f0f4ff;border-radius:8px;padding:2px 7px"'
+                          f' onclick="event.stopPropagation()">{raw_track}</a>')
+        else:
+            track_cell = raw_track
+        if fs and raw_fit is not None:
+            fit_url = fs.url(fit=raw_fit, min_fit="")
+            fit_cell = (f'<a href="{fit_url}" title="Filter: {raw_fit}/10" '
+                        f'onclick="event.stopPropagation()" style="text-decoration:none">'
+                        f'{_fit_badge(raw_fit)}</a>')
+        else:
+            fit_cell = _fit_badge(raw_fit)
+
         body += (
             f'<tr class="clickable" onclick="toggleDetail(\'{pid}\')">'
             f"<td><strong>{r.get('institution') or pid}</strong>"
             f"<br><small style='color:#aaa'>{pid}</small></td>"
             f"<td>{_deadline_fmt(r.get('deadline'))}</td>"
             f"<td>{_days_badge(r['days_left'])}</td>"
-            f"<td>{_fit_badge(r.get('fit'))}</td>"
+            f"<td>{fit_cell}</td>"
             f"<td>{exp_cell}</td>"
-            f"<td>{r.get('track','')}</td>"
-            f"<td>{r.get('country') or '—'}</td>"
+            f"<td>{track_cell}</td>"
+            f"<td>{country_cell}</td>"
             f"<td>{_status_badge(r.get('status','found'))}</td>"
             f"<td style='color:#aaa;font-size:.75rem'>{added}</td>"
             f"<td></td>"
@@ -312,7 +359,8 @@ def _stats_cards(st: dict, kind: str) -> str:
 
 def _toolbar(action_url: str, sort: str, asc: int,
              countries: list[str], cur_country: str,
-             cur_min_fit: float, cur_status: str, form_id: str) -> str:
+             cur_min_fit: str, cur_status: str,
+             cur_track: str, cur_fit: str, form_id: str) -> str:
     c_opts = "<option value=''>All countries</option>" + "".join(
         f"<option {'selected' if c==cur_country else ''}>{c}</option>"
         for c in countries
@@ -320,7 +368,7 @@ def _toolbar(action_url: str, sort: str, asc: int,
 
     def _chip(label: str, value: str, extra_cls: str = "") -> str:
         active = "active" if cur_status == value else ""
-        qs = f"sort={sort}&asc={asc}&country={cur_country}&min_fit={cur_min_fit or ''}&status={value}"
+        qs = f"sort={sort}&asc={asc}&country={cur_country}&min_fit={cur_min_fit}&status={value}&track={cur_track}&fit={cur_fit}"
         return f'<a href="{action_url}?{qs}" class="chip {extra_cls} {active}">{label}</a>'
 
     chips = (
@@ -347,6 +395,8 @@ def _toolbar(action_url: str, sort: str, asc: int,
         <input type="hidden" name="sort" value="{sort}">
         <input type="hidden" name="asc" value="{asc}">
         <input type="hidden" name="status" value="{cur_status}">
+        <input type="hidden" name="track" value="{cur_track}">
+        <input type="hidden" name="fit" value="{cur_fit}">
         <button type="submit" class="ab open">Apply</button>
       </form>
     </div>"""
@@ -361,21 +411,28 @@ async def root():
 
 @app.get("/phd", response_class=HTMLResponse)
 async def phd_page(sort: str = "newest", asc: int = 1,
-                   country: str = "", min_fit: float = 0, status: str = "",
+                   country: str = "", min_fit: str = "", status: str = "",
+                   track: str = "", fit: str = "",
                    msg: str = "", err: str = ""):
+    _min_fit = float(min_fit) if min_fit else None
+    _fit     = int(fit) if fit else None
     rows = get_positions(BASE_DIR, "phd", sort_by=sort, asc=bool(asc),
-                         country=country or None, min_fit=min_fit or None,
+                         country=country or None, min_fit=_min_fit,
                          status=status or None)
-    # Default view hides rejected — only "Refusé" chip or "All" makes them visible
     if status == "":
         rows = [r for r in rows if r.get("status") != "rejected"]
+    if track:
+        rows = [r for r in rows if r.get("track") == track]
+    if _fit is not None:
+        rows = [r for r in rows if r.get("fit") == _fit]
     st   = get_stats(BASE_DIR)["phd"]
     ctr  = get_countries(BASE_DIR, "phd")
+    fstate = _FilterState("/phd", sort, asc, country, min_fit, status, track, fit)
     content = (
         '<h2 style="margin-bottom:14px">PhD Positions</h2>'
         + _stats_cards(st, "phd")
-        + _toolbar("/phd", sort, asc, ctr, country, min_fit, status, "phdf")
-        + _positions_html(rows, "phd", sort, bool(asc))
+        + _toolbar("/phd", sort, asc, ctr, country, min_fit, status, track, fit, "phdf")
+        + _positions_html(rows, "phd", sort, bool(asc), fstate)
     )
     return HTMLResponse(_page(content, "phd",
                                flash=msg or err, flash_type="ok" if msg else "err"))
@@ -383,19 +440,27 @@ async def phd_page(sort: str = "newest", asc: int = 1,
 
 @app.get("/job", response_class=HTMLResponse)
 async def job_page(sort: str = "newest", asc: int = 1,
-                   country: str = "", min_fit: float = 0, status: str = ""):
+                   country: str = "", min_fit: str = "", status: str = "",
+                   track: str = "", fit: str = ""):
+    _min_fit = float(min_fit) if min_fit else None
+    _fit     = int(fit) if fit else None
     rows = get_positions(BASE_DIR, "job", sort_by=sort, asc=bool(asc),
-                         country=country or None, min_fit=min_fit or None,
+                         country=country or None, min_fit=_min_fit,
                          status=status or None)
     if status == "":
         rows = [r for r in rows if r.get("status") != "rejected"]
+    if track:
+        rows = [r for r in rows if r.get("track") == track]
+    if _fit is not None:
+        rows = [r for r in rows if r.get("fit") == _fit]
     st   = get_stats(BASE_DIR)["job"]
     ctr  = get_countries(BASE_DIR, "job")
+    fstate = _FilterState("/job", sort, asc, country, min_fit, status, track, fit)
     content = (
         '<h2 style="margin-bottom:14px">Job Positions</h2>'
         + _stats_cards(st, "job")
-        + _toolbar("/job", sort, asc, ctr, country, min_fit, status, "jobf")
-        + _positions_html(rows, "job", sort, bool(asc))
+        + _toolbar("/job", sort, asc, ctr, country, min_fit, status, track, fit, "jobf")
+        + _positions_html(rows, "job", sort, bool(asc), fstate)
     )
     return HTMLResponse(_page(content, "job"))
 
