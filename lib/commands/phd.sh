@@ -398,16 +398,9 @@ _phd_usage() {
 # Expose urgent header for apply.sh
 _phd_sync() {
     local base_dir="${APPLY_BASE_DIR:-$HOME/@-Amir/Apply/2026-2027}"
-    local sync_file="$base_dir/sync_queue.txt"
     echo ""
     echo "  SYNC REQUEST — PhD tracks only"
-    if [[ -f "$sync_file" ]]; then
-        PYTHONPATH="$LIB_DIR/python" uv run python \
-            "$LIB_DIR/python/apply_tracker/sync.py" "$base_dir" \
-            --sync-file "$sync_file"
-    else
-        _gmail_sync_direct "$base_dir"
-    fi
+    _gmail_sync_direct "$base_dir"
 }
 
 phd_urgent_header() {

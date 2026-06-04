@@ -117,21 +117,13 @@ run_apply() {
 
 _apply_sync_both() {
     local base_dir="${APPLY_BASE_DIR:-$HOME/@-Amir/Apply/2026-2027}"
-    local sync_file="$base_dir/sync_queue.txt"
 
     echo ""
     echo "  SYNC REQUEST — checking for [AMIR-SYNC] positions"
     echo "  base: $base_dir"
     echo ""
 
-    if [[ -f "$sync_file" ]]; then
-        echo "  Found sync_queue.txt — processing..."
-        PYTHONPATH="$LIB_DIR/python" uv run --directory "$AMIR_ROOT" python \
-            "$LIB_DIR/python/apply_tracker/sync.py" "$base_dir" \
-            --sync-file "$sync_file"
-    else
-        _gmail_sync_direct "$base_dir"
-    fi
+    _gmail_sync_direct "$base_dir"
 }
 
 _gmail_sync_direct() {
