@@ -28,7 +28,7 @@ run_apply() {
         shift
         local kind="${1:-phd}"
         local base_dir="${APPLY_BASE_DIR:-$HOME/@-Amir/Apply/2026-2027}"
-        PYTHONPATH="$LIB_DIR/python" uv run python \
+        PYTHONPATH="$LIB_DIR/python" uv run --directory "$AMIR_ROOT" python \
             "$LIB_DIR/python/apply_tracker/tui.py" "$base_dir" "$kind"
         return $?
     fi
@@ -51,7 +51,7 @@ run_apply() {
             done
         fi
         export APPLY_BASE_DIR="$base_dir"
-        PYTHONPATH="$LIB_DIR/python" uv run python \
+        PYTHONPATH="$LIB_DIR/python" uv run --directory "$AMIR_ROOT" python \
             "$LIB_DIR/python/apply_tracker/web.py" "$base_dir" "$port"
         return $?
     fi
@@ -59,7 +59,7 @@ run_apply() {
     # ── stats ─────────────────────────────────────────────────────────────────
     if [[ "$1" == "stats" ]]; then
         local base_dir="${APPLY_BASE_DIR:-$HOME/@-Amir/Apply/2026-2027}"
-        PYTHONPATH="$LIB_DIR/python" uv run python \
+        PYTHONPATH="$LIB_DIR/python" uv run --directory "$AMIR_ROOT" python \
             "$LIB_DIR/python/apply_tracker/stats_cli.py" "$base_dir"
         return $?
     fi
@@ -118,27 +118,42 @@ run_apply() {
 _apply_sync_both() {
     local base_dir="${APPLY_BASE_DIR:-$HOME/@-Amir/Apply/2026-2027}"
     local sync_file="$base_dir/sync_queue.txt"
+    local use_gmail=0
+    for arg in "$@"; do [[ "$arg" == "--gmail" ]] && use_gmail=1; done
 
     echo ""
     echo "  SYNC REQUEST — checking for [AMIR-SYNC] positions"
     echo "  base: $base_dir"
     echo ""
 
-    if [[ -f "$sync_file" ]]; then
+    if (( use_gmail )); then
+        _gmail_sync_direct "$base_dir"
+    elif [[ -f "$sync_file" ]]; then
         echo "  Found sync_queue.txt — processing..."
-        PYTHONPATH="$LIB_DIR/python" uv run python \
+        PYTHONPATH="$LIB_DIR/python" uv run --directory "$AMIR_ROOT" python \
             "$LIB_DIR/python/apply_tracker/sync.py" "$base_dir" \
             --sync-file "$sync_file"
     else
-        # Signal to Claude Code to perform Gmail sync
         echo "  CLAUDE_ACTION: GMAIL_SYNC"
-        echo "  Read Gmail drafts with subject containing [AMIR-SYNC],"
-        echo "  write positions to: $sync_file"
-        echo "  then re-run: amir apply sync"
-        echo ""
-        echo "  Or ask Claude Code directly:"
-        echo "    > sync new positions from Gmail and job sites"
+        echo "  Tip: run 'amir apply sync --gmail' to sync directly from Gmail OAuth"
+        echo "  write positions to: $sync_file  then re-run: amir apply sync"
     fi
+}
+
+_gmail_sync_direct() {
+    local base_dir="$1"
+    PYTHONPATH="$LIB_DIR/python" uv run --directory "$AMIR_ROOT" python - <<PYEOF
+import sys
+sys.path.insert(0, '$LIB_DIR/python')
+from apply_tracker.gmail_sync import fetch_and_process, has_valid_token
+from pathlib import Path
+if not has_valid_token():
+    print("  ❌ No Gmail token — run 'amir apply web' and click 'Connect Gmail' first")
+    sys.exit(1)
+r = fetch_and_process(Path('$base_dir'))
+print(f"  {'✅' if r.get('ok') else '❌'} {r.get('message', 'Unknown error')}")
+sys.exit(0 if r.get('ok') else 1)
+PYEOF
 }
 
 _apply_urgent_check() {
@@ -147,12 +162,12 @@ _apply_urgent_check() {
     local job_dir="${JOB_SEARCH_DIR:-$HOME/@-Amir/Apply/2026-2027/Job-Search}"
 
     if [[ -d "$phd_dir/found" ]]; then
-        PYTHONPATH="$LIB_DIR/python" uv run python \
+        PYTHONPATH="$LIB_DIR/python" uv run --directory "$AMIR_ROOT" python \
             "$LIB_DIR/python/apply_tracker/status.py" \
             "$phd_dir" --urgent-header --type phd 2>/dev/null
     fi
     if [[ -d "$job_dir/found" ]]; then
-        PYTHONPATH="$LIB_DIR/python" uv run python \
+        PYTHONPATH="$LIB_DIR/python" uv run --directory "$AMIR_ROOT" python \
             "$LIB_DIR/python/apply_tracker/status.py" \
             "$job_dir" --urgent-header --type job 2>/dev/null
     fi

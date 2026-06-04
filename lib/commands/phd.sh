@@ -399,19 +399,20 @@ _phd_usage() {
 _phd_sync() {
     local base_dir="${APPLY_BASE_DIR:-$HOME/@-Amir/Apply/2026-2027}"
     local sync_file="$base_dir/sync_queue.txt"
+    local use_gmail=0
+    for arg in "$@"; do [[ "$arg" == "--gmail" ]] && use_gmail=1; done
     echo ""
     echo "  SYNC REQUEST — PhD tracks only"
-    if [[ -f "$sync_file" ]]; then
+    if (( use_gmail )); then
+        _gmail_sync_direct "$base_dir"
+    elif [[ -f "$sync_file" ]]; then
         PYTHONPATH="$LIB_DIR/python" uv run python \
             "$LIB_DIR/python/apply_tracker/sync.py" "$base_dir" \
             --sync-file "$sync_file"
     else
         echo "  CLAUDE_ACTION: GMAIL_SYNC_PHD"
-        echo "  Check Gmail for [AMIR-SYNC] drafts (PhD positions only),"
+        echo "  Tip: run 'amir apply phd sync --gmail' to sync directly from Gmail OAuth"
         echo "  write to: $sync_file  then re-run: amir apply phd sync"
-        echo ""
-        echo "  Or ask Claude Code:"
-        echo "    > sync new PhD positions from Gmail and ADUM/ABG/Inria"
     fi
 }
 
