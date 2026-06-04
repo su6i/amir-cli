@@ -51,6 +51,8 @@ run_apply() {
             done
         fi
         export APPLY_BASE_DIR="$base_dir"
+        # Open browser after short delay (server needs ~1s to bind)
+        { sleep 1.2 && open "http://localhost:$port"; } &
         PYTHONPATH="$LIB_DIR/python" uv run --directory "$AMIR_ROOT" python \
             "$LIB_DIR/python/apply_tracker/web.py" "$base_dir" "$port"
         return $?
