@@ -414,7 +414,7 @@ async def phd_page(sort: str = "newest", asc: int = 1,
                    track: str = "", fit: str = "",
                    msg: str = "", err: str = ""):
     _min_fit = float(min_fit) if min_fit else None
-    _fit     = int(fit) if fit else None
+    _fit     = int(float(fit)) if fit else None
     rows = get_positions(BASE_DIR, "phd", sort_by=sort, asc=bool(asc),
                          country=country or None, min_fit=_min_fit,
                          status=status or None)
@@ -423,7 +423,7 @@ async def phd_page(sort: str = "newest", asc: int = 1,
     if track:
         rows = [r for r in rows if r.get("track") == track]
     if _fit is not None:
-        rows = [r for r in rows if r.get("fit") == _fit]
+        rows = [r for r in rows if int(float(r.get("fit") or 0)) == _fit]
     st   = get_stats(BASE_DIR)["phd"]
     ctr  = get_countries(BASE_DIR, "phd")
     fstate = _FilterState("/phd", sort, asc, country, min_fit, status, track, fit)
@@ -442,7 +442,7 @@ async def job_page(sort: str = "newest", asc: int = 1,
                    country: str = "", min_fit: str = "", status: str = "",
                    track: str = "", fit: str = ""):
     _min_fit = float(min_fit) if min_fit else None
-    _fit     = int(fit) if fit else None
+    _fit     = int(float(fit)) if fit else None
     rows = get_positions(BASE_DIR, "job", sort_by=sort, asc=bool(asc),
                          country=country or None, min_fit=_min_fit,
                          status=status or None)
@@ -451,7 +451,7 @@ async def job_page(sort: str = "newest", asc: int = 1,
     if track:
         rows = [r for r in rows if r.get("track") == track]
     if _fit is not None:
-        rows = [r for r in rows if r.get("fit") == _fit]
+        rows = [r for r in rows if int(float(r.get("fit") or 0)) == _fit]
     st   = get_stats(BASE_DIR)["job"]
     ctr  = get_countries(BASE_DIR, "job")
     fstate = _FilterState("/job", sort, asc, country, min_fit, status, track, fit)
