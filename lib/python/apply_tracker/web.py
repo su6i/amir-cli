@@ -204,6 +204,11 @@ function toggleDetail(pid){{
   if(!row) return;
   row.style.display=row.style.display==='table-row'?'none':'table-row';
 }}
+function filterBy(key, value){{
+  const u=new URL(window.location.href);
+  u.searchParams.set(key, value);
+  window.location.href=u.toString();
+}}
 </script></body></html>"""
 
 
@@ -294,30 +299,28 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool,
             f'</div></div>'
         )
 
-        # Click-to-filter links for country, track, fit
+        # Click-to-filter cells (JS filterBy — avoids <a>/<tr onclick> conflict)
         raw_country = r.get('country') or ''
         raw_track   = r.get('track') or ''
         raw_fit     = r.get('fit')
-        if fs and raw_country:
-            country_cell = (f'<a href="{fs.url(country=raw_country)}" '
-                            f'title="Filter: {raw_country}" '
-                            f'style="color:inherit;text-decoration:none;cursor:pointer"'
-                            f' onclick="event.stopPropagation()">{raw_country}</a>')
+        _stop = "event.stopPropagation();"
+        if raw_country:
+            country_cell = (f'<span onclick="{_stop}filterBy(\'country\',\'{raw_country}\')" '
+                            f'title="Filter: {raw_country}" style="cursor:pointer">'
+                            f'{raw_country}</span>')
         else:
-            country_cell = raw_country or '—'
-        if fs and raw_track:
-            track_cell = (f'<a href="{fs.url(track=raw_track)}" '
-                          f'title="Filter: {raw_track}" '
-                          f'style="color:inherit;text-decoration:none;cursor:pointer;'
-                          f'font-size:.75rem;background:#f0f4ff;border-radius:8px;padding:2px 7px"'
-                          f' onclick="event.stopPropagation()">{raw_track}</a>')
+            country_cell = '—'
+        if raw_track:
+            track_cell = (f'<span onclick="{_stop}filterBy(\'track\',\'{raw_track}\')" '
+                          f'title="Filter: {raw_track}" style="cursor:pointer;font-size:.75rem;'
+                          f'background:#f0f4ff;border-radius:8px;padding:2px 7px">'
+                          f'{raw_track}</span>')
         else:
-            track_cell = raw_track
-        if fs and raw_fit is not None:
-            fit_url = fs.url(fit=raw_fit, min_fit="")
-            fit_cell = (f'<a href="{fit_url}" title="Filter: {raw_fit}/10" '
-                        f'onclick="event.stopPropagation()" style="text-decoration:none">'
-                        f'{_fit_badge(raw_fit)}</a>')
+            track_cell = ''
+        if raw_fit is not None:
+            fit_cell = (f'<span onclick="{_stop}filterBy(\'fit\',\'{raw_fit}\')" '
+                        f'title="Filter fit={raw_fit}" style="cursor:pointer">'
+                        f'{_fit_badge(raw_fit)}</span>')
         else:
             fit_cell = _fit_badge(raw_fit)
 
@@ -361,15 +364,16 @@ def _toolbar(action_url: str, sort: str, asc: int,
              countries: list[str], cur_country: str,
              cur_min_fit: str, cur_status: str,
              cur_track: str, cur_fit: str, form_id: str) -> str:
-    c_opts = "<option value=''>All countries</option>" + "".join(
-        f"<option {'selected' if c==cur_country else ''}>{c}</option>"
-        for c in countries
-    )
+
+    def _qs(**overrides) -> str:
+        p = dict(sort=sort, asc=asc, country=cur_country, status=cur_status,
+                 track=cur_track, fit=cur_fit)
+        p.update(overrides)
+        return "&".join(f"{k}={v}" for k, v in p.items() if str(v) != "")
 
     def _chip(label: str, value: str, extra_cls: str = "") -> str:
         active = "active" if cur_status == value else ""
-        qs = f"sort={sort}&asc={asc}&country={cur_country}&min_fit={cur_min_fit}&status={value}&track={cur_track}&fit={cur_fit}"
-        return f'<a href="{action_url}?{qs}" class="chip {extra_cls} {active}">{label}</a>'
+        return f'<a href="{action_url}?{_qs(status=value)}" class="chip {extra_cls} {active}">{label}</a>'
 
     chips = (
         _chip("All", "")
@@ -380,25 +384,18 @@ def _toolbar(action_url: str, sort: str, asc: int,
         + _chip("Refusé", "rejected", "chip-rejected")
     )
 
-    return f"""<div class="chips">{chips}</div>
+    # Active filter badges — click to clear
+    active = ""
+    if cur_country:
+        active += f'<a href="{action_url}?{_qs(country="")}" class="chip chip-sent active" style="font-size:.7rem">🌍 {cur_country} ✕</a>'
+    if cur_track:
+        active += f'<a href="{action_url}?{_qs(track="")}" class="chip chip-draft active" style="font-size:.7rem">📂 {cur_track} ✕</a>'
+    if cur_fit:
+        active += f'<a href="{action_url}?{_qs(fit="")}" class="chip chip-replied active" style="font-size:.7rem">⭐ fit={cur_fit} ✕</a>'
+
+    return f"""<div class="chips">{chips}{(" <span style='color:#ccc'>|</span> " + active) if active else ""}</div>
     <div class="toolbar">
-      <label>🔍 <input id="lf" type="text" placeholder="Filter…" style="width:200px"></label>
-      <label>Country:
-        <select name="country" form="{form_id}"
-                onchange="document.getElementById('{form_id}').submit()">{c_opts}</select>
-      </label>
-      <label>Min fit:
-        <input type="number" name="min_fit" form="{form_id}"
-               min="0" max="10" value="{cur_min_fit or ''}" style="width:54px" placeholder="0">
-      </label>
-      <form id="{form_id}" method="get" action="{action_url}">
-        <input type="hidden" name="sort" value="{sort}">
-        <input type="hidden" name="asc" value="{asc}">
-        <input type="hidden" name="status" value="{cur_status}">
-        <input type="hidden" name="track" value="{cur_track}">
-        <input type="hidden" name="fit" value="{cur_fit}">
-        <button type="submit" class="ab open">Apply</button>
-      </form>
+      <label>🔍 <input id="lf" type="text" placeholder="Filter…" style="width:220px"></label>
     </div>"""
 
 
