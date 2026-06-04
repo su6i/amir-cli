@@ -993,6 +993,9 @@ _amir() {
                         'phd:PhD application tracker (status/show/draft/sent/reply/open/sync)'
                         'job:Job application tracker (status/show/new/draft/sent/reply/open/sync)'
                         'sync:Sync AMIR-SYNC drafts from Gmail (direct OAuth)'
+                        'tui:Terminal UI with arrow keys (phd|job)'
+                        'web:Web interface on localhost:8765'
+                        'stats:Overall application statistics'
                         'preview:Generate CV preview'
                     )
                     _describe -t commands 'apply subcommand' apply_cmds
@@ -1001,6 +1004,14 @@ _amir() {
                 4)
                     case "${words[3]}" in
                         sync)
+                            ;;
+                        tui)
+                            _values 'kind' 'phd' 'job'
+                            ;;
+                        web)
+                            _message "port (default: 8765)"
+                            ;;
+                        stats)
                             ;;
                         phd)
                             local -a phd_cmds
