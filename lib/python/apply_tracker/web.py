@@ -240,7 +240,8 @@ class _FilterState:
 def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool,
                     fs: "_FilterState | None" = None) -> str:
     header = (
-        f"<tr>{_th('Institution','institution',sort,asc)}"
+        f'<tr><th style="width:32px;text-align:center;color:#ccc">#</th>'
+        f"{_th('Institution','institution',sort,asc)}"
         f"{_th('Deadline','deadline',sort,asc)}"
         f"{_th('Days','days',sort,asc)}"
         f"{_th('Fit','fit',sort,asc)}"
@@ -252,7 +253,7 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool,
         f"<th>Actions</th></tr>"
     )
     body = ""
-    for r in rows:
+    for idx, r in enumerate(rows, 1):
         pid        = r["id"]
         link       = r.get("link") or ""
         contact    = r.get("contact") or ""
@@ -326,6 +327,7 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool,
 
         body += (
             f'<tr class="clickable" onclick="toggleDetail(\'{pid}\')">'
+            f'<td style="text-align:center;color:#bbb;font-size:.75rem;width:32px">{idx}</td>'
             f"<td><strong>{r.get('institution') or pid}</strong>"
             f"<br><small style='color:#aaa'>{pid}</small></td>"
             f"<td>{_deadline_fmt(r.get('deadline'))}</td>"
