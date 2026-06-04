@@ -116,6 +116,19 @@ tr:last-child td { border-bottom:none; } tr:hover td { background:#f8fffc; }
 .ab.reject{background:#fce4ec;color:#c62828} .ab.reject:hover{background:#ffcdd2}
 .exp-badge{display:inline-block;padding:1px 6px;border-radius:10px;font-size:.68rem;
            font-weight:600;background:#e8eaf6;color:#283593;white-space:nowrap}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center}
+.chip{display:inline-block;padding:4px 13px;border-radius:14px;font-size:.75rem;font-weight:600;
+      cursor:pointer;text-decoration:none;border:1.5px solid #ddd;background:#f5f5f5;color:#555;transition:.15s}
+.chip:hover{background:#e0e0e0;border-color:#bbb}
+.chip.active{background:#145a45;color:white;border-color:#145a45}
+.chip.chip-rejected{border-color:#e57373;color:#c62828;background:#fff5f5}
+.chip.chip-rejected.active{background:#e57373;border-color:#e57373;color:white}
+.chip.chip-draft{border-color:#9c27b0;color:#6a1b9a;background:#f9f0ff}
+.chip.chip-draft.active{background:#9c27b0;border-color:#9c27b0;color:white}
+.chip.chip-sent{border-color:#43a047;color:#2e7d32;background:#f0fff4}
+.chip.chip-sent.active{background:#43a047;border-color:#43a047;color:white}
+.chip.chip-replied{border-color:#1565c0;color:#1565c0;background:#f0f7ff}
+.chip.chip-replied.active{background:#1565c0;border-color:#1565c0;color:white}
 tr.clickable{cursor:pointer} tr.clickable:hover td{background:#f0faf5}
 .sync-btn{padding:5px 14px;border:1px solid rgba(255,255,255,.4);border-radius:6px;
           background:rgba(255,255,255,.15);color:white;cursor:pointer;
@@ -304,12 +317,24 @@ def _toolbar(action_url: str, sort: str, asc: int,
         f"<option {'selected' if c==cur_country else ''}>{c}</option>"
         for c in countries
     )
-    s_opts = "".join(
-        f"<option {'selected' if s==cur_status else ''}>{s}</option>"
-        for s in ["", "found", "draft_ready", "sent", "replied", "watching"]
+
+    def _chip(label: str, value: str, extra_cls: str = "") -> str:
+        active = "active" if cur_status == value else ""
+        qs = f"sort={sort}&asc={asc}&country={cur_country}&min_fit={cur_min_fit or ''}&status={value}"
+        return f'<a href="{action_url}?{qs}" class="chip {extra_cls} {active}">{label}</a>'
+
+    chips = (
+        _chip("All", "")
+        + _chip("À examiner", "found")
+        + _chip("Draft prêt", "draft_ready", "chip-draft")
+        + _chip("Envoyé", "sent", "chip-sent")
+        + _chip("Répondu", "replied", "chip-replied")
+        + _chip("Refusé", "rejected", "chip-rejected")
     )
-    return f"""<div class="toolbar">
-      <label>🔍 <input id="lf" type="text" placeholder="Filter…" style="width:180px"></label>
+
+    return f"""<div class="chips">{chips}</div>
+    <div class="toolbar">
+      <label>🔍 <input id="lf" type="text" placeholder="Filter…" style="width:200px"></label>
       <label>Country:
         <select name="country" form="{form_id}"
                 onchange="document.getElementById('{form_id}').submit()">{c_opts}</select>
@@ -318,12 +343,10 @@ def _toolbar(action_url: str, sort: str, asc: int,
         <input type="number" name="min_fit" form="{form_id}"
                min="0" max="10" value="{cur_min_fit or ''}" style="width:54px" placeholder="0">
       </label>
-      <label>Status:
-        <select name="status" form="{form_id}">{s_opts}</select>
-      </label>
       <form id="{form_id}" method="get" action="{action_url}">
         <input type="hidden" name="sort" value="{sort}">
         <input type="hidden" name="asc" value="{asc}">
+        <input type="hidden" name="status" value="{cur_status}">
         <button type="submit" class="ab open">Apply</button>
       </form>
     </div>"""
@@ -343,6 +366,9 @@ async def phd_page(sort: str = "newest", asc: int = 1,
     rows = get_positions(BASE_DIR, "phd", sort_by=sort, asc=bool(asc),
                          country=country or None, min_fit=min_fit or None,
                          status=status or None)
+    # Default view hides rejected — only "Refusé" chip or "All" makes them visible
+    if status == "":
+        rows = [r for r in rows if r.get("status") != "rejected"]
     st   = get_stats(BASE_DIR)["phd"]
     ctr  = get_countries(BASE_DIR, "phd")
     content = (
@@ -361,6 +387,8 @@ async def job_page(sort: str = "newest", asc: int = 1,
     rows = get_positions(BASE_DIR, "job", sort_by=sort, asc=bool(asc),
                          country=country or None, min_fit=min_fit or None,
                          status=status or None)
+    if status == "":
+        rows = [r for r in rows if r.get("status") != "rejected"]
     st   = get_stats(BASE_DIR)["job"]
     ctr  = get_countries(BASE_DIR, "job")
     content = (

@@ -238,7 +238,7 @@ Full PhD and job application tracker with SQLite backend, web UI, and Gmail sync
 | `amir apply phd draft <id>` | Generate email draft with DeepSeek AI |
 | `amir apply job` | Pending job positions |
 | `amir apply job reject <id>` | Reject a job position |
-| `amir apply web [port]` | Launch web UI at `localhost:8765` — opens browser automatically, Gmail sync button, sort/filter/reject/sent actions |
+| `amir apply web [port]` | Launch web UI — auto-opens browser, status chip filters (À examiner/Draft prêt/Envoyé/Refusé), rejected hidden by default |
 | `amir apply tui [phd\|job]` | Terminal UI — arrow navigation, `m`=sent, `x`=reject, `s`=sort, `/`=filter |
 | `amir apply stats` | Bar chart statistics by status and country |
 | `amir apply sync` | Fetch AMIR-SYNC Gmail drafts via OAuth → create positions + trash drafts automatically |
