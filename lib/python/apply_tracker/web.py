@@ -372,12 +372,14 @@ def _toolbar(action_url: str, sort: str, asc: int,
         return "&".join(f"{k}={v}" for k, v in p.items() if str(v) != "")
 
     def _chip(label: str, value: str, extra_cls: str = "") -> str:
-        active = "active" if cur_status == value else ""
-        return f'<a href="{action_url}?{_qs(status=value)}" class="chip {extra_cls} {active}">{label}</a>'
+        is_active = cur_status == value
+        # clicking an active chip deactivates it (go back to default)
+        target = "" if is_active else value
+        active_cls = "active" if is_active else ""
+        return f'<a href="{action_url}?{_qs(status=target)}" class="chip {extra_cls} {active_cls}">{label}</a>'
 
     chips = (
-        _chip("All", "")
-        + _chip("À examiner", "found")
+        _chip("À examiner", "found")
         + _chip("Draft prêt", "draft_ready", "chip-draft")
         + _chip("Envoyé", "sent", "chip-sent")
         + _chip("Répondu", "replied", "chip-replied")
