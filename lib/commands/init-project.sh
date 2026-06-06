@@ -141,6 +141,17 @@ CLAUDEOF
         [[ ! -d "$dir" ]] && mkdir -p "$dir" && echo "   ➕ $dir/" || echo "   🔸 $dir/ exists"
     done
 
+    # ── 6.5. Standard files ────────────────────────────────────────────────────
+    echo "📝 Creating standard markdown files..."
+    for file in TODO.md SESSION.md; do
+        if [[ ! -f "$file" ]]; then
+            echo "# ${file%.*} — ${PROJECT_NAME}" > "$file"
+            echo "   ✅ $file"
+        else
+            echo "   🔸 $file already exists"
+        fi
+    done
+
     # ── 7. .gitignore ──────────────────────────────────────────────────────────
     local GITIGNORE_TEMPLATE="$CONSTITUTION_PATH/templates/gitignore.template"
     if [[ ! -f ".gitignore" ]]; then
@@ -160,7 +171,7 @@ CLAUDEOF
 
     # ── 8. Git stage ───────────────────────────────────────────────────────────
     echo "💾 Staging..."
-    git add .gitmodules .agent/ CLAUDE.md .gitignore src/ tests/ docs/ assets/ lib/ 2>/dev/null
+    git add .gitmodules .agent/ CLAUDE.md .gitignore src/ tests/ docs/ assets/ lib/ TODO.md SESSION.md 2>/dev/null
     echo "   ✅ Staged"
 
     echo ""
