@@ -196,12 +196,15 @@ _amir() {
                     esac
                     ;;
                 batch)
-                    case $((CURRENT)) in
-                        4) _files -/ ;;
-                        5) _amir_resolutions ;;
-                        6) _amir_qualities ;;
-                        *) _message "Ready!" ;;
-                    esac
+                    _arguments -s \
+                        '1: : ' '2: : ' \
+                        '3:directory:_files -/' \
+                        '4:resolution:_amir_resolutions' \
+                        '5:quality:_amir_qualities' \
+                        '--fps[Custom frame rate (e.g. 10 for 10fps)]:fps:(6 10 12 15 20 24 25 30)' \
+                        '--split[Split output into chunks of N MB]:size in MB: ' \
+                        '--gpu[Use hardware encoder (default on Apple Silicon)]' \
+                        '--cpu[Use software encoder (better compression, recommended for text/screen recordings)]'
                     ;;
                 cut|trim)
                     _arguments -s \
@@ -260,8 +263,7 @@ _amir() {
                         '--fps[Custom frame rate (e.g. 10 for 10fps)]:fps:(6 10 12 15 20 24 25 30)' \
                         '--split[Split output into chunks of N MB]:size in MB: ' \
                         '--gpu[Use hardware encoder (default on Apple Silicon)]' \
-                        '--cpu[Use software encoder (better compression ratio)]' \
-                        '*:extra files:_files'
+                        '--cpu[Use software encoder (better compression, recommended for text/screen recordings)]'
                     ;;
                 download|dl)
                     _arguments -s \
