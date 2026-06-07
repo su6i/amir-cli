@@ -272,7 +272,7 @@ process_video() {
     fi
     
     # Skip already compressed versions to prevent loops
-    if [[ "$input_file" == *"_${target_h}p_"* || "$input_file" == *"_compressed"* ]]; then
+    if [[ "$input_file" == *"_${target_h}p_"* ]]; then
         return
     fi
     
@@ -332,6 +332,36 @@ process_video() {
     local speed_factor=${speed_factors[$quality]:-6}
     local sample_count=${sample_counts[$quality]:-0}
     
+    # ── Estimation ──
+    local base_ratio=0.06
+    if [[ $input_bytes -gt 8589934592 ]]; then
+        base_ratio=0.047
+    elif [[ $input_bytes -gt 4294967296 ]]; then
+        base_ratio=0.052
+    elif [[ $input_bytes -gt 2147483648 ]]; then
+        base_ratio=0.062
+    else
+        base_ratio=0.072
+    fi
+    
+    local est_size_bytes=$(echo "$input_bytes * $base_ratio * $quality_factor" | bc -l 2>/dev/null | cut -d. -f1)
+    if [[ -z "$est_size_bytes" || "$est_size_bytes" == "" ]]; then est_size_bytes=0; fi
+    local est_size_mb=$((est_size_bytes / 1048576))
+    
+    local est_time_sec=0
+    if [[ $(echo "$speed_factor > 0" | bc -l 2>/dev/null) -eq 1 ]]; then
+        est_time_sec=$(echo "$duration_seconds / $speed_factor" | bc -l 2>/dev/null | cut -d. -f1)
+    fi
+    if [[ -z "$est_time_sec" || "$est_time_sec" == "" ]]; then est_time_sec=0; fi
+    local est_time_format=""
+    if [[ $est_time_sec -ge 3600 ]]; then
+        est_time_format=$(printf '%dh%dm' $((est_time_sec/3600)) $(((est_time_sec%3600)/60)))
+    elif [[ $est_time_sec -ge 60 ]]; then
+        est_time_format=$(printf '%dm%ds' $((est_time_sec/60)) $((est_time_sec%60)))
+    else
+        est_time_format=$(printf '%ds' $est_time_sec)
+    fi
+    
     # ── Input Info Table (via shared library) ──
     local t_orient="Landscape"
     [[ $is_portrait -eq 1 ]] && t_orient="Portrait"
@@ -341,12 +371,12 @@ process_video() {
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
     
-    local col_width=$(calculate_column_width 3 28 35)
+    local col_width=$(calculate_column_width 4 26 30)
     print_media_table "$col_width" \
-        "📂 INPUT FILE|🖥️  HARDWARE|🎯 SETTINGS" \
-        "File: $(basename "$input_file")|CPU: $HW_CPU_INFO|Resolution: ${target_h}p" \
-        "Size: $input_size|GPU: $HW_GPU_INFO|Quality: $quality/100" \
-        "Duration: $duration_formatted|Encoder: $encoder_display|Orientation: $t_orient"
+        "📂 INPUT FILE|🖥️  HARDWARE|🎯 SETTINGS|⏱️ ESTIMATION" \
+        "File: $(basename "$input_file")|CPU: $HW_CPU_INFO|Resolution: ${target_h}p|Size: ~${est_size_mb}MB" \
+        "Size: $input_size|GPU: $HW_GPU_INFO|Quality: $quality/100|Time: ~${est_time_format}" \
+        "Duration: $duration_formatted|Encoder: $encoder_display|Orientation: $t_orient|Data pts: $sample_count"
     
     echo ""
     echo "⏳ Processing..."
@@ -395,7 +425,7 @@ process_video() {
     # ── Execute FFmpeg with Progress Bar ──
     run_ffmpeg_with_progress "$duration_seconds" \
         ffmpeg -hide_banner -loglevel info -stats -nostdin -y -i "$input_file" \
-        -vf "$filter_cmd" -sws_flags bilinear \
+        -vf "$filter_cmd" -sws_flags lanczos \
         -c:v "$encoder" "${MEDIA_Q_OPT[@]}" $tag_opt \
         "${MEDIA_BITRATE_FLAGS[@]}" \
         -af "$audio_filter" \
@@ -1186,7 +1216,7 @@ video() {
         echo ""
         echo "Options:"
         echo "  --gpu            Use hardware encoder (default on Apple Silicon)"
-        echo "  --cpu            Use software encoder (better compression ratio)"
+        echo "  --cpu            Use software encoder (better compression, highly recommended for text/screen recordings)"
         echo "  --quality N      Set quality (1-100, higher = better)"
         echo "  --resolution N   Set resolution height (e.g. 720, 1080)"
         echo "  -s, --start      Start time (HH:MM:SS or seconds)"
@@ -1289,7 +1319,7 @@ video() {
             process_video "$input" "$target_h" "$quality" "$encoding_mode" "$extreme_mode" "$custom_fps" "$split_mb" "$force_reencode"
         elif [[ -d "$input" ]]; then
             echo "📦 Batch processing directory: $input"
-            find "$input" -maxdepth 1 -type f \( -name "*.mp4" -o -name "*.mov" -o -name "*.mkv" -o -name "*.MP4" -o -name "*.MOV" -o -name "*.MKV" \) | while read -r file; do
+            find "$input" -maxdepth 1 -type f ! -name ".*" \( -name "*.mp4" -o -name "*.mov" -o -name "*.mkv" -o -name "*.MP4" -o -name "*.MOV" -o -name "*.MKV" \) | sort | while read -r file; do
                 process_video "$file" "$target_h" "$quality" "$encoding_mode" "$extreme_mode" "$custom_fps" "$split_mb" "$force_reencode" < /dev/null
             done
         fi

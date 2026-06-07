@@ -127,7 +127,7 @@ run_img() {
         local size=""
         local gravity="Center"
         local smart=false
-        local margin=20
+        local margin=0
         local dilation=9
         local smart_mode="crop"
         local output_arg=""
@@ -404,7 +404,33 @@ run_img() {
         else
             echo "🔄 Converting to $format (Size: $size px)..."
             
-            if [[ "$cmd" == "sips" ]]; then
+            # --- SVG Rendering using rsvg-convert (if available) ---
+            if [[ "$ext" == "svg" ]] && command -v rsvg-convert &> /dev/null; then
+                local w=$(echo $size | cut -dx -f1)
+                local h=$(echo $size | cut -dx -f2)
+                local rsvg_args=("-a" "-w" "$w" "-h" "$h")
+                if [[ "$background" != "none" && "$background" != "transparent" ]]; then
+                    rsvg_args+=("-b" "$background")
+                fi
+                
+                if [[ "$format" == "png" || "$format" == "pdf" || "$format" == "ps" || "$format" == "eps" || "$format" == "svg" ]]; then
+                    rsvg-convert "${rsvg_args[@]}" -f "$format" "$input" -o "$output"
+                else
+                    # rsvg-convert doesn't reliably support JPG natively, export to PNG first, then convert
+                    local tmp_png="${output}.tmp.png"
+                    rsvg-convert "${rsvg_args[@]}" -f png "$input" -o "$tmp_png"
+                    if [[ -f "$tmp_png" ]]; then
+                        if [[ "$cmd" == "sips" ]]; then
+                            sips -s format "$format" "$tmp_png" --out "$output" > /dev/null
+                        else
+                            $cmd "$tmp_png" "$output"
+                        fi
+                        rm -f "$tmp_png"
+                    else
+                        return 1
+                    fi
+                fi
+            elif [[ "$cmd" == "sips" ]]; then
                 # Sips limited support
                 sips -s format "$format" --resampleHeightWidthMax "$size" "$input" --out "$output" > /dev/null
             else
@@ -501,8 +527,8 @@ run_img() {
         # Helper: Get paper size (bash 3.2 compatible - no associative arrays)
         get_paper_size() {
             case "$1" in
-                a4|A4) echo "1240x1754" ;;   # 210x297mm at 150dpi
-                b5|B5) echo "1039x1476" ;;   # 176x250mm at 150dpi
+                a4|A4) echo "2480x3508" ;;   # 210x297mm at 300dpi
+                b5|B5) echo "2079x2953" ;;   # 176x250mm at 300dpi
                 *) echo "" ;;
             esac
         }
@@ -580,22 +606,37 @@ run_img() {
         fi
         
         # Get target size if paper size specified
-        local resize_opt=""
         local target_size=$(get_paper_size "$paper_size")
         if [[ -n "$target_size" ]]; then
-            resize_opt="-resize ${target_size}"
-            echo "   📄 Resizing to $paper_size ($target_size)"
+            local t_width=$(echo $target_size | cut -dx -f1)
+            local t_height=$(echo $target_size | cut -dx -f2)
+            local num_files=${#files[@]}
+            local part_height=$(( t_height / num_files ))
+            
+            echo "   📄 Framing ${num_files} images into equal parts on $paper_size ($target_size)"
+            
+            local process_arr=()
+            if [[ -n "$process_opts" ]]; then
+                # Split process_opts string into array to preserve arguments
+                read -ra process_arr <<< "$process_opts"
+            fi
+            
+            local magick_cmd=("$cmd" "-background" "$bg_color")
+            for f in "${files[@]}"; do
+                magick_cmd+=("$f" "${process_arr[@]}" "-resize" "${t_width}x${part_height}>" "-gravity" "center" "-extent" "${t_width}x${part_height}")
+            done
+            magick_cmd+=("-append" "-quality" "95" "$output")
+            
+            "${magick_cmd[@]}"
+        else
+            # Build smush command with auto-orient and optional processing
+            $cmd -background "$bg_color" \
+                "${files[@]}" \
+                $process_opts \
+                -gravity center -smush $gap \
+                -quality 95 \
+                "$output"
         fi
-        
-        # Build smush command with auto-orient and optional processing
-        # Note: resize is AFTER smush so final stacked image is resized
-        $cmd -background "$bg_color" \
-            "${files[@]}" \
-            $process_opts \
-            -gravity center -smush $gap \
-            $resize_opt \
-            -quality 95 \
-            "$output"
         
         if [[ $? -eq 0 ]]; then
             echo "✅ Saved: $output"
@@ -606,29 +647,62 @@ run_img() {
     }
 
     do_rotate() {
-        local input="$1"
-        local angle="$2"
+        local angle=""
+        local smart=false
+        local files=()
 
-        if [[ -z "$input" || ! -f "$input" ]]; then echo "❌ File not found."; return 1; fi
-        if [[ -z "$angle" ]]; then echo "❌ Angle required (e.g. 90, -90)."; return 1; fi
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --smart)
+                    smart=true
+                    shift
+                    ;;
+                -*)
+                    if [[ "$1" =~ ^-[0-9]+(\.[0-9]+)?$ ]]; then
+                        angle="$1"
+                    else
+                        echo "❌ Unknown flag: $1"
+                    fi
+                    shift
+                    ;;
+                *)
+                    if [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                        angle="$1"
+                    else
+                        files+=("$1")
+                    fi
+                    shift
+                    ;;
+            esac
+        done
 
-        local base="${input%.*}"
-        local output="${base}_rotated_${angle}.${input##*.}"
+        if [[ ${#files[@]} -eq 0 ]]; then echo "❌ File(s) required."; return 1; fi
+        if [[ "$smart" == false && -z "$angle" ]]; then echo "❌ Angle or --smart required."; return 1; fi
 
-        echo "🔄 Rotating image by ${angle} degrees..."
+        for input in "${files[@]}"; do
+            if [[ ! -f "$input" ]]; then echo "⚠️ File not found: $input"; continue; fi
+            local base="${input%.*}"
+            
+            if [[ "$smart" == true ]]; then
+                local output="${base}_deskew.${input##*.}"
+                echo "📐 Auto-straightening (deskew) $input -> $output"
+                magick "$input" -deskew 40% "$output"
+            else
+                local output="${base}_rotated_${angle}.${input##*.}"
+                echo "🔄 Rotating $input by ${angle} degrees -> $output"
+                if [[ "$cmd" == "sips" ]]; then
+                     sips -r "$angle" "$input" --out "$output" > /dev/null
+                else
+                    $cmd "$input" -rotate "$angle" "$output"
+                fi
+            fi
 
-        if [[ "$cmd" == "sips" ]]; then
-             sips -r "$angle" "$input" --out "$output" > /dev/null
-        else
-            $cmd "$input" -rotate "$angle" "$output"
-        fi
-
-        if [[ $? -eq 0 ]]; then
-            echo "✅ Saved: $output"
-        else
-            echo "❌ Rotation failed."
-            return 1
-        fi
+            if [[ $? -eq 0 ]]; then
+                echo "✅ Saved: $output"
+            else
+                echo "❌ Rotation failed for $input"
+            fi
+        done
     }
 
     do_upscale() {
@@ -1014,49 +1088,7 @@ run_img() {
         fi
     }
 
-    do_deskew() {
-        # Check for batch mode:
-        # 1. More than 2 arguments
-        # 2. Exactly 2 arguments, but the second one is an existing file (implies batch of 2)
-        local is_batch=0
-        if [[ $# -gt 2 ]]; then
-            is_batch=1
-        elif [[ $# -eq 2 && -f "$2" ]]; then
-            is_batch=1
-        fi
 
-        if [[ $is_batch -eq 1 ]]; then
-            echo "📐 Batch Deskew Mode detected. Processing $# files..."
-            for file in "$@"; do
-                if [[ -f "$file" ]]; then
-                   do_deskew "$file" # Recursive call for single file auto-naming
-                else
-                   echo "⚠️ Skipped (not found): $file"
-                fi
-            done
-            return 0
-        fi
-
-        # Single file mode (logical fall-through)
-        local input="$1"
-        local output="$2"
-        
-        if [[ -z "$input" ]]; then echo "❌ Input file required."; return 1; fi
-        if [[ ! -f "$input" ]]; then echo "❌ File not found: $input"; return 1; fi
-        
-        # Default output name if not provided
-        if [[ -z "$output" ]]; then
-            local dir=$(dirname "$input")
-            local base=$(basename "$input")
-            local name="${base%.*}"
-            local ext="${base##*.}"
-            output="${dir}/${name}_deskew.${ext}"
-        fi
-        
-        echo "📐 Deskewing: $input -> $output"
-        magick "$input" -deskew 40% "$output"
-        echo "✅ Saved as: $output"
-    }
 
     do_burst() {
         local recursive=0
@@ -1162,8 +1194,7 @@ run_img() {
         shift; do_scan "$@"
     elif [[ "$action" == "convert" ]]; then
         shift; do_convert "$@"
-    elif [[ "$action" == "deskew" ]]; then
-        shift; do_deskew "$@"
+
     elif [[ "$action" == "burst" ]]; then
         shift; do_burst "$@"
     elif [[ "$action" == "extend" ]]; then
@@ -1198,12 +1229,11 @@ run_img() {
         echo "  amir img lab     <file> [-s scale] [-m model]    (Generate 60/420 enhancement combinations)"
         echo "  amir img scan    <file> [--bw] [-o output]       (Professional Doc Cleanup: White BG, Black Ink)"
         echo "  amir img round   <file> [radius] [fmt|out]       (Round corners, def: 20px, PNG/JPG)"
-        echo "  amir img rotate  <file> <angle>                  (Rotate image)"
+        echo "  amir img rotate  <file...> <angle|--smart>      (Rotate or auto-deskew images)"
         echo "  amir img pad     <file> <size|preset> [color]    (Fit & Pad, def: white)"
         echo "  amir img convert <file> [fmt] [size|preset] [circle] (Convert & opt. Circle)"
         echo "  amir img stack   <file1> <file2> [...] [-g gap] [-p a4|b5] [--deskew]"
         echo "  amir img extend  -i <file> [opts]                (Extend borders)"
-        echo "  amir img deskew  <file> [output]                 (Auto-straighten image)"
         echo "  amir img burst   <files...> [output]             (Multi-frame Reconstruction)"
         echo ""
         echo "Presets:"

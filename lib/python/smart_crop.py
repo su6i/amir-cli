@@ -19,23 +19,21 @@ def order_points(pts):
     rect[3] = pts[np.argmax(diff)]
     return rect
 
-def get_orientation(img_path):
-    """Detects orientation using Tesseract OSD (Orientation and Script Detection)"""
+def get_orientation(img_path, min_confidence=1.0):
+    """Detects orientation using Tesseract OSD, requiring a minimum confidence."""
     try:
-        # Check if tesseract is available in path
         cmd = ['tesseract', img_path, 'stdout', '--psm', '0']
-        # Tesseract OSD output example:
-        # Orientation in degrees: 90
-        # Orientation confidence: 4.89
         result = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode()
         
+        # Check confidence first
+        conf_match = re.search(r'Orientation confidence: ([\d\.]+)', result)
+        if conf_match:
+            conf = float(conf_match.group(1))
+            if conf < min_confidence:
+                return 0
+                
         match = re.search(r'Orientation in degrees: (\d+)', result)
         if match:
-            # Tesseract 5.x Orientation results:
-            # 0: Upright (Perfect)
-            # 90: Need 270 rotation (CCW 90)
-            # 180: Need 180 rotation
-            # 270: Need 90 rotation (CW 90)
             return int(match.group(1))
     except Exception:
         pass
@@ -295,21 +293,39 @@ def detect_document(img, kernel_size):
     pad = 50
     small = cv2.copyMakeBorder(small, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=[0, 0, 0])
     
-    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+    gray_raw = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
     
-    # 2. Contrast
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-    gray = clahe.apply(gray)
+    # 2. Adaptive Segmentation Path Selection
+    unpadded_gray = gray_raw[pad:-pad, pad:-pad]
+    white_ratio = np.sum(unpadded_gray > 245) / float(unpadded_gray.size)
     
-    # 4. Blur - Extremely important for laptop screens (Pixels/Moiré)
-    # Using a stronger Sigma for color and space to melt away screen pixels
-    blurred = cv2.bilateralFilter(gray, 15, 120, 120)
-    
-    # 5. Hybrid Segmentation
-    thresh_g = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 201, 10)
-    thresh_m = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 201, 10)
-    mask = cv2.bitwise_and(thresh_g, thresh_m)
-    mask = cv2.bitwise_not(mask) # Objects white
+    if white_ratio > 0.40:
+        # Flatbed scanner or screenshot with solid white background
+        _, thresh_val = cv2.threshold(gray_raw, 245, 255, cv2.THRESH_BINARY_INV)
+        thresh_val[:pad, :] = 0
+        thresh_val[-pad:, :] = 0
+        thresh_val[:, :pad] = 0
+        thresh_val[:, -pad:] = 0
+        
+        # Morphology to clean up card features
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+        mask = cv2.morphologyEx(thresh_val, cv2.MORPH_CLOSE, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        gray = gray_raw
+    else:
+        # Photographic scene
+        # 2. Contrast
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        gray = clahe.apply(gray_raw)
+        
+        # 4. Blur
+        blurred = cv2.bilateralFilter(gray, 15, 120, 120)
+        
+        # 5. Hybrid Segmentation
+        thresh_g = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 201, 10)
+        thresh_m = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 201, 10)
+        mask = cv2.bitwise_and(thresh_g, thresh_m)
+        mask = cv2.bitwise_not(mask) # Objects white
     
     k_size = int(kernel_size)
     if k_size % 2 == 0: k_size += 1
@@ -325,9 +341,8 @@ def detect_document(img, kernel_size):
         total_area = img_w * img_h
         area_pct = area / total_area
         
-        # 1. Area Penalty: Stronger guard against internal features (chips, logos)
-        # We increase min area to 8% to ensure we catch the CARD, not the CHIP.
-        if area_pct < 0.08 or area_pct > 0.98: return -1
+        # 1. Area Penalty: Allow smaller documents like cards on A4 scans (from 1.5% to 98% of page)
+        if area_pct < 0.015 or area_pct > 0.98: return -1
         
         hull = cv2.convexHull(cnt)
         peri = cv2.arcLength(hull, True)
@@ -359,10 +374,10 @@ def detect_document(img, kernel_size):
         mean_edge = cv2.mean(edge_energy, mask=mask_cnt)[0]
         edge_score = min(2.0, mean_edge / 30.0) 
         
-        # 5. Centrality
+        # 5. Centrality (Relaxed for off-center flatbed scans)
         cx, cy = img_w / 2, img_h / 2
         norm_dist = np.sqrt((x - cx)**2 + (y - cy)**2) / (img_w/2)
-        center_score = np.exp(-3.0 * norm_dist)
+        center_score = np.exp(-0.8 * norm_dist)
         
         return area_pct * final_ratio_score * center_score * edge_score * is_quad
 
@@ -405,14 +420,24 @@ def detect_document(img, kernel_size):
                     is_outer_doc = (1.35 < r_outer < 1.70)
                     is_inner_doc = (1.35 < r_inner < 1.70)
                     
-                    if is_outer_doc:
-                        # TRAP: Inner is a fragment (chip/logo) of a document.
-                        # Penalize the fragment to stay on the main document area.
-                        all_raw_candidates[i][0] *= 0.1
-                    elif is_inner_doc:
-                        # SUCCESS: Inner is a document on a non-document background (Screen/Desk).
-                        # Boost the subject.
-                        all_raw_candidates[i][0] *= 20.0
+                    # Check if the outer container is essentially the entire page/screen (e.g. area_pct > 0.7)
+                    total_img_area = (w_small + 2*pad) * (h_small + 2*pad)
+                    is_outer_entire_page = (area_outer / total_img_area > 0.70)
+                    
+                    if is_outer_entire_page:
+                        # Outer is the background page itself. Penalize it heavily, and boost the inner document!
+                        all_raw_candidates[j][0] *= 0.01
+                        if is_inner_doc:
+                            all_raw_candidates[i][0] *= 20.0
+                    else:
+                        if is_outer_doc:
+                            # TRAP: Inner is a fragment (chip/logo) of a document.
+                            # Penalize the fragment to stay on the main document area.
+                            all_raw_candidates[i][0] *= 0.1
+                        elif is_inner_doc:
+                            # SUCCESS: Inner is a document on a non-document background (Screen/Desk).
+                            # Boost the subject.
+                            all_raw_candidates[i][0] *= 20.0
     
     # Sort and pick winner
     all_raw_candidates.sort(key=lambda x: x[0], reverse=True)
@@ -566,13 +591,36 @@ def smart_crop(input_path, output_path, margin=20, mode="crop", dilation=9, offs
         # --- STABLE ORIENTATION DETECTION ---
         # Run OSD on a clean "Standard Crop" buffer
         M_std = cv2.getPerspectiveTransform(rect_std, dst)
-        warped_std = cv2.warpPerspective(img, M_std, (maxWidth, maxHeight))
+        warped_std = cv2.warpPerspective(img, M_std, (maxWidth, maxHeight), borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
         
+        # Pre-process for better Tesseract OSD (Grayscale + Otsu Threshold)
+        osd_gray = cv2.cvtColor(warped_std, cv2.COLOR_BGR2GRAY)
+        _, osd_thresh = cv2.threshold(osd_gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+        
+        # Try with thresholded image first
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
             tmp_path = tmp.name
-            cv2.imwrite(tmp_path, warped_std)
-        orientation = get_orientation(tmp_path)
+            cv2.imwrite(tmp_path, osd_thresh)
+        orientation = get_orientation(tmp_path, min_confidence=3.0)
+        print(f"🔍 OSD (thresh): detected orientation {orientation}")
         os.unlink(tmp_path)
+        
+        # Heuristic: Landscape documents shouldn't have vertical text (90/270)
+        if maxWidth > maxHeight and orientation in [90, 270]:
+            print(f"⚠️ OSD (thresh) gave {orientation} on landscape. Trying color fallback...")
+            # The thresholded image likely hallucinated (e.g. from MRZ lines). Fallback to color image.
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_color:
+                cv2.imwrite(tmp_color.name, warped_std)
+            orientation = get_orientation(tmp_color.name, min_confidence=3.0)
+            print(f"🔍 OSD (color fallback): detected orientation {orientation}")
+            os.unlink(tmp_color.name)
+            # If it still gives 90/270, ignore it entirely
+            if orientation in [90, 270]:
+                print(f"❌ Fallback still gave {orientation}. Ignoring rotation.")
+                orientation = 0
+                
+        if orientation != 0:
+            print(f"🔄 Rotating image by {orientation} degrees")
 
         # === ORIENTATION-AWARE OFFSET MAPPING ===
         # Map visual offsets (top, bottom, left, right) to geometric offsets based on orientation
@@ -624,7 +672,7 @@ def smart_crop(input_path, output_path, margin=20, mode="crop", dilation=9, offs
 
         # Final Perspective Transform
         M = cv2.getPerspectiveTransform(rect, dst_f)
-        warped_final = cv2.warpPerspective(img, M, (maxWidth_f, maxHeight_f))
+        warped_final = cv2.warpPerspective(img, M, (maxWidth_f, maxHeight_f), borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
         
         if orientation != 0:
             warped_final = apply_rotation(warped_final, orientation)
