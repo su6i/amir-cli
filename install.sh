@@ -71,20 +71,21 @@ install_deps() {
                  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
             fi
             brew install ffmpeg --with-libx265 --with-tools
-            brew install bc qrencode uv imagemagick
+            brew install bc qrencode uv imagemagick librsvg
             ;;
         linux-gnu*)
             if check_dep apt; then
                 # Ubuntu Noble (24.04+) ships ffmpeg 6.x natively — no PPA needed
                 # (jonathonf/ffmpeg-4 PPA is dead on Noble, gives 404)
                 sudo apt-get update -qq
-                sudo apt-get install -y ffmpeg libx265-dev bc qrencode imagemagick
+                sudo apt-get install -y ffmpeg libx265-dev bc qrencode imagemagick librsvg2-bin
             elif check_dep yum; then
-                sudo yum install -y ffmpeg bc qrencode
+                sudo yum install -y ffmpeg bc qrencode librsvg2-tools
             elif check_dep dnf; then
-                sudo dnf install -y ffmpeg bc qrencode
+                sudo dnf install -y ffmpeg bc qrencode librsvg2-tools
             elif check_dep pacman; then
-                sudo pacman -S --noconfirm ffmpeg bc qrencode
+                sudo pacman -S --noconfirm ffmpeg bc qrencode librsvg
+
             fi
             ;;
         msys*|cygwin*|win32*)

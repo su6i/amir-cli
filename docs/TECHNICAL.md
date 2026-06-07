@@ -164,7 +164,7 @@ amir qr "+989123456789" contact.png
 
 ### `img` (Image Processing)
 - **Architecture:** Split into sub-functions `do_resize`, `do_crop`, and `do_pad`.
-- **Tool Abstraction:** It attempts to use `magick` (ImageMagick v7) first. If not found, it falls back to `convert` (IM v6). On macOS, it has a limited fallback to `sips` (Apple's native image tool) for basic operations.
+- **Tool Abstraction:** It attempts to use `magick` (ImageMagick v7) first. If not found, it falls back to `convert` (IM v6). On macOS, it has a limited fallback to `sips` (Apple's native image tool) for basic operations. For SVG files specifically, it uses `rsvg-convert` (from `librsvg`) to ensure perfect geometry and font rendering, falling back to `magick` only if unavailable or for intermediate format conversion.
 - **Smart Legacy Mode:** If no subcommand (`resize`/`crop`) is given, it inspects arguments to guess the user's intent (e.g., presence of gravity code = crop).
 - **Extend Subcommand:** Uses `magick` -splice capabilities to add borders. Supports auto-average background color calculating and independent per-side coloring.
 - **Smart File Naming**: Output filenames automatically append used options (e.g., `_bg-blue_circle`) to prevent accidental overwrites. Includes interactive overwrite protection if a collision occurs.
@@ -220,8 +220,9 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
 - **Smart Encoding:** Output size is validated post-encoding. If output > input, user is warned with a suggestion to try `--cpu` mode.
 - **Split Semantics:** `--split` is size-targeted but keyframe-bound, so each chunk is approximate (not exact byte-perfect cuts).
 - **Real-Time Progress:** Universal `ffmpeg_progress_bar` displays percentage, ETA, speed, and bitrate for all media operations.
+- **Local ML Estimation:** Features an intelligent, localized tracking system that evaluates past performance specific to the user's CPU/GPU and typical video sources. Variables `quality_factor` and `speed_factor` are persistently saved to `~/.amir-cli/learning_data` and automatically read to accurately predict final output size (`Est Size: ~X MB`) and processing time (`Est Time: XhYmZs`).
+- **Batch Processing:** Processes directories by looping over standard video formats (`.mp4`, `.mov`, etc.), intentionally bypassing OS resource forks (like `._` hidden files on ExFAT drives). Also skips already processed outputs (`_720p_q60` or pre-existing files) seamlessly to prevent loops.
 - **Table Alignment:** Uses Python's `unicodedata` library to strictly calculate visual string width (East Asian Width). All tables rendered via shared `print_media_table()` function.
-- **AI Stats:** Log file tracks compression ratios to optimal settings.
 
 ### `media_lib.sh` (Shared Media Functions)
 **Purpose:** Centralized library sourced by `video.sh` and `audio.sh` to eliminate code duplication.
