@@ -19,9 +19,9 @@ Built with modularity and ease of use in mind, `amir` works seamlessly across **
 
 ## ✨ Features
 
-- **🎬 Smart Video Processing:** Compress, cut (multi-range single-pass), convert formats, picture-in-picture overlay, screen recording, and concat with mixed-codec support (H.264 + HEVC MOV). Auto-detects hardware (Apple Silicon VideoToolbox), handles Apple HEVC `hvc1` correctly.
+- **🎬 Smart Video Processing:** Compress, cut (multi-range single-pass), convert formats, picture-in-picture overlay, screen recording, and concat with mixed-codec support (H.264 + HEVC MOV). Auto-detects hardware (Apple Silicon VideoToolbox), handles Apple HEVC `hvc1` correctly, and features **Local Machine Learning** to accurately predict compression size and processing time based on your hardware.
 - **🧠 Skill Management:** `amir skill harvest` searches GitHub by stars, fetches READMEs, and synthesizes `.agent/skills/` reference files for AI agents. Covers YouTube automation, TTS (Fish Speech, GPT-SoVITS, XTTS v2), video production, ComfyUI, music generation, and analytics.
-- **🖼️ Advanced Image Processing:** AI-powered upscaling (Real-ESRGAN), document enhancement lab (140 variations), smart stacking (front/back), and professional corner rounding.
+- **🖼️ Advanced Image Processing:** AI-powered upscaling (Real-ESRGAN), document enhancement lab (140 variations), smart stacking (front/back), professional corner rounding, and perfect SVG rendering via `librsvg`.
 - **🌍 Advanced Subtitle System:** AI-powered multilingual subtitles supporting **32 languages**. Features automatic translation, multi-platform hardware encoding (Mac/Ubuntu) with 1:1 size parity, Whisper Turbo as default, and document export via `--save` (no argument defaults to `pdf`).
 - **🤖 AI Powered:** Chat with Gemini/Gemma, generate code, and fetch model lists from 5 LLM providers (Gemini, OpenAI, DeepSeek, Groq, Anthropic).
 - **🎓 Apply Tracker:** Full PhD and job application pipeline — SQLite backend, FastAPI web UI, Textual TUI, Gmail sync with one click, bidirectional sort, reject/sent/reply tracking, and experience requirements field.
@@ -153,15 +153,14 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir audio to-video <audio> [-i image] [-o output] [--waveform]` | Create a video from an audio file and a static (or waveform-animated) background image. |
 | `amir img upscale <file> [scale] [model]` | AI-Upscale or quality enhancement (1x mode). |
 | `amir img lab <file> [-s scale] [-m model]` | Generate 60/420 enhancement variations for testing. |
-| `amir img stack <files> [opts]` | Combine images vertically (A4/B5 presets + deskew). |
-| `amir img rotate <file> <angle>` | Rotate image by degrees. |
-| `amir img convert <svg> [fmt] [size]` | Convert SVG/Image to PNG/JPG. Supports **Animated SVGs**. |
+| `amir img stack <files> [opts]` | Combine images vertically (A4/B5 presets). |
+| `amir img rotate <file...> <angle|--smart>` | Rotate image(s) by degrees or auto-straighten (deskew). Supports batch processing. |
+| `amir img convert <svg> [fmt] [size]` | Convert SVG/Image to PNG/JPG. Uses **librsvg** for perfect font/geometry rendering. Supports **Animated SVGs**. |
 | `amir img resize <file> <size> [circle]` | Resize. Optional `circle` crop (transparent corners). |
 | `amir img crop <file> [size] [--smart]` | Smart Content-Aware Crop (Auto-detect subject) or Manual Crop. |
 | `amir img pad <file> <size> [color]` | Resize & Fill with Color (Contain). |
 | `amir img round <file> [radius] [fmt]` | Round image corners (PNG/JPG). |
 | `amir img extend <file> [opts]` | Extend image borders (custom/auto color). |
-| `amir img deskew <file> [output]` | Auto-straighten scanned documents. |
 | `amir img <file> <size> [g]` | Legacy mode (detects resize vs crop). |
 | `amir pdf [files] [opts]` | **Multi-Engine PDF Generator**: Render Markdown/Text/Images to PDF. Supports piping (e.g., `amir clip | amir pdf`), Puppeteer (Default), WeasyPrint, PIL (Robust Fallback). Features: High-fidelity Persian RTL (B Nazanin), auto-pagination, ExFAT compatibility, `--free-size` (`-f`) for continuous/custom dimensions, and `--page-width/--page-height` (Puppeteer, pixels) for manual page sizing. Common widths: 1200, 1440, 1600, 1800, 2000, 2480. |
 | `amir watermark <file> [text]` | Add watermark to image (auto-saved or `-o output`). |
