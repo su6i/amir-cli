@@ -364,7 +364,7 @@ _amir() {
 
             if (( CURRENT == 3 )); then
                 _alternative \
-                    'acmds:Audio Command:((extract\:Extract\ audio\ from\ video\ file convert\:Convert\ audio\ format cut\:Trim\ or\ delete\ segments normalize\:EBU\ R128\ loudness\ normalize fade\:Fade\ in/out trim-silence\:Remove\ leading/trailing\ silence split\:Split\ audio\ into\ chunks concat\:Join\ multiple\ audio\ files to-video\:Create\ video\ from\ audio\ and\ image youtube\:Download\ audio\ from\ YouTube\ link))' \
+                    'acmds:Audio Command:((extract\:Extract\ audio\ from\ video\ file convert\:Convert\ audio\ format cut\:Trim\ or\ delete\ segments normalize\:EBU\ R128\ loudness\ normalize fade\:Fade\ in/out trim-silence\:Remove\ leading/trailing\ silence split\:Split\ audio\ into\ chunks concat\:Join\ multiple\ audio\ files to-video\:Create\ video\ from\ audio\ and\ image youtube\:Download\ audio\ from\ YouTube\ link transcribe\:Transcribe\ audio\ via\ Whisper\ \(saves\ .srt\ and\ .txt\)))' \
                     'afolders:Audio Folder:_files -/'
             else
                 case "$subcmd" in
@@ -539,6 +539,50 @@ _amir() {
                                     _amir_bitrates
                                 else
                                     _message "No extra options for ${words[5]}"
+                                fi
+                                ;;
+                        esac
+                        ;;
+                    transcribe)
+                        case "$prev" in
+                            --source|-s) _values 'language' auto fa en zh es hi ar bn pt ru ja fr de tr ko ;;
+                            --sub|-t)    _values 'language' fa en ar zh es fr de ru ja ko tr pt hi ;;
+                            --whisper-model)
+                                local -a wmodels
+                                wmodels=(
+                                    'turbo:Fastest reliable model'
+                                    'large-v3:Highest accuracy'
+                                    'large-v2:Legacy heavy model'
+                                    'medium:Balance of speed and accuracy'
+                                    'small:Fast but less accurate'
+                                    'base:Basic fallback'
+                                )
+                                _describe -t wmodels 'whisper model' wmodels
+                                ;;
+                            --llm) _values 'llm' deepseek gemini litellm minimax grok ;;
+                            *)
+                                local _ai=0 _i
+                                for (( _i=4; _i<CURRENT; _i++ )); do
+                                    [[ "${words[$_i]}" =~ \.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)$ ]] && { _ai=1; break }
+                                done
+                                if (( _ai )) || [[ "$PREFIX" == -* ]]; then
+                                    local -a tr_opts
+                                    tr_opts=(
+                                        '--source:Source/audio language for Whisper (default: auto)'
+                                        '-s:Source/audio language for Whisper (default: auto)'
+                                        '--sub:Target subtitle language (repeatable)'
+                                        '-t:Target subtitle language (repeatable)'
+                                        '--force:Force re-transcription even if SRT exists'
+                                        '-f:Force re-transcription even if SRT exists'
+                                        '--whisper-model:Whisper model size (default: turbo)'
+                                        '--no-translate:Skip LLM translation step'
+                                        '--llm:LLM bridge for translation'
+                                        '--no-vad:Disable Voice Activity Detection'
+                                        '--multilingual:Short chunks for mixed-language audio'
+                                    )
+                                    _describe -t tr_opts 'options' tr_opts
+                                else
+                                    _files -g "*.(mp3|wav|m4a|flac|aac|ogg|MP3|WAV|M4A|FLAC|AAC|OGG)"
                                 fi
                                 ;;
                         esac

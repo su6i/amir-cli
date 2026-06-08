@@ -32,6 +32,20 @@ if [[ $NO_VENV -eq 0 ]]; then
     if [[ -f "$SCRIPT_DIR/.venv/bin/activate" ]]; then
         # shellcheck disable=SC1090
         source "$SCRIPT_DIR/.venv/bin/activate"
+        # Auto-sync Python deps when uv.lock changes (zero user interaction)
+        _amir_lock="$SCRIPT_DIR/uv.lock"
+        _amir_marker="$SCRIPT_DIR/.venv/.last_lock_hash"
+        if [[ -f "$_amir_lock" ]]; then
+            _amir_cur=$(md5 -q "$_amir_lock" 2>/dev/null || md5sum "$_amir_lock" 2>/dev/null | awk '{print $1}')
+            _amir_prev=$(cat "$_amir_marker" 2>/dev/null || echo "")
+            if [[ "$_amir_cur" != "$_amir_prev" ]] && [[ -z "${_AMIR_SYNCING:-}" ]]; then
+                export _AMIR_SYNCING=1
+                echo "🔄 Dependencies changed — syncing..." >&2
+                uv sync --frozen --quiet --project "$SCRIPT_DIR" && echo "$_amir_cur" > "$_amir_marker"
+                unset _AMIR_SYNCING
+            fi
+        fi
+        unset _amir_lock _amir_marker _amir_cur _amir_prev
     else
         # Prompt user to create/install venv on first run
         echo "⚠️  Virtual environment not found at $SCRIPT_DIR/.venv"

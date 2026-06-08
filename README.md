@@ -151,6 +151,7 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir audio concat <files...> [-o output]` | Join multiple audio files into one. |
 | `amir audio youtube <url> [format] [bitrate] [--split <MB>]` | Download audio from YouTube (mp3/wav/ogg) and optionally split the final output into chunks. |
 | `amir audio to-video <audio> [-i image] [-o output] [--waveform]` | Create a video from an audio file and a static (or waveform-animated) background image. |
+| `amir audio transcribe <file> [--source fa\|en\|...] [subtitle-opts]` | Transcribe audio via Whisper (faster-whisper VAD + MLX fallback). Saves both `.srt` (with timestamps) and `.txt` (plain text) alongside the source file. All `amir subtitle` flags accepted. |
 | `amir img upscale <file> [scale] [model]` | AI-Upscale or quality enhancement (1x mode). |
 | `amir img lab <file> [-s scale] [-m model]` | Generate 60/420 enhancement variations for testing. |
 | `amir img stack <files> [opts]` | Combine images vertically (A4/B5 presets). |

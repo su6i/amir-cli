@@ -54,8 +54,11 @@ run_audio() {
         trim-silence)
             audio_trim_silence "$@"
             ;;
+        transcribe)
+            audio_transcribe "$@"
+            ;;
         *)
-            echo "Usage: amir audio {extract|convert|cut|normalize|fade|trim-silence|split|concat|to-video|youtube} [options]"
+            echo "Usage: amir audio {extract|convert|cut|normalize|fade|trim-silence|split|concat|to-video|youtube|transcribe} [options]"
             echo "       amir audio <directory>  (Smart folder-to-video flow)"
             echo ""
             echo "Subcommands:"
@@ -74,9 +77,51 @@ run_audio() {
             echo "  to-video <audio> -i <image>     Create video from audio and image"
             echo "  youtube <url> [format] [bitrate] [--split mb]  Download audio from YouTube"
             echo "    Formats: mp3 (default), wav, ogg"
+            echo "  transcribe <audio_file> [--source fa|en|...] [subtitle-options]"
+            echo "    Transcribe audio via Whisper — saves both .srt and .txt"
             return 1
             ;;
     esac
+}
+
+audio_transcribe() {
+    local input="$1"
+    shift
+
+    if [[ -z "$input" ]]; then
+        echo "Usage: amir audio transcribe <audio_file> [--source fa|en|...] [subtitle-options]"
+        echo "  Transcribes audio via Whisper and saves both .srt and .txt"
+        return 1
+    fi
+
+    if [[ ! -f "$input" ]]; then
+        echo "❌ File not found: $input" >&2
+        return 1
+    fi
+
+    # Run subtitle pipeline (generates SRT)
+    amir subtitle "$input" "$@"
+    local exit_code=$?
+    [[ $exit_code -ne 0 ]] && return $exit_code
+
+    # Find the most recently generated SRT for this file
+    local base="${input%.*}"
+    local srt_file
+    srt_file=$(ls -t "${base}"_*.srt 2>/dev/null | head -1)
+
+    if [[ -z "$srt_file" ]]; then
+        echo "⚠️  SRT not found — skipping TXT generation"
+        return 0
+    fi
+
+    # Strip sequence numbers, timestamps, HTML tags and blank lines → plain text
+    local txt_file="${srt_file%.srt}.txt"
+    grep -v '^[0-9][0-9]*$' "$srt_file" \
+        | grep -v '^[0-9][0-9]:.*-->.*[0-9]$' \
+        | grep -v '^$' \
+        | sed 's/<[^>]*>//g' \
+        > "$txt_file"
+    echo "✅ TXT saved: $txt_file"
 }
 
 audio_cut() {
