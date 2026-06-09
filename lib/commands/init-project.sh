@@ -38,6 +38,25 @@ run_init_project() {
     esac
     echo ""
 
+    # ── 1b. Guard: never nest a NEW project inside another git repo ─────────────
+    # Creating a repo inside another corrupts submodules and lets `uv init` hijack
+    # the parent's pyproject.toml as a workspace. This is the #1 init footgun.
+    if [[ "$MODE" == "NEW" ]]; then
+        local parent_dir; parent_dir="$(dirname "$TARGET_DIR")"
+        if git -C "$parent_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            local enclosing; enclosing="$(git -C "$parent_dir" rev-parse --show-toplevel 2>/dev/null)"
+            echo "   🚫 Refusing to create a project INSIDE an existing git repo:"
+            echo "        enclosing repo : $enclosing"
+            echo "        would create   : $TARGET_DIR"
+            echo "      cd to a location outside that repo and re-run, or set"
+            echo "      AMIR_ALLOW_NESTED=1 to override deliberately."
+            if [[ "${AMIR_ALLOW_NESTED:-0}" != "1" ]]; then
+                return 1
+            fi
+            echo "   ⚠️  AMIR_ALLOW_NESTED=1 — proceeding despite nesting."
+        fi
+    fi
+
     # ── 2. Create dir + git init ───────────────────────────────────────────────
     if [[ "$MODE" == "NEW" ]]; then
         mkdir -p "$TARGET_DIR"
@@ -113,7 +132,9 @@ run_init_project() {
         if [[ ! -f "pyproject.toml" ]]; then
             if command -v uv >/dev/null 2>&1; then
                 echo "🐍 Python setup (uv)..."
-                if uv init --no-readme --vcs none >/dev/null 2>&1; then
+                # --no-workspace: never attach to / mutate a parent uv project's
+                # pyproject.toml (the workspace-hijack footgun).
+                if uv init --no-readme --vcs none --no-workspace >/dev/null 2>&1; then
                     STACK_KIND="python"; STACK="Python (uv)"
                     [[ "$SKILLS_HINT" == "<!--"* ]] && SKILLS_HINT="python-core-standards, python-containerization"
                     echo "   ✅ uv init → pyproject.toml + .python-version"
@@ -283,6 +304,18 @@ ENVEOF
         fi
     done
     [[ "$added" == 1 ]] && echo "   ➕ Ensured critical ignore rules"
+
+    # ── 9b. Install the constitution pre-commit hook ────────────────────────────
+    # Deterministic enforcement of "no commits to main" + the docs checklist, so
+    # the rules can't be forgotten. Bypass deliberately with: git commit --no-verify
+    local HOOK_SRC="$CONSTITUTION_PATH/templates/hooks/pre-commit"
+    if [[ -f "$HOOK_SRC" && -d ".git" ]]; then
+        mkdir -p ".git/hooks"
+        cp "$HOOK_SRC" ".git/hooks/pre-commit" && chmod +x ".git/hooks/pre-commit"
+        echo "   ✅ pre-commit hook installed (.git/hooks/pre-commit)"
+    elif [[ -d ".git" ]]; then
+        echo "   ⚠️  pre-commit hook template not found in submodule — skipped"
+    fi
 
     # ── 10. Git stage ───────────────────────────────────────────────────────────
     echo "💾 Staging..."
