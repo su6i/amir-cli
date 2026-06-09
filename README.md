@@ -259,7 +259,7 @@ Full PhD and job application tracker with SQLite backend, web UI, and Gmail sync
 | `amir speed` | Test internet connection speed. |
 | `amir weather [city]` | Check weather (specify city or use default). |
 | `amir keyboard [fr\|en\|fa\|auto]` | Show keyboard layout for Apple Compact keyboard. Flags: `--opt` (Option layer), `--shift` (Shift layer), `--normal`, `--find <char>` (locate any character), `--auto` (detect active OS layout). Alias: `amir kb`. |
-| `amir init-project [dir]` | Scaffold the Agent Constitution (`.agent/` rules, skills, workflows) into a new project directory. |
+| `amir init-project [dir]` | Scaffold a project: constitution submodule, standard dirs (`src/ tests/ docs/ assets/` with `.gitkeep`), curated `.gitignore` (enforces `.storage/`/`.env`), starter `CLAUDE.md`/`README.md`/`.env.example`/`TODO.md`, and — for Python/unspecified stacks — `uv init` (`pyproject.toml` + pinned interpreter). `TODO.md` opens with a First Session checklist. Override constitution URL with `AMIR_CONSTITUTION_URL`. |
 | `amir sync-constitution [dir]` | Sync `.agent/` rules and skills from the `agent-constitution` repo into an existing project. Preserves project-specific files; migrates legacy `.agents/`/`.cursor/` directories automatically. Override source with `AMIR_CONSTITUTION_PATH`. |
 
 

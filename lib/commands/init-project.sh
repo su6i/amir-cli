@@ -2,8 +2,12 @@
 
 run_init_project() {
 
-    # Constitution submodule config (override URL with AMIR_CONSTITUTION_URL)
-    local CONSTITUTION_URL="${AMIR_CONSTITUTION_URL:-git@github.com:su6i/agent-constitution.git}"
+    # Constitution submodule config (override URL with AMIR_CONSTITUTION_URL).
+    # Default is HTTPS for portability: anyone cloning a project that uses this
+    # submodule (collaborators, CI, public users) can fetch the public
+    # constitution without SSH keys on the account. Set AMIR_CONSTITUTION_URL to
+    # the git@github.com:... SSH form if you prefer key-based auth for pushing.
+    local CONSTITUTION_URL="${AMIR_CONSTITUTION_URL:-https://github.com/su6i/agent-constitution.git}"
     local CONSTITUTION_PATH=".agent/constitution"
 
     # ── 1. Determine target & mode ─────────────────────────────────────────────
@@ -81,25 +85,51 @@ run_init_project() {
         echo "   ➕ .agent/local-rules/ (project-specific overrides)"
     fi
 
-    # ── 5. Generate CLAUDE.md ──────────────────────────────────────────────────
-    if [[ ! -f "CLAUDE.md" ]]; then
-        local STACK="<!-- e.g. Python 3.12, FastAPI, PostgreSQL -->"
-        local SKILLS_HINT="<!-- e.g. python-core-standards, fastapi-best-practices -->"
+    # ── 5. Detect stack ────────────────────────────────────────────────────────
+    # STACK_KIND drives both the CLAUDE.md hints and the language setup below.
+    local STACK_KIND="unknown"
+    local STACK="<!-- e.g. Python 3.12, FastAPI, PostgreSQL -->"
+    local SKILLS_HINT="<!-- e.g. python-core-standards, fastapi-best-practices -->"
 
-        if [[ -f "pyproject.toml" || -f "requirements.txt" || -f "setup.py" ]]; then
-            STACK="Python"
-            SKILLS_HINT="python-core-standards, python-containerization"
-        elif [[ -f "package.json" ]]; then
-            STACK="Node.js / TypeScript"
-            SKILLS_HINT="js-ts-code-quality, modern-web-ui"
-        elif [[ -f "go.mod" ]]; then
-            STACK="Go"
-            SKILLS_HINT="github-code-quality, ops-automation"
-        elif [[ -f "Cargo.toml" ]]; then
-            STACK="Rust"
-            SKILLS_HINT="github-code-quality, ops-automation"
+    if [[ -f "pyproject.toml" || -f "requirements.txt" || -f "setup.py" ]]; then
+        STACK_KIND="python"; STACK="Python"
+        SKILLS_HINT="python-core-standards, python-containerization"
+    elif [[ -f "package.json" ]]; then
+        STACK_KIND="node"; STACK="Node.js / TypeScript"
+        SKILLS_HINT="js-ts-code-quality, modern-web-ui"
+    elif [[ -f "go.mod" ]]; then
+        STACK_KIND="go"; STACK="Go"
+        SKILLS_HINT="github-code-quality, ops-automation"
+    elif [[ -f "Cargo.toml" ]]; then
+        STACK_KIND="rust"; STACK="Rust"
+        SKILLS_HINT="github-code-quality, ops-automation"
+    fi
+
+    # ── 5b. Language setup (Python default) ─────────────────────────────────────
+    # Python or unspecified projects get a uv-managed pyproject.toml + pinned
+    # interpreter. --no-readme / --vcs none keep uv from clobbering the README
+    # and .gitignore we generate ourselves below.
+    if [[ "$STACK_KIND" == "python" || "$STACK_KIND" == "unknown" ]]; then
+        if [[ ! -f "pyproject.toml" ]]; then
+            if command -v uv >/dev/null 2>&1; then
+                echo "🐍 Python setup (uv)..."
+                if uv init --no-readme --vcs none >/dev/null 2>&1; then
+                    STACK_KIND="python"; STACK="Python (uv)"
+                    [[ "$SKILLS_HINT" == "<!--"* ]] && SKILLS_HINT="python-core-standards, python-containerization"
+                    echo "   ✅ uv init → pyproject.toml + .python-version"
+                else
+                    echo "   ⚠️  uv init failed — skipping Python scaffold"
+                fi
+            else
+                echo "   ⚠️  uv not found — skipping pyproject.toml (install: https://docs.astral.sh/uv/)"
+            fi
+        else
+            echo "   🔸 pyproject.toml exists, skipping uv init"
         fi
+    fi
 
+    # ── 6. Generate CLAUDE.md ──────────────────────────────────────────────────
+    if [[ ! -f "CLAUDE.md" ]]; then
         cat > "CLAUDE.md" << CLAUDEOF
 # CLAUDE.md — ${PROJECT_NAME}
 
@@ -115,6 +145,14 @@ ${SKILLS_HINT}
 
 ## Key Constraints
 <!-- TODO: any project-specific rules -->
+- Storage : persistent data/artifacts live in \`~/.${PROJECT_NAME}/\`, never in the repo.
+            A local \`.storage/\` is scratch only and is git-ignored.
+
+## First Session (do this before any feature work)
+This project is freshly scaffolded — \`CLAUDE.md\`, \`README.md\`, and \`.env.example\`
+still contain TODO placeholders. Follow
+\`.agent/constitution/workflows/first-session.md\` to fill them in, then tick the
+checklist in \`TODO.md\`.
 
 ## Rules & Workflows
 - Rules     : \`.agent/constitution/rules/\` — read 000-core.md, global.md, 040-git.md before every task
@@ -135,51 +173,128 @@ CLAUDEOF
         echo "   🔸 CLAUDE.md already exists, skipping"
     fi
 
-    # ── 6. Standard directories ────────────────────────────────────────────────
+    # ── 7. Standard directories (+ .gitkeep so git tracks them) ─────────────────
+    # No lib/ — generic .gitignore patterns hide it; source goes under src/.
+    # No .storage/ — persistent data lives in ~/.<project>/ (see CLAUDE.md);
+    # .storage/ stays git-ignored as scratch only.
     echo "🏗️  Creating standard directories..."
-    for dir in src tests docs assets lib .storage/temp .storage/data; do
-        [[ ! -d "$dir" ]] && mkdir -p "$dir" && echo "   ➕ $dir/" || echo "   🔸 $dir/ exists"
-    done
-
-    # ── 6.5. Standard files ────────────────────────────────────────────────────
-    echo "📝 Creating standard markdown files..."
-    for file in TODO.md SESSION.md; do
-        if [[ ! -f "$file" ]]; then
-            echo "# ${file%.*} — ${PROJECT_NAME}" > "$file"
-            echo "   ✅ $file"
+    for dir in src tests docs assets; do
+        if [[ ! -d "$dir" ]]; then
+            mkdir -p "$dir"; echo "   ➕ $dir/"
         else
-            echo "   🔸 $file already exists"
+            echo "   🔸 $dir/ exists"
         fi
+        # git does not track empty dirs — keep them with .gitkeep
+        [[ -z "$(ls -A "$dir" 2>/dev/null)" ]] && touch "$dir/.gitkeep"
     done
+    [[ -d ".agent/local-rules" && -z "$(ls -A .agent/local-rules 2>/dev/null)" ]] && touch ".agent/local-rules/.gitkeep"
 
-    # ── 7. .gitignore ──────────────────────────────────────────────────────────
+    # ── 8. Standard files ───────────────────────────────────────────────────────
+    echo "📝 Creating standard files..."
+
+    # TODO.md — opens with the mandatory First Session checklist.
+    if [[ ! -f "TODO.md" ]]; then
+        cat > "TODO.md" << TODOEOF
+# TODO — ${PROJECT_NAME}
+
+## 🚀 First Session (do this before any feature work)
+Follow \`.agent/constitution/workflows/first-session.md\`.
+
+- [ ] Fill **CLAUDE.md** — Project summary, Tech Stack, Relevant Skills, Key Constraints
+- [ ] Fill **README.md** — title, one-line description, Quickstart commands
+- [ ] Fill **.env.example** — every required env var (API keys, DB URLs, model names)
+- [ ] Confirm storage policy — persistent data in \`~/.${PROJECT_NAME}/\`, not in the repo
+- [ ] Verify skeleton: \`git status\`, \`git check-ignore lib bin src tests\`, (Python) \`uv sync\`
+- [ ] Remove this section once onboarding is complete
+
+## Backlog
+<!-- add tasks here -->
+TODOEOF
+        echo "   ✅ TODO.md (with First Session checklist)"
+    else
+        echo "   🔸 TODO.md already exists"
+    fi
+
+    # SESSION.md — running session log.
+    if [[ ! -f "SESSION.md" ]]; then
+        printf '# SESSION — %s\n\n_Running log of what happened each session._\n' "$PROJECT_NAME" > "SESSION.md"
+        echo "   ✅ SESSION.md"
+    else
+        echo "   🔸 SESSION.md already exists"
+    fi
+
+    # README.md — human-facing entry point.
+    if [[ ! -f "README.md" ]]; then
+        local QUICKSTART="# TODO: real setup/run commands"
+        [[ "$STACK_KIND" == "python" ]] && QUICKSTART=$'uv sync\nuv run python main.py'
+        cat > "README.md" << READMEEOF
+# ${PROJECT_NAME}
+
+<!-- TODO: one-line description of what this project does -->
+
+## Quickstart
+\`\`\`bash
+${QUICKSTART}
+\`\`\`
+
+## Documentation
+- Agent guide: [CLAUDE.md](CLAUDE.md)
+- Constitution (rules / workflows / skills): \`.agent/constitution/\`
+READMEEOF
+        echo "   ✅ README.md"
+    else
+        echo "   🔸 README.md already exists"
+    fi
+
+    # .env.example — placeholder env vars (never real secrets).
+    if [[ ! -f ".env.example" ]]; then
+        cat > ".env.example" << 'ENVEOF'
+# Copy to .env and fill in real values. .env is git-ignored; .env.example is committed.
+# TODO: list every variable the project needs. Examples:
+# OPENAI_API_KEY=sk-...
+# DATABASE_URL=postgresql://user:pass@localhost:5432/db
+ENVEOF
+        echo "   ✅ .env.example"
+    else
+        echo "   🔸 .env.example already exists"
+    fi
+
+    # ── 9. .gitignore ───────────────────────────────────────────────────────────
+    # Seed from the curated constitution template (or a safe fallback), then
+    # ALWAYS enforce the critical rules. This is the fix for data/secrets that
+    # previously slipped through when a template was copied verbatim.
     local GITIGNORE_TEMPLATE="$CONSTITUTION_PATH/templates/gitignore.template"
     if [[ ! -f ".gitignore" ]]; then
         if [[ -f "$GITIGNORE_TEMPLATE" ]]; then
             cp "$GITIGNORE_TEMPLATE" ".gitignore"
-            echo "   ✅ .gitignore from template"
+            echo "   ✅ .gitignore from constitution template"
         else
-            printf ".storage/\n.env\n__pycache__/\n*.pyc\n.venv/\n" > ".gitignore"
+            printf '# Minimal fallback — constitution template not found\n.storage/\n.env\n.env.*\n!.env.example\n.venv/\n__pycache__/\n*.py[cod]\n.DS_Store\n' > ".gitignore"
             echo "   ✅ .gitignore (minimal fallback)"
         fi
     else
-        for rule in ".storage/" ".env" "__pycache__/"; do
-            grep -qF "$rule" ".gitignore" || echo "$rule" >> ".gitignore"
-        done
-        echo "   🔸 .gitignore exists, critical rules verified"
+        echo "   🔸 .gitignore exists"
     fi
+    # Enforce critical rules regardless of how .gitignore got here.
+    local added=0
+    for rule in ".storage/" ".env" ".venv/" "__pycache__/" ".DS_Store"; do
+        if ! grep -qxF "$rule" ".gitignore" 2>/dev/null; then
+            echo "$rule" >> ".gitignore"; added=1
+        fi
+    done
+    [[ "$added" == 1 ]] && echo "   ➕ Ensured critical ignore rules"
 
-    # ── 8. Git stage ───────────────────────────────────────────────────────────
+    # ── 10. Git stage ───────────────────────────────────────────────────────────
     echo "💾 Staging..."
-    git add .gitmodules .agent/ CLAUDE.md .gitignore src/ tests/ docs/ assets/ lib/ TODO.md SESSION.md 2>/dev/null
+    git add .gitmodules .agent CLAUDE.md README.md .env.example .gitignore \
+            src tests docs assets TODO.md SESSION.md \
+            pyproject.toml .python-version main.py 2>/dev/null
     echo "   ✅ Staged"
 
     echo ""
     echo "🎉 Done! ${PROJECT_NAME} is now agent-governed."
     echo "   Constitution : ${CONSTITUTION_PATH}/ (submodule — $(git -C "$CONSTITUTION_PATH" describe --tags --always 2>/dev/null || echo 'latest'))"
     echo "   Update later : git submodule update --remote ${CONSTITUTION_PATH}"
-    if grep -q "TODO" "CLAUDE.md" 2>/dev/null; then
-        echo "   ✏️  Open CLAUDE.md and fill in the TODOs before your first session."
-    fi
+    echo "   ▶ Next       : start your first session and complete the checklist in TODO.md"
     echo ""
 }
