@@ -1042,6 +1042,7 @@ _amir() {
                         'tui:Terminal UI with arrow keys (phd|job)'
                         'web:Web interface on localhost:8765'
                         'stats:Overall application statistics'
+                        'alert:Send urgent deadline alert email via Gmail'
                         'preview:Generate CV preview'
                     )
                     _describe -t commands 'apply subcommand' apply_cmds
@@ -1058,6 +1059,8 @@ _amir() {
                             _message "port (default: 8765)"
                             ;;
                         stats)
+                            ;;
+                        alert)
                             ;;
                         phd)
                             local -a phd_cmds

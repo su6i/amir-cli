@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.amir.phd-alert</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/su6i/.local/bin/uv</string>
+        <string>run</string>
+        <string>--directory</string>
+        <string>/Users/su6i/@-github/amir-cli</string>
+        <string>python</string>
+        <string>/Users/su6i/@-github/amir-cli/lib/python/apply_tracker/daily_alert.py</string>
+        <string>/Users/su6i/@-Amir/Apply/2026-2027</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/su6i/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>/Users/su6i</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/su6i/@-github/amir-cli/lib/python</string>
+    </dict>
+
+    <!-- Every day at 9:00 AM local time -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>9</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/amir-phd-alert.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/amir-phd-alert.err</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>
