@@ -18,9 +18,18 @@ run_apply() {
         echo "  amir apply tui [phd|job] → TUI ترمینال گرافیکی (کلیدهای جهت‌دار)"
         echo "  amir apply web [port]    → Web interface روی localhost:8765"
         echo "  amir apply stats         → آمار کلی"
+        echo "  amir apply alert         → ارسال ایمیل هشدار (همان ایمیلی که launchd روزانه می‌فرستد)"
         echo "  amir apply preview       → پیش‌نمایش CV"
         echo "  amir apply <url>         → تولید CV/CL برای آگهی"
         return $rc
+    fi
+
+    # ── alert ─────────────────────────────────────────────────────────────────
+    if [[ "$1" == "alert" ]]; then
+        local base_dir="${APPLY_BASE_DIR:-$HOME/@-Amir/Apply/2026-2027}"
+        PYTHONPATH="$LIB_DIR/python" uv run --directory "$AMIR_ROOT" python \
+            "$LIB_DIR/python/apply_tracker/daily_alert.py" "$base_dir"
+        return $?
     fi
 
     # ── tui ───────────────────────────────────────────────────────────────────
