@@ -3790,7 +3790,8 @@ run_video() {
         video_convert "$@"
     elif [[ "$1" == "download" || "$1" == "dl" ]]; then
         shift
-        video_download "$@"
+        source "$LIB_DIR/commands/download.sh"
+        run_download "$@"
     elif [[ "$1" == "tiktok" || "$1" == "tt" ]]; then
         shift
         video_tiktok "$@"
