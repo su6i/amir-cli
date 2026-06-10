@@ -3788,9 +3788,6 @@ run_video() {
     elif [[ "$1" == "convert" ]]; then
         shift
         video_convert "$@"
-    elif [[ "$1" == "download" || "$1" == "dl" ]]; then
-        shift
-        video_download "$@"
     elif [[ "$1" == "tiktok" || "$1" == "tt" ]]; then
         shift
         video_tiktok "$@"
