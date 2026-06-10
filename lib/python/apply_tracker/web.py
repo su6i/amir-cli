@@ -114,6 +114,7 @@ tr:last-child td { border-bottom:none; } tr:hover td { background:#f8fffc; }
 .ab.folder{background:#fff3e0;color:#e65100} .ab.folder:hover{background:#ffe0b2}
 .ab.draft{background:#f3e5f5;color:#6a1b9a} .ab.draft:hover{background:#e1bee7}
 .ab.reject{background:#fce4ec;color:#c62828} .ab.reject:hover{background:#ffcdd2}
+.ab.send-email{background:#1b5e20;color:#fff} .ab.send-email:hover{background:#2e7d32}
 .exp-badge{display:inline-block;padding:1px 6px;border-radius:10px;font-size:.68rem;
            font-weight:600;background:#e8eaf6;color:#283593;white-space:nowrap}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center}
@@ -286,6 +287,17 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool,
             f'<input type="hidden" name="kind" value="{kind}">'
             f'<button class="ab folder" type="submit">📂 Open folder</button></form>')
         draft_cmd = f"amir apply {kind} draft {pid}"
+        # "Send & Mark Sent" — only when draft_ready and contact email known
+        send_btn = ""
+        if r.get("status") == "draft_ready" and contact and "@" in contact:
+            send_btn = (
+                f'<form method="post" action="/api/send-draft" style="display:inline"'
+                f' onsubmit="return confirm(\'Send email to {contact}?\')">'
+                f'<input type="hidden" name="pos_id" value="{pid}">'
+                f'<input type="hidden" name="kind" value="{kind}">'
+                f'<input type="hidden" name="contact" value="{contact}">'
+                f'<button class="ab send-email" type="submit">📤 Send & Mark Sent</button></form>'
+            )
         detail = (
             f'<div class="detail-panel">'
             f'<div class="info">'
@@ -294,7 +306,7 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool,
             f'{"📝 " + notes[:100] + "<br>" if notes else ""}'
             f'</div>'
             f'<div class="actions">'
-            f'{open_btn} {folder_btn} {sent_btn} {reject_btn}'
+            f'{open_btn} {folder_btn} {send_btn} {sent_btn} {reject_btn}'
             f'<span style="font-size:.75rem;color:#888;align-self:center">'
             f'CLI: <code>{draft_cmd}</code></span>'
             f'</div></div>'
@@ -664,6 +676,25 @@ async def auth_gmail_callback(code: str = "", error: str = "", state: str = ""):
     if ok:
         return RedirectResponse("/phd?msg=✓+Gmail+connected!+Now+click+Sync+Gmail.")
     return RedirectResponse("/phd?err=Auth+failed.+Check+credentials+file.")
+
+
+@app.post("/api/send-draft")
+async def api_send_draft(request: Request,
+                         pos_id: str = Form(...),
+                         kind: str = Form(...),
+                         contact: str = Form(...)):
+    """Find the Gmail draft for this position, send it, and mark as sent."""
+    result = _gmail.find_and_send_draft(contact)
+    if not result.get("ok"):
+        ref = request.headers.get("referer", f"/{kind}")
+        msg = result.get("message", "Send failed").replace(" ", "+")
+        return RedirectResponse(f"{ref.split('?')[0]}?err={msg}", status_code=303)
+
+    mark_status(BASE_DIR, pos_id, kind, "sent",
+                sent_date=date.today().isoformat())
+    ref = request.headers.get("referer", f"/{kind}")
+    msg = result["message"].replace(" ", "+")
+    return RedirectResponse(f"{ref.split('?')[0]}?msg={msg}", status_code=303)
 
 
 @app.post("/api/sync-gmail")
