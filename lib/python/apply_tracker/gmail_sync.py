@@ -115,6 +115,67 @@ def _extract_body(draft: dict) -> str:
     return _search(payload.get("parts", []))
 
 
+# ── send draft ───────────────────────────────────────────────────────────────
+
+def find_and_send_draft(contact_email: str) -> dict:
+    """Find the most recent Gmail draft addressed to contact_email and send it.
+
+    Returns {"ok": True, "message": "..."} or {"ok": False, "error": "...", "message": "..."}.
+    """
+    creds = _get_credentials()
+    if creds is None:
+        return {"ok": False, "error": "not_authenticated",
+                "message": "Gmail not connected. Click 'Connect Gmail' first."}
+
+    try:
+        from googleapiclient.discovery import build
+    except ImportError:
+        return {"ok": False, "error": "missing_dep",
+                "message": "google-api-python-client not installed. Run: uv sync"}
+
+    service = build("gmail", "v1", credentials=creds)
+
+    # Search drafts addressed to this contact
+    resp   = service.users().drafts().list(userId="me", q=f"to:{contact_email}").execute()
+    drafts = resp.get("drafts", [])
+
+    if not drafts:
+        return {"ok": False, "error": "no_draft",
+                "message": f"No draft found addressed to {contact_email}. "
+                           "Create a draft with 'amir apply phd draft <id>' first."}
+
+    # Pick the most recent draft (last in list — Gmail returns newest last by default)
+    # Fetch metadata to confirm recipient and get internalDate
+    best_id   = None
+    best_date = 0
+    for d in drafts:
+        try:
+            meta = service.users().drafts().get(
+                userId="me", id=d["id"], format="metadata",
+                metadataHeaders=["To", "Subject"]
+            ).execute()
+            msg_date = int(meta.get("message", {}).get("internalDate", 0))
+            if msg_date > best_date:
+                best_date = msg_date
+                best_id   = d["id"]
+        except Exception:
+            continue
+
+    if best_id is None:
+        return {"ok": False, "error": "no_draft",
+                "message": f"Could not read drafts for {contact_email}."}
+
+    # Send the draft
+    try:
+        service.users().drafts().send(
+            userId="me", body={"id": best_id}
+        ).execute()
+        return {"ok": True, "message": f"✅ Email sent to {contact_email}"}
+    except Exception as e:
+        return {"ok": False, "error": "send_failed",
+                "message": f"Send failed: {e}"}
+
+
 # ── main sync ─────────────────────────────────────────────────────────────────
 
 def fetch_and_process(base_dir: Path) -> dict:
