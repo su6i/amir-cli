@@ -25,6 +25,20 @@ BASE_DIR = Path(_os.environ.get("APPLY_BASE_DIR",
                 str(Path.home() / "@-Amir/Apply/2026-2027")))
 app = FastAPI(title="Apply Tracker", docs_url="/api/docs")
 
+
+def _position_files(pos_id: str, kind: str) -> tuple[str, list[Path]]:
+    """Return (draft_text, pdf_paths) from the applied/<pos_id>/ folder."""
+    search_name = "PhD-Search" if kind == "phd" else "Job-Search"
+    applied_dir = BASE_DIR / search_name / "applied" / pos_id
+    draft_text  = ""
+    pdfs: list[Path] = []
+    if applied_dir.exists():
+        draft_file = applied_dir / "email_draft.md"
+        if draft_file.exists():
+            draft_text = draft_file.read_text(encoding="utf-8")
+        pdfs = sorted(applied_dir.glob("*.pdf"))
+    return draft_text, pdfs
+
 # ── shared formatters (HTML output) ──────────────────────────────────────────
 
 def _deadline_fmt(dl: str | None) -> str:
@@ -115,6 +129,12 @@ tr:last-child td { border-bottom:none; } tr:hover td { background:#f8fffc; }
 .ab.draft{background:#f3e5f5;color:#6a1b9a} .ab.draft:hover{background:#e1bee7}
 .ab.reject{background:#fce4ec;color:#c62828} .ab.reject:hover{background:#ffcdd2}
 .ab.send-email{background:#1b5e20;color:#fff} .ab.send-email:hover{background:#2e7d32}
+.draft-preview{margin-top:10px;background:#fafafa;border:1px solid #e0e0e0;border-radius:6px;
+  padding:10px 14px;font-size:.78rem;white-space:pre-wrap;word-break:break-word;
+  max-height:220px;overflow-y:auto;color:#333;font-family:monospace;line-height:1.5}
+.pdf-list{margin-top:6px;display:flex;gap:6px;flex-wrap:wrap}
+.pdf-chip{background:#fff3e0;border:1px solid #ffe0b2;border-radius:12px;
+  padding:2px 8px;font-size:.72rem;color:#e65100}
 .exp-badge{display:inline-block;padding:1px 6px;border-radius:10px;font-size:.68rem;
            font-weight:600;background:#e8eaf6;color:#283593;white-space:nowrap}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center}
@@ -287,17 +307,30 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool,
             f'<input type="hidden" name="kind" value="{kind}">'
             f'<button class="ab folder" type="submit">📂 Open folder</button></form>')
         draft_cmd = f"amir apply {kind} draft {pid}"
+
+        # Load draft preview + PDF list from applied/ folder
+        draft_text, pdfs = _position_files(pid, kind)
+        draft_preview = ""
+        if draft_text:
+            escaped = draft_text[:1800].replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+            draft_preview = f'<div class="draft-preview">{escaped}</div>'
+        pdf_chips = ""
+        if pdfs:
+            chips_html = "".join(f'<span class="pdf-chip">📎 {p.name}</span>' for p in pdfs)
+            pdf_chips  = f'<div class="pdf-list">{chips_html}</div>'
+
         # "Send & Mark Sent" — shown for all draft_ready positions
         send_btn = ""
         if r.get("status") == "draft_ready":
+            pdf_note = f" + {len(pdfs)} PDF{'s' if len(pdfs)!=1 else ''}" if pdfs else ""
             if contact and "@" in contact:
                 send_btn = (
                     f'<form method="post" action="/api/send-draft" style="display:inline"'
-                    f' onsubmit="return confirm(\'Send email to {contact}?\')">'
+                    f' onsubmit="return confirm(\'Send to {contact}{pdf_note}?\')">'
                     f'<input type="hidden" name="pos_id" value="{pid}">'
                     f'<input type="hidden" name="kind" value="{kind}">'
                     f'<input type="hidden" name="contact" value="{contact}">'
-                    f'<button class="ab send-email" type="submit">📤 Send & Mark Sent</button></form>'
+                    f'<button class="ab send-email" type="submit">📤 Send & Mark Sent{pdf_note}</button></form>'
                 )
             else:
                 send_btn = (
@@ -307,8 +340,9 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool,
                     f'<input type="text" name="contact" placeholder="recipient@email.com"'
                     f' style="border:1px solid #ccc;border-radius:4px;padding:2px 6px;'
                     f'font-size:.73rem;width:170px;margin-right:4px" required>'
-                    f'<button class="ab send-email" type="submit">📤 Send & Mark Sent</button></form>'
+                    f'<button class="ab send-email" type="submit">📤 Send & Mark Sent{pdf_note}</button></form>'
                 )
+
         detail = (
             f'<div class="detail-panel">'
             f'<div class="info">'
@@ -321,6 +355,7 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool,
             f'<span style="font-size:.75rem;color:#888;align-self:center">'
             f'CLI: <code>{draft_cmd}</code></span>'
             f'</div></div>'
+            f'{pdf_chips}{draft_preview}'
         )
 
         # Click-to-filter cells (JS filterBy — avoids <a>/<tr onclick> conflict)
@@ -694,18 +729,18 @@ async def api_send_draft(request: Request,
                          pos_id: str = Form(...),
                          kind: str = Form(...),
                          contact: str = Form(...)):
-    """Find the Gmail draft for this position, send it, and mark as sent."""
-    result = _gmail.find_and_send_draft(contact)
+    """Find the Gmail draft for this position, attach PDFs, send it, mark as sent."""
+    _, pdfs = _position_files(pos_id, kind)
+    result  = _gmail.find_and_send_draft(contact, attachments=pdfs)
+    ref     = request.headers.get("referer", f"/{kind}")
+    base    = ref.split("?")[0]
     if not result.get("ok"):
-        ref = request.headers.get("referer", f"/{kind}")
         msg = result.get("message", "Send failed").replace(" ", "+")
-        return RedirectResponse(f"{ref.split('?')[0]}?err={msg}", status_code=303)
-
+        return RedirectResponse(f"{base}?err={msg}", status_code=303)
     mark_status(BASE_DIR, pos_id, kind, "sent",
                 sent_date=date.today().isoformat())
-    ref = request.headers.get("referer", f"/{kind}")
     msg = result["message"].replace(" ", "+")
-    return RedirectResponse(f"{ref.split('?')[0]}?msg={msg}", status_code=303)
+    return RedirectResponse(f"{base}?msg={msg}", status_code=303)
 
 
 @app.post("/api/sync-gmail")
