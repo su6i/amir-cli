@@ -351,7 +351,8 @@ _amir() {
                 '(-t --target)'{-t,--target}'[Subtitle target language]:language:(fa en ar zh es fr de ru ja ko tr pt hi)' \
                 '(-R --resolution)'{-R,--resolution}'[Max height in pixels]:height:(240 360 480 720 1080)' \
                 '(-b --browser)'{-b,--browser}'[Browser for cookies]:browser:(chrome safari firefox brave chromium)' \
-                '--cookies[Path to Netscape cookies.txt]:cookies file:_files'
+                '--cookies[Path to Netscape cookies.txt]:cookies file:_files' \
+                '(-f --format)'{-f,--format}'[Image format for Instagram photos (default: jpg)]:format:(jpg png webp)'
             ;;
 
         audio)

@@ -6,10 +6,19 @@
 run_download() {
     source "$LIB_DIR/commands/video.sh"
 
-    # Extract URL from args (first https:// token)
+    # Extract URL and --format flag before delegating
     local URL=""
-    for arg in "$@"; do
-        [[ "$arg" =~ ^https?:// ]] && URL="$arg" && break
+    local IMG_FORMAT="jpg"
+    local -a PASSTHROUGH=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --format|-f)
+                IMG_FORMAT="$2"; shift 2 ;;
+            *)
+                [[ "$1" =~ ^https?:// && -z "$URL" ]] && URL="$1"
+                PASSTHROUGH+=("$1"); shift ;;
+        esac
     done
 
     if [[ -z "$URL" ]]; then
@@ -18,37 +27,36 @@ run_download() {
     fi
 
     if [[ "$URL" =~ (instagram\.com|instagr\.am) ]]; then
-        _download_instagram "$@"
+        _download_instagram "$IMG_FORMAT" "${PASSTHROUGH[@]}"
     else
-        video_download "$@"
+        video_download "${PASSTHROUGH[@]}"
     fi
 }
 
 # ── Instagram: probe for video formats, fall back to gallery-dl for photos ────
 
 _download_instagram() {
+    local IMG_FORMAT="$1"; shift
     local URL=""
-    local -a EXTRA_ARGS=("$@")
+    local -a ARGS=("$@")
 
     for arg in "$@"; do
         [[ "$arg" =~ ^https?:// ]] && URL="$arg" && break
     done
 
-    # Parse --browser / --cookies from caller args (forwarded to gallery-dl if needed)
     local BROWSER="${AMIR_DEFAULT_BROWSER:-chrome}"
     local COOKIES_FILE=""
     local i=0
-    while [[ $i -lt ${#EXTRA_ARGS[@]} ]]; do
-        case "${EXTRA_ARGS[$i]}" in
-            --browser|-b) BROWSER="${EXTRA_ARGS[$((i+1))]}"; i=$((i+2)) ;;
-            --cookies)    COOKIES_FILE="${EXTRA_ARGS[$((i+1))]}"; i=$((i+2)) ;;
+    while [[ $i -lt ${#ARGS[@]} ]]; do
+        case "${ARGS[$i]}" in
+            --browser|-b) BROWSER="${ARGS[$((i+1))]}"; i=$((i+2)) ;;
+            --cookies)    COOKIES_FILE="${ARGS[$((i+1))]}"; i=$((i+2)) ;;
             *) i=$((i+1)) ;;
         esac
     done
 
     log_info "🔍 Probing Instagram URL..." >&2
 
-    # Quick probe: check if yt-dlp finds any video formats
     local probe_json
     probe_json=$(yt-dlp --no-playlist -J "$URL" 2>/dev/null)
 
@@ -59,8 +67,7 @@ import json,sys
 try:
     d=json.load(sys.stdin)
     fmts=d.get('formats',[])
-    has=(any(f.get('vcodec','none') not in ('none','') and f.get('height') for f in fmts))
-    print('yes' if has else 'no')
+    print('yes' if any(f.get('vcodec','none') not in ('none','') and f.get('height') for f in fmts) else 'no')
 except:
     print('unknown')
 " 2>/dev/null)
@@ -71,7 +78,7 @@ except:
         video_download "$@"
     else
         log_info "📸 Photo/carousel post detected — using gallery-dl..." >&2
-        _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE"
+        _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT"
     fi
 }
 
@@ -82,21 +89,22 @@ _gallery_dl_download() {
     local OUT_DIR="${2:-.}"
     local BROWSER="${3:-chrome}"
     local COOKIES_FILE="${4:-}"
+    local IMG_FORMAT="${5:-jpg}"   # jpg | png | webp (webp = no conversion)
 
-    # Auto-install gallery-dl if missing
+    # Normalise: jpg → jpeg for sips
+    local SIPS_FORMAT="$IMG_FORMAT"
+    [[ "$SIPS_FORMAT" == "jpg" ]] && SIPS_FORMAT="jpeg"
+
     if ! command -v gallery-dl &>/dev/null; then
         log_info "📦 gallery-dl not found — installing via uv tool..." >&2
         if ! uv tool install gallery-dl 2>&1; then
-            log_error "Failed to install gallery-dl." >&2
-            log_error "Install manually: uv tool install gallery-dl" >&2
+            log_error "Failed to install gallery-dl. Install manually: uv tool install gallery-dl" >&2
             return 1
         fi
         log_info "✅ gallery-dl installed." >&2
     fi
 
     local -a COOKIE_ARGS=()
-
-    # Cookie resolution (same priority as yt-dlp in video.sh)
     if [[ -n "$COOKIES_FILE" ]]; then
         COOKIE_ARGS=(--cookies "$COOKIES_FILE")
     elif [[ -f "cookies.txt" ]]; then
@@ -107,21 +115,53 @@ _gallery_dl_download() {
         COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
     fi
 
-    log_info "⬇️  Downloading with gallery-dl → $OUT_DIR" >&2
+    # Resolve real path (handles macOS /tmp → /private/tmp symlink and Linux equivalents)
+    local real_out_dir
+    real_out_dir=$(cd "$OUT_DIR" && pwd -P 2>/dev/null || echo "$OUT_DIR")
+
+    log_info "⬇️  Downloading with gallery-dl → $real_out_dir" >&2
+
+    # Snapshot of pre-existing webp files so we only convert newly downloaded ones
+    local _snapshot
+    _snapshot=$(mktemp)
+    find "$real_out_dir" -maxdepth 1 -name "*.webp" 2>/dev/null > "$_snapshot"
 
     gallery-dl \
         "${COOKIE_ARGS[@]}" \
-        --directory "$OUT_DIR" \
+        --directory "$real_out_dir" \
         --filename "{filename}.{extension}" \
         "$URL"
     local rc=$?
-    if [[ $rc -eq 0 ]]; then
-        log_info "✅ Download complete." >&2
-    else
+
+    if [[ $rc -ne 0 ]]; then
         log_error "gallery-dl failed (exit $rc)." >&2
         log_error "If you get auth errors, make sure Chrome is open and try again, or use --cookies cookies.txt" >&2
+        return $rc
     fi
-    return $rc
+
+    # Convert newly downloaded webp → jpg/png using ffmpeg (cross-platform)
+    if [[ "$IMG_FORMAT" != "webp" ]]; then
+        local _ffmpeg_bin
+        _ffmpeg_bin=$(command -v ffmpeg 2>/dev/null)
+        local converted=0
+        while IFS= read -r webp_file; do
+            grep -qxF "$webp_file" "$_snapshot" && continue  # skip pre-existing
+            local out_file="${webp_file%.webp}.$IMG_FORMAT"
+            if [[ -n "$_ffmpeg_bin" ]]; then
+                "$_ffmpeg_bin" -y -i "$webp_file" "$out_file" -loglevel quiet 2>/dev/null && rm -f "$webp_file"
+            else
+                # fallback: sips on macOS
+                sips --setProperty format "$SIPS_FORMAT" "$webp_file" --out "$out_file" &>/dev/null && rm -f "$webp_file"
+            fi
+            log_info "🖼️  $(basename "$out_file")" >&2
+            converted=$((converted + 1))
+        done < <(find "$real_out_dir" -maxdepth 1 -name "*.webp" 2>/dev/null)
+        [[ $converted -gt 0 ]] && log_info "✅ $converted image(s) saved as .$IMG_FORMAT" >&2
+    fi
+
+    rm -f "$_snapshot"
+    log_info "✅ Download complete." >&2
+    return 0
 }
 
 # ── Help ──────────────────────────────────────────────────────────────────────
@@ -143,13 +183,13 @@ TikTok, Twitter/X, Vimeo, and 1000+ other sites.
     --cookies <file>       Netscape cookies.txt file
     --extreme              Fast mode: 360p, lower quality
 
-  Instagram:
-    Photo/carousel posts   → gallery-dl (auto-installed if missing)
-    Reels / videos         → yt-dlp (same options as above)
+  Instagram photo/carousel options:
+    --format <fmt>         Image format: jpg (default), png, webp
 
 Examples:
   amir download https://youtu.be/dQw4w9WgXcQ
   amir download https://www.instagram.com/p/ABC123/
+  amir download https://www.instagram.com/p/ABC123/ --format png
   amir download https://www.instagram.com/reel/XYZ456/ -R 1080
   amir download https://twitter.com/user/status/123456
 EOF
