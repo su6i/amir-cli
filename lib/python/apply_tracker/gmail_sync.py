@@ -117,7 +117,7 @@ def _extract_body(draft: dict) -> str:
 
 # ── send draft ───────────────────────────────────────────────────────────────
 
-def find_and_send_draft(contact_email: str) -> dict:
+def find_and_send_draft(contact_email: str, attachments: list | None = None) -> dict:
     """Find the most recent Gmail draft addressed to contact_email and send it.
 
     Returns {"ok": True, "message": "..."} or {"ok": False, "error": "...", "message": "..."}.
@@ -165,12 +165,62 @@ def find_and_send_draft(contact_email: str) -> dict:
         return {"ok": False, "error": "no_draft",
                 "message": f"Could not read drafts for {contact_email}."}
 
-    # Send the draft
+    # Send the draft — with attachments if provided, otherwise send directly
     try:
-        service.users().drafts().send(
-            userId="me", body={"id": best_id}
-        ).execute()
-        return {"ok": True, "message": f"✅ Email sent to {contact_email}"}
+        if attachments:
+            import email as _email_lib
+            from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+            from email.mime.base import MIMEBase
+            from email import encoders as _enc
+
+            # Get draft raw content to extract subject + body
+            raw_data = service.users().drafts().get(
+                userId="me", id=best_id, format="raw").execute()
+            raw_bytes = base64.urlsafe_b64decode(
+                raw_data["message"]["raw"] + "==")
+            orig = _email_lib.message_from_bytes(raw_bytes)
+
+            msg = MIMEMultipart()
+            msg["To"]      = orig.get("To", contact_email)
+            msg["From"]    = orig.get("From", contact_email)
+            msg["Subject"] = orig.get("Subject", "")
+
+            # Copy plain-text body
+            body_text = ""
+            if orig.is_multipart():
+                for part in orig.walk():
+                    if part.get_content_type() == "text/plain":
+                        body_text = part.get_payload(decode=True).decode("utf-8", errors="replace")
+                        break
+            else:
+                body_text = orig.get_payload(decode=True).decode("utf-8", errors="replace")
+            msg.attach(MIMEText(body_text, "plain", "utf-8"))
+
+            # Attach PDFs
+            for pdf_path in attachments:
+                with open(pdf_path, "rb") as fh:
+                    part = MIMEBase("application", "pdf")
+                    part.set_payload(fh.read())
+                _enc.encode_base64(part)
+                part.add_header("Content-Disposition", "attachment",
+                                filename=pdf_path.name)
+                msg.attach(part)
+
+            raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+            service.users().messages().send(
+                userId="me", body={"raw": raw}).execute()
+            # Remove original draft since we sent a new message
+            service.users().drafts().delete(userId="me", id=best_id).execute()
+
+            n = len(attachments)
+            return {"ok": True,
+                    "message": f"✅ Email sent to {contact_email} with {n} attachment{'s' if n!=1 else ''}"}
+        else:
+            service.users().drafts().send(
+                userId="me", body={"id": best_id}).execute()
+            return {"ok": True, "message": f"✅ Email sent to {contact_email}"}
+
     except Exception as e:
         return {"ok": False, "error": "send_failed",
                 "message": f"Send failed: {e}"}
