@@ -287,17 +287,28 @@ def _positions_html(rows: list[dict], kind: str, sort: str, asc: bool,
             f'<input type="hidden" name="kind" value="{kind}">'
             f'<button class="ab folder" type="submit">📂 Open folder</button></form>')
         draft_cmd = f"amir apply {kind} draft {pid}"
-        # "Send & Mark Sent" — only when draft_ready and contact email known
+        # "Send & Mark Sent" — shown for all draft_ready positions
         send_btn = ""
-        if r.get("status") == "draft_ready" and contact and "@" in contact:
-            send_btn = (
-                f'<form method="post" action="/api/send-draft" style="display:inline"'
-                f' onsubmit="return confirm(\'Send email to {contact}?\')">'
-                f'<input type="hidden" name="pos_id" value="{pid}">'
-                f'<input type="hidden" name="kind" value="{kind}">'
-                f'<input type="hidden" name="contact" value="{contact}">'
-                f'<button class="ab send-email" type="submit">📤 Send & Mark Sent</button></form>'
-            )
+        if r.get("status") == "draft_ready":
+            if contact and "@" in contact:
+                send_btn = (
+                    f'<form method="post" action="/api/send-draft" style="display:inline"'
+                    f' onsubmit="return confirm(\'Send email to {contact}?\')">'
+                    f'<input type="hidden" name="pos_id" value="{pid}">'
+                    f'<input type="hidden" name="kind" value="{kind}">'
+                    f'<input type="hidden" name="contact" value="{contact}">'
+                    f'<button class="ab send-email" type="submit">📤 Send & Mark Sent</button></form>'
+                )
+            else:
+                send_btn = (
+                    f'<form method="post" action="/api/send-draft" style="display:inline">'
+                    f'<input type="hidden" name="pos_id" value="{pid}">'
+                    f'<input type="hidden" name="kind" value="{kind}">'
+                    f'<input type="text" name="contact" placeholder="recipient@email.com"'
+                    f' style="border:1px solid #ccc;border-radius:4px;padding:2px 6px;'
+                    f'font-size:.73rem;width:170px;margin-right:4px" required>'
+                    f'<button class="ab send-email" type="submit">📤 Send & Mark Sent</button></form>'
+                )
         detail = (
             f'<div class="detail-panel">'
             f'<div class="info">'
