@@ -121,7 +121,16 @@ case "$COMMAND" in
             exit $?
         fi
         ;;
-    
+
+    download|dl)
+        shift
+        if [[ -f "$LIB_DIR/commands/download.sh" ]]; then
+            source "$LIB_DIR/commands/download.sh"
+            run_download "$@"
+            exit $?
+        fi
+        ;;
+
     mp3)
         shift
         if [[ -f "$LIB_DIR/commands/audio.sh" ]]; then source "$LIB_DIR/commands/audio.sh"; run_audio "extract" "$@"; exit $?; fi
