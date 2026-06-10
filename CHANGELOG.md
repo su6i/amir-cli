@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     __pycache__/ .DS_Store`) even when seeded from a template.
 
 ### Added
+- `amir update-projects [base-dir]` — new command that propagates the latest
+  constitution + `pre-commit` hook across every project under `base-dir`
+  (default `$AMIR_PROJECTS_DIR` or `~/@-github`) that uses the constitution
+  submodule. Idempotent and non-destructive. Flags: `--dry-run`, `--no-hook`,
+  `--no-submodule`, `--exclude`. Excludes `amir-cli`/`agent-constitution` by
+  default. Replaces the ad-hoc one-off shell loop.
 - `amir init-project` installs the constitution `pre-commit` hook into every new
   project (blocks direct commits to `main` + enforces the docs checklist).
 

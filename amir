@@ -134,6 +134,10 @@ case "$COMMAND" in
         shift
         if [[ -f "$LIB_DIR/commands/sync-constitution.sh" ]]; then source "$LIB_DIR/commands/sync-constitution.sh"; run_sync_constitution "$@"; exit $?; fi
         ;;
+    update-projects)
+        shift
+        if [[ -f "$LIB_DIR/commands/update-projects.sh" ]]; then source "$LIB_DIR/commands/update-projects.sh"; run_update_projects "$@"; exit $?; fi
+        ;;
     pdf)
         shift
         if [[ -f "$LIB_DIR/commands/pdf.sh" ]]; then "$LIB_DIR/commands/pdf.sh" "$@"; exit $?; fi

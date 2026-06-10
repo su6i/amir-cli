@@ -11,6 +11,7 @@ _amir() {
         commands=(
             'init-project:Scaffold Agent Constitution in directory'
             'sync-constitution:Sync .agent/ rules+skills from agent-constitution repo'
+            'update-projects:Update constitution + install pre-commit hook across all projects'
             'video:Advanced video processing (compress, cut, batch)'
             'audio:Audio tools (convert, extract, concat, to-video)'
             'img:Resize images (logo and custom sizes)'
@@ -47,6 +48,15 @@ _amir() {
 
         sync-constitution)
             _arguments '*:target directory:_directories'
+            ;;
+
+        update-projects)
+            _arguments \
+                '1::base directory:_directories' \
+                '--dry-run[List what would happen, change nothing]' \
+                '--no-hook[Do not install the pre-commit hook]' \
+                '--no-submodule[Do not update the constitution submodule]' \
+                '--exclude[Project names to skip]:names'
             ;;
 
         trend)
