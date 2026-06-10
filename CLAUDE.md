@@ -130,7 +130,8 @@ amir (bash entry point)
 | `amir apply phd` | `lib/commands/phd.sh` | مدیریت کامل درخواست‌های دکترا |
 | `amir apply job` | `lib/commands/job.sh` | مدیریت کامل درخواست‌های شغلی |
 | `amir trend` / `amir research` | `lib/commands/trend.sh` | Bridge به research_toolkit |
-| `amir video` | `lib/commands/video.sh` | پردازش ویدیو + دانلود |
+| `amir download` / `amir dl` | `lib/commands/download.sh` | دانلود ویدیو/عکس/carousel — YouTube، Instagram، TikTok، Twitter/X و ۱۰۰۰+ سایت |
+| `amir video` | `lib/commands/video.sh` | پردازش ویدیو (compress، cut، pip، convert، record) |
 | `amir video record` | `lib/commands/video.sh` → `video_record()` | ضبط صفحه با AVFoundation — `--list`, `--screen N`, `--audio N`, `--fps N` |
 | `amir video convert` | `lib/commands/video.sh` → `video_convert()` | تبدیل container فرمت — stream-copy هوشمند، HEVC hvc1 درست handle می‌شود |
 | `amir video pip` | `lib/commands/video.sh` → `video_pip()` | PiP overlay چند ویدیو با time window و مختصات |
@@ -326,7 +327,8 @@ git add -f lib/commands/specific_file.sh
 |---|---|
 | `amir` | bash entry point — sources commands, activates venv |
 | `lib/commands/pdf.sh` | دستور `amir pdf` |
-| `lib/commands/video.sh` | دانلود + پردازش ویدیو + SIGINT trap |
+| `lib/commands/download.sh` | دستور `amir download` — yt-dlp برای ویدیو، gallery-dl برای عکس اینستاگرام، تبدیل webp→jpg |
+| `lib/commands/video.sh` | پردازش ویدیو + SIGINT trap (دانلود به download.sh منتقل شد) |
 | `lib/commands/subtitle.sh` | pipeline زیرنویس، exit code 130 propagation |
 | `lib/nodejs/render_puppeteer.js` | موتور رندر PDF (Puppeteer) |
 | `lib/themes/carousel.css` | تم LinkedIn carousel (1080×1080) |
