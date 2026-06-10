@@ -36,6 +36,8 @@ _amir() {
             'watermark:Add logo or text watermark to images/videos'
             'subtitle:Generate multi-language subtitles using AI'
             'llm-lists:Fetch model lists from LLM providers'
+            'download:Download video, photo or carousel from YouTube, Instagram, TikTok, Twitter/X and 1000+ sites'
+            'dl:Alias for download'
             'trend:Trending content and research — YouTube, GitHub, arXiv, Reddit...'
             'research:Alias for trend'
         )
@@ -154,7 +156,6 @@ _amir() {
                 'merge:Alias for concat'
                 'split:Split video into ~N MB chunks'
                 'batch:Batch process all videos in directory'
-                'download:Download video from any website (YouTube, news, etc.)'
                 'stats:Show AI learning statistics'
                 'reset:Reset AI learning data'
                 'codecs:Check encoder support'
@@ -275,28 +276,6 @@ _amir() {
                         '--gpu[Use hardware encoder (default on Apple Silicon)]' \
                         '--cpu[Use software encoder (better compression, recommended for text/screen recordings)]'
                     ;;
-                download|dl)
-                    _arguments -s \
-                        '1: : ' '2: : ' \
-                        '3:url: ' \
-                        '(-s --subtitle)'{-s,--subtitle}'[Transcribe + burn subtitles via Whisper AI]' \
-                        '--yt-subs[Download YouTube'\''s own subtitles (human first, auto-gen fallback)]' \
-                        '--translate[With --yt-subs: translate EN→target via LLM — no Whisper needed]' \
-                        '--formats[Show available resolutions and estimated sizes before downloading]' \
-                        '--extreme[Auto-pick smallest available resolution for minimum file size]' \
-                        '(-r --render)'{-r,--render}'[Burn subtitle into video (use with --yt-subs)]' \
-                        '--sub-only[Generate subtitle files only, skip burning (use with --subtitle)]' \
-                        '--no-render[Alias for --sub-only (deprecated)]' \
-                        '--only-subs[Keep subtitle files; prompt to delete raw video]' \
-                        '--sub-format[Subtitle format]:format:(srt ass all)' \
-                        '(-y --yes)'{-y,--yes}'[Auto-confirm delete prompt (use with --only-subs)]' \
-                        '(-l --get-link)'{-l,--get-link}'[Print direct stream URL(s) only — for download managers]' \
-                        '(-t --target)'{-t,--target}'[Subtitle target language (default\: fa)]:language:(fa en ar zh es fr de ru ja ko tr pt hi)' \
-                        '(-R --resolution)'{-R,--resolution}'[Compress to height after download (e.g. 720). For auto-min use --extreme]:height:(240 360 480 720 1080)' \
-                        '(-b --browser)'{-b,--browser}'[Browser to extract cookies from (default\: chrome)]:browser:(chrome safari firefox brave chromium)' \
-                        '--keep-thumb[Keep downloaded thumbnail sidecar file]' \
-                        '--cookies[Path to Netscape cookies.txt file]:cookies file:_files'
-                    ;;
                 subtitle)
                     # amir video subtitle <file/url> — same flags as top-level amir subtitle
                     _arguments -s \
@@ -363,6 +342,27 @@ _amir() {
                         '*:extra files:_files'
                     ;;
             esac
+            ;;
+
+        download|dl)
+            _arguments -s \
+                '1: : ' \
+                '2:url: ' \
+                '(-s --subtitle)'{-s,--subtitle}'[Transcribe + burn subtitles via Whisper AI]' \
+                '--yt-subs[Download YouTube'\''s own subtitles]' \
+                '--translate[With --yt-subs: translate EN→target via LLM]' \
+                '--formats[Show available resolutions before downloading]' \
+                '--extreme[Auto-pick smallest resolution]' \
+                '(-r --render)'{-r,--render}'[Burn subtitle into video]' \
+                '--sub-only[Generate subtitle files only, skip burning]' \
+                '--only-subs[Keep subtitle files; prompt to delete raw video]' \
+                '(-y --yes)'{-y,--yes}'[Auto-confirm delete prompt (use with --only-subs)]' \
+                '(-l --get-link)'{-l,--get-link}'[Print direct stream URL only]' \
+                '(-t --target)'{-t,--target}'[Subtitle target language]:language:(fa en ar zh es fr de ru ja ko tr pt hi)' \
+                '(-R --resolution)'{-R,--resolution}'[Max height in pixels]:height:(240 360 480 720 1080)' \
+                '(-b --browser)'{-b,--browser}'[Browser for cookies]:browser:(chrome safari firefox brave chromium)' \
+                '--cookies[Path to Netscape cookies.txt]:cookies file:_files' \
+                '(-f --format)'{-f,--format}'[Image format for Instagram photos (default: jpg)]:format:(jpg png webp)'
             ;;
 
         audio)
