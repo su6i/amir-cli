@@ -685,6 +685,39 @@ _amir() {
                         fi
                         ;;
                 esac
+            elif [[ "$subcmd" == "compress" ]]; then
+                if [[ "$prev" == "--target" || "$prev" == "-t" ]]; then
+                    local -a targets
+                    targets=('100:100 KB' '150:150 KB' '200:200 KB' '300:300 KB (default)' '500:500 KB' '1000:1 MB')
+                    _describe -t targets 'target size (KB)' targets
+                elif [[ "$prev" == "--max-quality" || "$prev" == "--min-quality" ]]; then
+                    local -a qualities
+                    qualities=('50' '60' '70' '75' '80' '85' '90' '95')
+                    _describe -t qualities 'JPEG quality' qualities
+                elif [[ "$prev" == "--suffix" ]]; then
+                    _message "filename suffix (e.g. _compressed)"
+                elif [[ "$prev" == "-o" || "$prev" == "--output" ]]; then
+                    _files -/
+                elif [[ "$PREFIX" == -* ]]; then
+                    local -a compress_flags
+                    compress_flags=(
+                        '--target:Target size in KB (default: 300)'
+                        '-t:Target size in KB (default: 300)'
+                        '--grayscale:Convert to grayscale — ideal for official documents/scans'
+                        '--photo:Force full-color mode'
+                        '--overwrite:Overwrite original file (converts to .jpg if needed)'
+                        '--max-quality:Maximum JPEG quality to start from (default: 85)'
+                        '--min-quality:Minimum JPEG quality floor (default: 50)'
+                        '--no-strip:Keep EXIF metadata (default: stripped)'
+                        '-o:Output directory'
+                        '--output:Output directory'
+                        '--suffix:Filename suffix (default: _compressed)'
+                    )
+                    _describe -t compress_flags 'option' compress_flags
+                else
+                    _files -g "*.(jpg|jpeg|png|webp|tiff|tif|JPG|PNG|WEBP|TIFF)"
+                fi
+
             elif [[ "$subcmd" == "extend" ]]; then
                 case $((CURRENT)) in
                     4) _files -g "*.(jpg|jpeg|png|webp|svg|JPG|PNG|WEBP|SVG)" ;;
