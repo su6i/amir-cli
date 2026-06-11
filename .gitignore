@@ -21,6 +21,7 @@ env/
 # Editor
 .vscode/
 .idea/
+.claude/settings.local.json
 
 # Temporary / Testing
 tmp/
