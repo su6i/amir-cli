@@ -1100,6 +1100,7 @@ run_img() {
         local suffix="_compressed"
         local overwrite=false
         local forced_scale=""
+        local uniform=false
         local files=()
 
         while [[ $# -gt 0 ]]; do
@@ -1116,6 +1117,7 @@ run_img() {
                 --scale)
                     [[ "$2" =~ ^[0-9]+$ ]] || { echo "❌ --scale requires a number (1-100)"; return 1; }
                     forced_scale="$2"; shift 2 ;;
+                --uniform)      uniform=true;      shift ;;
                 --grayscale)    mode="doc";        shift ;;
                 --photo)        mode="photo";      shift ;;
                 --no-strip)     strip_meta=false;  shift ;;
@@ -1136,7 +1138,8 @@ run_img() {
             echo "  --overwrite      Overwrite original file (converts to .jpg if needed)"
             echo "  --max-quality N  Maximum JPEG quality to start from (default: 85)"
             echo "  --min-quality N  Minimum JPEG quality floor (default: 50)"
-            echo "  --scale N        Force resize to N% for all files (ensures uniform dimensions)"
+            echo "  --uniform        Auto-detect common scale so all files get the same dimensions"
+            echo "  --scale N        Force a specific resize % for all files"
             echo "  --no-strip       Keep EXIF metadata (default: stripped)"
             echo "  -o <dir>         Output directory (default: same as input)"
             echo "  --suffix <str>   Filename suffix (default: _compressed)"
@@ -1145,7 +1148,7 @@ run_img() {
             echo "  amir img compress scan.jpg"
             echo "  amir img compress scan.png --grayscale --target 200"
             echo "  amir img compress *.jpg --target 150 -o compressed/"
-            echo "  amir img compress front.png back.png --scale 50  # uniform size"
+            echo "  amir img compress front.png back.png --uniform     # auto uniform size"
             return 1
         fi
 
@@ -1177,7 +1180,7 @@ run_img() {
             local current_kb=$(( current_size / 1024 ))
             printf "📦 %-38s %5dKB" "$(basename "$input")" "$current_kb"
 
-            if [[ "$current_size" -le "$target_bytes" ]]; then
+            if [[ "$current_size" -le "$target_bytes" && -z "$forced_scale" ]]; then
                 echo " → ✅ already ≤ ${target_kb}KB"
                 return 0
             fi
@@ -1336,6 +1339,44 @@ run_img() {
             local fkb=$(( result_size / 1024 ))
             printf " → %dKB (q%d) ✅ %s\n" "$fkb" "$best_quality" "$(basename "$output_file")"
         }
+
+        # --uniform pre-pass: find the most restrictive scale across all files
+        if [[ "$uniform" == true && -z "$forced_scale" ]]; then
+            printf "🔍 Finding common scale for %d files...\n" "${#files[@]}"
+            local common_scale=100
+            for f in "${files[@]}"; do
+                [[ ! -f "$f" ]] && continue
+                local fsz
+                fsz=$(_cmp_filesize "$f")
+                [[ "$fsz" -le "$target_bytes" ]] && continue
+
+                local probe
+                probe=$(mktemp "${TMPDIR:-/tmp}/amir_probe_XXXXXX") || continue
+
+                local s=90 file_scale=10
+                while [[ "$s" -ge 10 ]]; do
+                    magick "$f" -strip -sampling-factor "4:2:0" -resize "${s}%" \
+                        -quality "$min_quality" "JPG:$probe" 2>/dev/null
+                    local psz
+                    psz=$(_cmp_filesize "$probe")
+                    if [[ "$psz" -le "$target_bytes" ]]; then
+                        file_scale="$s"
+                        break
+                    fi
+                    s=$(( s - 10 ))
+                done
+                rm -f "$probe"
+
+                [[ "$file_scale" -lt "$common_scale" ]] && common_scale="$file_scale"
+            done
+
+            if [[ "$common_scale" -eq 100 ]]; then
+                printf "✅ All files already fit at full size\n"
+            else
+                printf "📐 Common scale: %d%%\n" "$common_scale"
+                forced_scale="$common_scale"
+            fi
+        fi
 
         local ok=0 skipped=0 failed=0
         for f in "${files[@]}"; do

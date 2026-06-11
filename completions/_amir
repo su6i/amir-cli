@@ -716,7 +716,8 @@ _amir() {
                         '-o:Output directory'
                         '--output:Output directory'
                         '--suffix:Filename suffix (default: _compressed)'
-                        '--scale:Force resize to N% for all files (uniform dimensions)'
+                        '--uniform:Auto-detect common scale so all files have the same dimensions'
+                        '--scale:Force a specific resize % for all files'
                     )
                     _describe -t compress_flags 'option' compress_flags
                 else
