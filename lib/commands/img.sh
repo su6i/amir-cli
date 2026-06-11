@@ -1090,6 +1090,226 @@ run_img() {
 
 
 
+    do_compress() {
+        local target_kb=300
+        local min_quality=50
+        local max_quality=85
+        local mode="auto"
+        local strip_meta=true
+        local output_dir=""
+        local suffix="_compressed"
+        local overwrite=false
+        local files=()
+
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --target|-t)    target_kb="$2";   shift 2 ;;
+                --min-quality)  min_quality="$2"; shift 2 ;;
+                --max-quality)  max_quality="$2"; shift 2 ;;
+                --doc)          mode="doc";        shift ;;
+                --photo)        mode="photo";      shift ;;
+                --no-strip)     strip_meta=false;  shift ;;
+                -o|--output)    output_dir="$2";   shift 2 ;;
+                --suffix)       suffix="$2";       shift 2 ;;
+                --overwrite)    overwrite=true;    shift ;;
+                *)              files+=("$1");     shift ;;
+            esac
+        done
+
+        if [[ ${#files[@]} -eq 0 ]]; then
+            echo "Usage: amir img compress <file(s)> [options]"
+            echo ""
+            echo "Options:"
+            echo "  --target N       Target size in KB (default: 300)"
+            echo "  --doc            Document mode: grayscale + background cleaning"
+            echo "  --photo          Photo mode: full-color, detail-preserving"
+            echo "  --overwrite      Overwrite original file (converts to .jpg if needed)"
+            echo "  --max-quality N  Maximum JPEG quality to start from (default: 85)"
+            echo "  --min-quality N  Minimum JPEG quality floor (default: 50)"
+            echo "  --no-strip       Keep EXIF metadata (default: stripped)"
+            echo "  -o <dir>         Output directory (default: same as input)"
+            echo "  --suffix <str>   Filename suffix (default: _compressed)"
+            echo ""
+            echo "Examples:"
+            echo "  amir img compress scan.jpg"
+            echo "  amir img compress scan.png --doc --target 200"
+            echo "  amir img compress *.jpg --target 150 -o compressed/"
+            return 1
+        fi
+
+        local target_bytes=$(( target_kb * 1024 ))
+
+        _cmp_filesize() {
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                stat -f%z "$1" 2>/dev/null
+            else
+                stat -c%s "$1" 2>/dev/null
+            fi
+        }
+
+        _cmp_detect_mode() {
+            local cs
+            cs=$(magick "$1" -format "%[colorspace]" info: 2>/dev/null)
+            [[ "$cs" == "Gray" || "$cs" == "sGray" ]] && echo "doc" || echo "photo"
+        }
+
+        _compress_one() {
+            local input="$1"
+            if [[ ! -f "$input" ]]; then
+                echo "⚠️  Not found: $input"
+                return 1
+            fi
+
+            local current_size
+            current_size=$(_cmp_filesize "$input")
+            local current_kb=$(( current_size / 1024 ))
+            printf "📦 %-38s %5dKB" "$(basename "$input")" "$current_kb"
+
+            if [[ "$current_size" -le "$target_bytes" ]]; then
+                echo " → ✅ already ≤ ${target_kb}KB"
+                return 0
+            fi
+
+            # Determine output path
+            local input_base="${input%.*}"
+            local input_ext
+            input_ext=$(echo "${input##*.}" | tr '[:upper:]' '[:lower:]')
+            local output_file
+
+            if [[ "$overwrite" == true ]]; then
+                if [[ "$input_ext" == "jpg" || "$input_ext" == "jpeg" ]]; then
+                    output_file="$input"
+                else
+                    output_file="${input_base}.jpg"
+                fi
+            elif [[ -n "$output_dir" ]]; then
+                mkdir -p "$output_dir"
+                output_file="${output_dir}/$(basename "${input_base}${suffix}.jpg")"
+            else
+                output_file="${input_base}${suffix}.jpg"
+            fi
+
+            # Determine compression mode
+            local use_mode="$mode"
+            if [[ "$use_mode" == "auto" ]]; then
+                use_mode=$(_cmp_detect_mode "$input")
+                [[ "$use_mode" == "doc" ]] && printf " [gray]"
+            fi
+
+            # Build ImageMagick args
+            local base_args=("-auto-orient")
+            [[ "$strip_meta" == true ]] && base_args+=("-strip")
+            base_args+=("-sampling-factor" "4:2:0" "-interlace" "Plane")
+            if [[ "$use_mode" == "doc" ]]; then
+                # Grayscale + gentle normalize — preserves text readability, halves file size
+                base_args+=("-colorspace" "Gray" "-normalize")
+            fi
+
+            local tmp_file
+            # BSD mktemp (macOS) requires template to end with X's — no extension in template
+            tmp_file=$(mktemp "${TMPDIR:-/tmp}/amir_cmp_XXXXXX") || {
+                printf " → ❌ cannot create temp file\n"
+                return 1
+            }
+            local best_quality=""
+            local result_size=0
+
+            # Phase 1: binary-search JPEG quality
+            # Use JPG: prefix so ImageMagick writes JPEG regardless of tmp_file extension
+            magick "$input" "${base_args[@]}" -quality "$max_quality" "JPG:$tmp_file" 2>/dev/null
+            local sz
+            sz=$(_cmp_filesize "$tmp_file")
+
+            if [[ "$sz" -le "$target_bytes" ]]; then
+                best_quality="$max_quality"
+                result_size="$sz"
+            else
+                local lo="$min_quality"
+                local hi="$max_quality"
+
+                while [[ $(( hi - lo )) -gt 2 ]]; do
+                    local mid=$(( (lo + hi) / 2 ))
+                    magick "$input" "${base_args[@]}" -quality "$mid" "JPG:$tmp_file" 2>/dev/null
+                    sz=$(_cmp_filesize "$tmp_file")
+                    if [[ "$sz" -le "$target_bytes" ]]; then
+                        best_quality="$mid"
+                        result_size="$sz"
+                        lo="$mid"
+                    else
+                        hi="$mid"
+                    fi
+                done
+
+                # Explicit check at floor
+                if [[ -z "$best_quality" ]]; then
+                    magick "$input" "${base_args[@]}" -quality "$lo" "JPG:$tmp_file" 2>/dev/null
+                    sz=$(_cmp_filesize "$tmp_file")
+                    if [[ "$sz" -le "$target_bytes" ]]; then
+                        best_quality="$lo"
+                        result_size="$sz"
+                    fi
+                fi
+            fi
+
+            # Phase 2: dimension reduction when quality floor isn't enough
+            if [[ -z "$best_quality" ]]; then
+                printf " ⚠️ q-floor"
+                local scale=80
+                local found_scale=""
+                while [[ "$scale" -ge 20 ]]; do
+                    magick "$input" "${base_args[@]}" -resize "${scale}%" -quality "$min_quality" "JPG:$tmp_file" 2>/dev/null
+                    sz=$(_cmp_filesize "$tmp_file")
+                    if [[ "$sz" -le "$target_bytes" ]]; then
+                        found_scale="$scale"
+                        result_size="$sz"
+                        break
+                    fi
+                    scale=$(( scale - 10 ))
+                done
+
+                if [[ -z "$found_scale" ]]; then
+                    printf " → ❌ cannot reach %dKB\n" "$target_kb"
+                    rm -f "$tmp_file"
+                    return 1
+                fi
+
+                printf " → %d%%+q%d" "$found_scale" "$min_quality"
+                mv "$tmp_file" "$output_file"
+                local fkb=$(( result_size / 1024 ))
+                printf " → %dKB ✅ %s\n" "$fkb" "$(basename "$output_file")"
+                return 0
+            fi
+
+            # Regenerate at best_quality (binary search may leave tmp_file at wrong quality)
+            magick "$input" "${base_args[@]}" -quality "$best_quality" "JPG:$tmp_file" 2>/dev/null
+            result_size=$(_cmp_filesize "$tmp_file")
+            mv "$tmp_file" "$output_file"
+
+            local fkb=$(( result_size / 1024 ))
+            printf " → %dKB (q%d) ✅ %s\n" "$fkb" "$best_quality" "$(basename "$output_file")"
+        }
+
+        local ok=0 skipped=0 failed=0
+        for f in "${files[@]}"; do
+            local before_ok=$ok before_skip=$skipped
+            _compress_one "$f"
+            local rc=$?
+            if [[ $rc -eq 0 ]]; then
+                # Distinguish skip vs compress by checking if size was already OK
+                # (function prints "already" on skip — just count ok for both)
+                (( ok++ ))
+            else
+                (( failed++ ))
+            fi
+        done
+
+        local total=${#files[@]}
+        if [[ $total -gt 1 ]]; then
+            echo ""
+            echo "📊 ${total} files | ✅ ${ok} done | ❌ ${failed} failed"
+        fi
+    }
+
     do_burst() {
         local recursive=0
         local inputs=()
@@ -1194,7 +1414,8 @@ run_img() {
         shift; do_scan "$@"
     elif [[ "$action" == "convert" ]]; then
         shift; do_convert "$@"
-
+    elif [[ "$action" == "compress" ]]; then
+        shift; do_compress "$@"
     elif [[ "$action" == "burst" ]]; then
         shift; do_burst "$@"
     elif [[ "$action" == "extend" ]]; then
@@ -1234,6 +1455,7 @@ run_img() {
         echo "  amir img convert <file> [fmt] [size|preset] [circle] (Convert & opt. Circle)"
         echo "  amir img stack   <file1> <file2> [...] [-g gap] [-p a4|b5] [--deskew]"
         echo "  amir img extend  -i <file> [opts]                (Extend borders)"
+        echo "  amir img compress <file(s)> [--target KB] [--doc|--photo] [--overwrite] [-o dir]"
         echo "  amir img burst   <files...> [output]             (Multi-frame Reconstruction)"
         echo ""
         echo "Presets:"
