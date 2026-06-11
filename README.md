@@ -161,6 +161,7 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir img crop <file> [size] [--smart]` | Smart Content-Aware Crop (Auto-detect subject) or Manual Crop. |
 | `amir img pad <file> <size> [color]` | Resize & Fill with Color (Contain). |
 | `amir img round <file> [radius] [fmt]` | Round image corners (PNG/JPG). |
+| `amir img compress <file(s)> [opts]` | Compress images to target size (default 300KB). Binary-search quality then auto-resize. `--target KB`, `--uniform` (same scale for all files in batch), `--grayscale` (ideal for official documents/scans), `--overwrite`, `-o dir`. |
 | `amir img extend <file> [opts]` | Extend image borders (custom/auto color). |
 | `amir img <file> <size> [g]` | Legacy mode (detects resize vs crop). |
 | `amir pdf [files] [opts]` | **Multi-Engine PDF Generator**: Render Markdown/Text/Images to PDF. Supports piping (e.g., `amir clip | amir pdf`), Puppeteer (Default), WeasyPrint, PIL (Robust Fallback). Features: High-fidelity Persian RTL (B Nazanin), auto-pagination, ExFAT compatibility, `--free-size` (`-f`) for continuous/custom dimensions, and `--page-width/--page-height` (Puppeteer, pixels) for manual page sizing. Common widths: 1200, 1440, 1600, 1800, 2000, 2480. |
