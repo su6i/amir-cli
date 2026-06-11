@@ -1103,9 +1103,15 @@ run_img() {
 
         while [[ $# -gt 0 ]]; do
             case "$1" in
-                --target|-t)    target_kb="$2";   shift 2 ;;
-                --min-quality)  min_quality="$2"; shift 2 ;;
-                --max-quality)  max_quality="$2"; shift 2 ;;
+                --target|-t)
+                    [[ "$2" =~ ^[0-9]+$ ]] || { echo "❌ --target requires a number (KB)"; return 1; }
+                    target_kb="$2"; shift 2 ;;
+                --min-quality)
+                    [[ "$2" =~ ^[0-9]+$ ]] || { echo "❌ --min-quality requires a number (1-100)"; return 1; }
+                    min_quality="$2"; shift 2 ;;
+                --max-quality)
+                    [[ "$2" =~ ^[0-9]+$ ]] || { echo "❌ --max-quality requires a number (1-100)"; return 1; }
+                    max_quality="$2"; shift 2 ;;
                 --grayscale)    mode="doc";        shift ;;
                 --photo)        mode="photo";      shift ;;
                 --no-strip)     strip_meta=false;  shift ;;
