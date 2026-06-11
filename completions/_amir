@@ -840,6 +840,7 @@ _amir() {
                             'burst:Multi-frame State of the Art Reconstruction'
                             'extend:Extend image borders with custom color'
                             'convert:Convert image to png/jpg'
+                            'compress:Compress image to target size (default: 300KB)'
                             'deskew:Auto-straighten image'
                          )
                          _describe -t img_actions "action" img_actions
