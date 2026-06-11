@@ -189,6 +189,15 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
 - **Why?** Eliminates the heavy dependency on Puppeteer/Chromium, making the CLI faster and more portable (no installation of Node.js required).
 - **Whitespace Handling:** Uses literal `\u00A0` (Non-Breaking Space) and `xml:space="preserve"` to ensure `rsvg-convert` renders text spacing correctly.
 
+#### 📦 Image Compression (`compress`)
+- **Algorithm:** Two-phase pipeline per file:
+  1. **Phase 1** — binary-search JPEG quality (default 85→50) at full dimensions until target size is met.
+  2. **Phase 2** — if quality floor is insufficient, reduces dimensions in 10% steps (80%→70%→…→20%) at `min_quality` until target is met.
+- **`--uniform` mode:** Pre-pass probes every file to find the most restrictive scale needed, then applies that common scale to all files. Ensures all outputs share the same physical dimensions — useful for document front/back pairs.
+- **`--grayscale` mode:** Adds `-colorspace Gray -normalize` before JPEG encoding. Typically halves file size vs. color mode with no loss of text legibility — recommended for official documents.
+- **Output:** Always JPEG (`.jpg`) for maximum compression. Uses `JPG:` format prefix so ImageMagick writes JPEG regardless of temp-file extension (required on macOS BSD `mktemp` which does not support extensions in templates).
+- **Batch:** Accepts multiple files or globs; reports per-file result and a summary line.
+
 ### `img scan` (Document Scanning)
 - **Purpose:** Converts photos of documents into "Official Administrative" scans (Pure white background, sharp black text).
 - **Architecture:** Hybrid Shell/Python pipeline.

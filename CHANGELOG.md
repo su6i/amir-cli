@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased] - 2026-06-12
+
+### Added
+- `amir img compress` — new subcommand to compress images to a target file size (default 300KB).
+  - Binary-search JPEG quality (85→50) then auto dimension reduction (80%→20%) until target is met.
+  - `--uniform`: auto-detects a common resize scale across all input files so outputs share the same physical dimensions (useful for document front/back pairs).
+  - `--grayscale`: converts to grayscale before encoding — halves file size with no text readability loss, ideal for official documents and scans.
+  - `--target KB`, `--min-quality`, `--max-quality`, `--overwrite`, `--suffix`, `-o dir`.
+  - Full zsh autocompletion including flag values for `--target`, `--scale`, and `--max/min-quality`.
+
+---
+
 ## [Unreleased] - 2026-06-09
 
 ### Changed
