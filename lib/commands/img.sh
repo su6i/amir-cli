@@ -1099,6 +1099,7 @@ run_img() {
         local output_dir=""
         local suffix="_compressed"
         local overwrite=false
+        local forced_scale=""
         local files=()
 
         while [[ $# -gt 0 ]]; do
@@ -1112,6 +1113,9 @@ run_img() {
                 --max-quality)
                     [[ "$2" =~ ^[0-9]+$ ]] || { echo "❌ --max-quality requires a number (1-100)"; return 1; }
                     max_quality="$2"; shift 2 ;;
+                --scale)
+                    [[ "$2" =~ ^[0-9]+$ ]] || { echo "❌ --scale requires a number (1-100)"; return 1; }
+                    forced_scale="$2"; shift 2 ;;
                 --grayscale)    mode="doc";        shift ;;
                 --photo)        mode="photo";      shift ;;
                 --no-strip)     strip_meta=false;  shift ;;
@@ -1132,6 +1136,7 @@ run_img() {
             echo "  --overwrite      Overwrite original file (converts to .jpg if needed)"
             echo "  --max-quality N  Maximum JPEG quality to start from (default: 85)"
             echo "  --min-quality N  Minimum JPEG quality floor (default: 50)"
+            echo "  --scale N        Force resize to N% for all files (ensures uniform dimensions)"
             echo "  --no-strip       Keep EXIF metadata (default: stripped)"
             echo "  -o <dir>         Output directory (default: same as input)"
             echo "  --suffix <str>   Filename suffix (default: _compressed)"
@@ -1140,6 +1145,7 @@ run_img() {
             echo "  amir img compress scan.jpg"
             echo "  amir img compress scan.png --grayscale --target 200"
             echo "  amir img compress *.jpg --target 150 -o compressed/"
+            echo "  amir img compress front.png back.png --scale 50  # uniform size"
             return 1
         fi
 
@@ -1219,11 +1225,47 @@ run_img() {
             }
             local best_quality=""
             local result_size=0
+            local sz
 
-            # Phase 1: binary-search JPEG quality
+            if [[ -n "$forced_scale" ]]; then
+                # --scale mode: fixed dimensions, binary-search quality only
+                local lo="$min_quality"
+                local hi="$max_quality"
+
+                while [[ $(( hi - lo )) -gt 2 ]]; do
+                    local mid=$(( (lo + hi) / 2 ))
+                    magick "$input" "${base_args[@]}" -resize "${forced_scale}%" -quality "$mid" "JPG:$tmp_file" 2>/dev/null
+                    sz=$(_cmp_filesize "$tmp_file")
+                    if [[ "$sz" -le "$target_bytes" ]]; then
+                        best_quality="$mid"; lo="$mid"
+                    else
+                        hi="$mid"
+                    fi
+                done
+                # Final check at lo
+                if [[ -z "$best_quality" ]]; then
+                    magick "$input" "${base_args[@]}" -resize "${forced_scale}%" -quality "$lo" "JPG:$tmp_file" 2>/dev/null
+                    sz=$(_cmp_filesize "$tmp_file")
+                    [[ "$sz" -le "$target_bytes" ]] && best_quality="$lo"
+                fi
+
+                if [[ -z "$best_quality" ]]; then
+                    printf " → ❌ cannot reach %dKB at scale %d%%\n" "$target_kb" "$forced_scale"
+                    rm -f "$tmp_file"
+                    return 1
+                fi
+
+                magick "$input" "${base_args[@]}" -resize "${forced_scale}%" -quality "$best_quality" "JPG:$tmp_file" 2>/dev/null
+                result_size=$(_cmp_filesize "$tmp_file")
+                mv "$tmp_file" "$output_file"
+                local fkb=$(( result_size / 1024 ))
+                printf " → %dKB (%d%%+q%d) ✅ %s\n" "$fkb" "$forced_scale" "$best_quality" "$(basename "$output_file")"
+                return 0
+            fi
+
+            # Phase 1: binary-search JPEG quality at full dimensions
             # Use JPG: prefix so ImageMagick writes JPEG regardless of tmp_file extension
             magick "$input" "${base_args[@]}" -quality "$max_quality" "JPG:$tmp_file" 2>/dev/null
-            local sz
             sz=$(_cmp_filesize "$tmp_file")
 
             if [[ "$sz" -le "$target_bytes" ]]; then
