@@ -1106,7 +1106,7 @@ run_img() {
                 --target|-t)    target_kb="$2";   shift 2 ;;
                 --min-quality)  min_quality="$2"; shift 2 ;;
                 --max-quality)  max_quality="$2"; shift 2 ;;
-                --doc)          mode="doc";        shift ;;
+                --grayscale)    mode="doc";        shift ;;
                 --photo)        mode="photo";      shift ;;
                 --no-strip)     strip_meta=false;  shift ;;
                 -o|--output)    output_dir="$2";   shift 2 ;;
@@ -1121,8 +1121,8 @@ run_img() {
             echo ""
             echo "Options:"
             echo "  --target N       Target size in KB (default: 300)"
-            echo "  --doc            Document mode: grayscale + background cleaning"
-            echo "  --photo          Photo mode: full-color, detail-preserving"
+            echo "  --grayscale      Convert to grayscale before compressing (ideal for official documents)"
+            echo "  --photo          Force full-color mode"
             echo "  --overwrite      Overwrite original file (converts to .jpg if needed)"
             echo "  --max-quality N  Maximum JPEG quality to start from (default: 85)"
             echo "  --min-quality N  Minimum JPEG quality floor (default: 50)"
@@ -1132,7 +1132,7 @@ run_img() {
             echo ""
             echo "Examples:"
             echo "  amir img compress scan.jpg"
-            echo "  amir img compress scan.png --doc --target 200"
+            echo "  amir img compress scan.png --grayscale --target 200"
             echo "  amir img compress *.jpg --target 150 -o compressed/"
             return 1
         fi
@@ -1455,7 +1455,7 @@ run_img() {
         echo "  amir img convert <file> [fmt] [size|preset] [circle] (Convert & opt. Circle)"
         echo "  amir img stack   <file1> <file2> [...] [-g gap] [-p a4|b5] [--deskew]"
         echo "  amir img extend  -i <file> [opts]                (Extend borders)"
-        echo "  amir img compress <file(s)> [--target KB] [--doc|--photo] [--overwrite] [-o dir]"
+        echo "  amir img compress <file(s)> [--target KB] [--grayscale|--photo] [--overwrite] [-o dir]"
         echo "  amir img burst   <files...> [output]             (Multi-frame Reconstruction)"
         echo ""
         echo "Presets:"
