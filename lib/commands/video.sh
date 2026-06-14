@@ -529,15 +529,18 @@ video_convert() {
     local input="" output="" target_fmt="" reencode=0
 
     if [[ $# -eq 0 ]]; then
-        echo "Usage: amir video convert <input> [--to FORMAT] [-o OUTPUT] [--reencode]"
+        echo "Usage: amir video convert <input> [--to FORMAT] [-o OUTPUT] [--cpu]"
         echo ""
         echo "Formats: mp4  mov  mkv  webm  avi"
         echo ""
+        echo "Options:"
+        echo "  --cpu   Re-encode with libx264 CRF 23 — better quality for text/slides"
+        echo ""
         echo "Examples:"
-        echo "  amir video convert clip.mov                    # → clip.mp4"
-        echo "  amir video convert clip.mov --to mkv           # → clip.mkv"
+        echo "  amir video convert clip.mov                # → clip.mp4 (stream copy)"
+        echo "  amir video convert clip.mov --to mkv       # → clip.mkv"
         echo "  amir video convert clip.mov -o final.mp4"
-        echo "  amir video convert clip.webm --reencode        # force re-encode for compatibility"
+        echo "  amir video convert slides.mp4 --cpu        # re-encode — sharper text"
         return 1
     fi
 
@@ -547,7 +550,7 @@ video_convert() {
         case "$1" in
             --to|-f) target_fmt="$2"; shift 2 ;;
             -o|--output) output="$2"; shift 2 ;;
-            --reencode) reencode=1; shift ;;
+            --cpu) reencode=1; shift ;;
             -*) echo "❌ Unknown option: $1"; return 1 ;;
             *) input="$1"; shift ;;
         esac
@@ -564,7 +567,7 @@ video_convert() {
     fi
 
     # Determine target format
-    if [[ -n "$output" ]]; then
+    if [[ -n "$output" && "$output" == *.* ]]; then
         target_fmt="${output##*.}"
     elif [[ -z "$target_fmt" ]]; then
         target_fmt="mp4"
@@ -586,11 +589,13 @@ video_convert() {
     if [[ -z "$output" ]]; then
         local stem="${input%.*}"
         output="${stem}.${target_fmt}"
+    elif [[ "$output" != *.* ]]; then
+        output="${output}.${target_fmt}"
     fi
 
     if [[ "$input" == "$output" ]]; then
-        echo "❌ Input and output are the same file."
-        return 1
+        local stem="${output%.*}"
+        output="${stem}_converted.${target_fmt}"
     fi
 
     # Detect codecs for smart copy decision
@@ -618,12 +623,7 @@ video_convert() {
                 audio_args=(-c:a libopus -b:a 128k)
                 ;;
             *)
-                # VideoToolbox for hardware-accelerated H.264 on Apple Silicon
-                if ffmpeg -encoders 2>/dev/null | grep -q h264_videotoolbox; then
-                    video_args=(-c:v h264_videotoolbox -b:v 20M)
-                else
-                    video_args=(-c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p)
-                fi
+                video_args=(-c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p)
                 audio_args=(-c:a aac -b:a 160k)
                 ;;
         esac
