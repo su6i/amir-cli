@@ -219,6 +219,7 @@ When converting a `.svg` file that contains CSS animations (`@keyframes`), Amir 
   - `--split <MB>`: post-encode split into approximate chunk sizes using FFmpeg segment muxer.
 - **Subcommands:**
     - `cut` (or `trim`): Fast video slicing. Uses `-c copy` (stream copy) by default for near-instant cutting without quality loss. Supports `-s` (start), `-e` (absolute end on original timeline), `--duration`, `-d/--delete <start> <end>` to remove a middle range and stitch the rest, and `-x/--extract <start> <end>` to keep only that range (default output: `_cut_<start>_<end>`).
+    - `convert`: Container format conversion (MOV→MP4, MKV, WEBM, AVI). Default: stream-copy (instant, no quality loss). `--cpu` forces re-encode via libx264 CRF 23 — better for text/slides; auto-appends `_converted` suffix if input and output format match. Output without extension auto-appended with target format.
   - `split`: Split an existing media file into approximate MB chunks without re-encoding.
     - `batch`: Optimized for directories.
     - `stats`: View AI learning statistics.
