@@ -202,7 +202,7 @@ _amir() {
                                 '3:video file:_files -g "*.mp4 *.mov *.mkv *.avi *.webm *.MP4 *.MOV *.MKV *.WEBM"' \
                                 '(--to -f)'{--to,-f}'[Target format]:format:(mp4 mov mkv webm avi)' \
                                 '(-o --output)'{-o,--output}'[Output filename]:output file:_files' \
-                                '--reencode[Force re-encode instead of stream copy]'
+                                '--cpu[Re-encode with libx264 CRF 23 — better quality for text/slides]'
                             ;;
                     esac
                     ;;
