@@ -3074,13 +3074,12 @@ video_download() {
         IMPERSONATE_ARGS=(--extractor-args "generic:impersonate")
     fi
 
-    # YouTube SABR workaround: yt-dlp's built-in default uses android_vr which
-    # YouTube may route to SABR-only streaming (no direct URL per issue #12482).
-    # Explicitly requesting player_client=default avoids android_vr and returns
-    # standard DASH streams up to 1080p without SABR restrictions.
+    # YouTube player client: avoid android_vr (triggers bot detection + SABR-only streams).
+    # web: standard DASH up to 1080p, cookie-aware, no bot detection.
+    # mweb formats skipped if no GVS PO Token (warning only, non-fatal).
     local -a YT_CLIENT_ARGS=()
     if $IS_YOUTUBE_URL; then
-        YT_CLIENT_ARGS=(--extractor-args "youtube:player_client=default")
+        YT_CLIENT_ARGS=(--extractor-args "youtube:player_client=web,mweb")
     fi
 
     # ── Extreme download defaults ─────────────────────────────────────────
@@ -3242,8 +3241,14 @@ PY
             log_info "⏩ Reusing existing downloaded video: $(basename "$VIDEO_FILE")" >&2
         fi
         
-        # Override the output template to use the pre-fetched title (sanitized for safe filenames)
-        local _safe_vid_title="${_VID_TITLE//\//_}"
+        # Override the output template to use the pre-fetched title (sanitized for safe filenames).
+        # Must apply sanitize_terminal_filename_stem here — not just slash-escape — because
+        # the title is embedded as a literal path prefix (not %(title)s), so yt-dlp's own
+        # --windows-filenames / --restrict-filenames do NOT touch it. Characters like curly
+        # quotes (" ") cause exFAT rename failures; sanitize converts them to underscores.
+        local _safe_vid_title
+        _safe_vid_title="$(sanitize_terminal_filename_stem "$_VID_TITLE")"
+        [[ -z "$_safe_vid_title" ]] && _safe_vid_title="${_VID_TITLE//\//_}"
         OUT_TEMPLATE="${OUT_DIR}/${_safe_vid_title}.%(ext)s"
     fi
 
