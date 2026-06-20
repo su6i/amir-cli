@@ -14,6 +14,7 @@ run_pdf() {
     local page_width="" page_height=""
     local multi_page=false
     local do_deskew=true
+    local force_rtl=false
     local CLEANUP_FILES=()
 
     while [[ $# -gt 0 ]]; do
@@ -30,6 +31,7 @@ run_pdf() {
             --deskew|--straighten) do_deskew=true; shift ;;
             --no-deskew|--no-straighten) do_deskew=false; shift ;;
             --theme) theme="$2"; shift; shift ;;
+            --force-rtl|--rtl) force_rtl=true; shift ;;
             *) [[ -f "$1" ]] && inputs+=("$1"); shift ;;
         esac
     done
@@ -101,7 +103,7 @@ run_pdf() {
 
             local success=false
             if [[ "$engine" == "puppeteer" ]]; then
-                node "${LIB_DIR}/nodejs/render_puppeteer.js" "$abs_file" "$tmp_out" "$font_fa" "$chrome_profile" "$free_size" "$page_width" "$page_height" "$theme" &>/dev/null && success=true
+                node "${LIB_DIR}/nodejs/render_puppeteer.js" "$abs_file" "$tmp_out" "$font_fa" "$chrome_profile" "$free_size" "$page_width" "$page_height" "$theme" "$force_rtl" &>/dev/null && success=true
             elif [[ "$engine" == "weasyprint" ]]; then
                 if [[ "$free_size" == "true" ]]; then echo "⚠️  --free-size is only fully supported on Puppeteer. Output may vary."; fi
                 if [[ -n "$page_width" || -n "$page_height" ]]; then echo "⚠️  --page-width/--page-height are only supported on Puppeteer. Output may vary."; fi

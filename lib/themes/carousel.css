@@ -58,10 +58,22 @@ h3 {
 /* ── Paragraph ── */
 p {
   color: #94a3b8;
-  font-size: 16px;
+  font-size: 18px;
   line-height: 1.6;
   padding: 0 52px;
   margin-bottom: 16px;
+}
+
+/* ── Lists ── */
+ul, ol {
+  margin: 8px 0;
+  padding: 0 80px 0 52px;
+}
+li {
+  color: #cbd5e1;
+  font-size: 18px;
+  line-height: 1.5;
+  margin-bottom: 7px;
 }
 
 /* ── Tables: 100%-relative so they adapt to any page width ── */
