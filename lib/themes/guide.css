@@ -1,0 +1,126 @@
+/* ═══════════════════════════════════════════════════
+   AMIR-CLI THEME: guide
+   Clean professional A4 document (long-form guides, reports, legal docs)
+   Usage:  amir pdf guide.fr.md -o guide.fr.pdf --theme guide
+           amir pdf guide.fa.md -o guide.fa.pdf --theme guide --force-rtl
+   Works LTR + RTL (uses logical properties so borders follow direction).
+   ═══════════════════════════════════════════════════ */
+
+@page {
+  size: A4;
+  margin: 20mm 18mm 22mm 18mm;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  background: #ffffff;
+  color: #1f2430;
+  font-size: 11.5pt;
+  line-height: 1.65;
+}
+
+/* ── H1: document title ── */
+h1 {
+  font-size: 23pt;
+  font-weight: 800;
+  color: #0a2540;
+  line-height: 1.2;
+  margin: 0 0 6pt;
+  padding-bottom: 10pt;
+  border-bottom: 3px solid #0a66c2 !important;
+  page-break-after: avoid;
+}
+
+/* ── H2: section title ── */
+h2 {
+  font-size: 16pt;
+  font-weight: 800;
+  color: #0a66c2;
+  line-height: 1.25;
+  margin: 22pt 0 8pt;
+  padding-inline-start: 11pt;
+  border-inline-start: 5px solid #0a66c2 !important;
+  border-bottom: none !important;
+  page-break-after: avoid;
+  page-break-inside: avoid;
+}
+
+/* ── H3: sub-section / article header ── */
+h3 {
+  font-size: 12.5pt;
+  font-weight: 700;
+  color: #0a2540;
+  margin: 16pt 0 4pt;
+  padding-bottom: 4pt;
+  border-bottom: 1px solid #e2e8f0 !important;
+  page-break-after: avoid;
+}
+
+p { margin: 7pt 0; }
+
+strong { color: #0a2540; font-weight: 700; }
+em { color: #5a6478; font-style: italic; }
+
+a {
+  color: #0a66c2;
+  text-decoration: none;
+  word-break: break-all;
+}
+
+/* ── Lists ── */
+ul, ol { margin: 7pt 0; padding-inline-start: 22pt; }
+li { margin: 3pt 0; }
+
+/* ── Blockquote: warnings, notes, and the legal-article box ── */
+blockquote {
+  margin: 12pt 0;
+  padding: 10pt 14pt;
+  background: #f4f7fc;
+  border: 1px solid #d8e2f0;
+  border-inline-start: 4px solid #0a66c2 !important;
+  border-radius: 6px;
+  font-size: 10.8pt;
+  color: #2a3142;
+  page-break-inside: avoid;
+}
+blockquote p { margin: 4pt 0; }
+
+/* ── Horizontal rule: subtle section divider ── */
+hr {
+  border: none !important;
+  border-top: 1px solid #e2e8f0 !important;
+  margin: 18pt 0;
+}
+
+/* ── Tables ── */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12pt 0;
+  font-size: 10.5pt;
+  page-break-inside: avoid;
+}
+th {
+  background: #0a66c2 !important;
+  color: #ffffff !important;
+  font-weight: 700;
+  padding: 7pt 9pt;
+  text-align: inherit;
+}
+td {
+  border: 1px solid #d8e2f0;
+  padding: 6pt 9pt;
+  vertical-align: top;
+}
+tr:nth-child(even) td { background: #f4f7fc; }
+
+/* ── Code / monospaced (article references, codes) ── */
+code {
+  background: #eef2f8;
+  padding: 1pt 4pt;
+  border-radius: 3px;
+  font-size: 9.5pt;
+}
+
+sub, .footer { color: #8a93a6; font-size: 9pt; }
