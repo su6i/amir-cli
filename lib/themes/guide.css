@@ -6,6 +6,9 @@
    Works LTR + RTL (uses logical properties so borders follow direction).
    ═══════════════════════════════════════════════════ */
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;600;700&display=swap');
+
 @page {
   size: A4;
   margin: 20mm 18mm 22mm 18mm;
@@ -18,6 +21,7 @@ html, body {
   color: #1f2430;
   font-size: 11.5pt;
   line-height: 1.65;
+  font-family: 'Inter', 'Vazirmatn', -apple-system, sans-serif;
 }
 
 /* ── H1: document title ── */
