@@ -188,6 +188,8 @@ dependencies = [
     { name = "transformers" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "weasyprint" },
+    { name = "yt-dlp" },
+    { name = "yt-dlp-get-pot-rustypipe" },
 ]
 
 [package.dev-dependencies]
@@ -228,6 +230,8 @@ requires-dist = [
     { name = "transformers", specifier = ">=5.2.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.48.0" },
     { name = "weasyprint", specifier = ">=68.1" },
+    { name = "yt-dlp", specifier = ">=2026.6.9" },
+    { name = "yt-dlp-get-pot-rustypipe", specifier = ">=0.2.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -4449,6 +4453,27 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/f9/86/0f0dccb6e59a9e7f122c5afd43568b1d31b8ab7dda5f1b01fb5c7025c9a9/yarl-1.22.0-cp314-cp314t-win_amd64.whl", hash = "sha256:9fb17ea16e972c63d25d4a97f016d235c78dd2344820eb35bc034bc32012ee27", size = 96292, upload-time = "2025-10-06T14:12:15.398Z" },
     { url = "https://files.pythonhosted.org/packages/48/b7/503c98092fb3b344a179579f55814b613c1fbb1c23b3ec14a7b008a66a6e/yarl-1.22.0-cp314-cp314t-win_arm64.whl", hash = "sha256:9f6d73c1436b934e3f01df1e1b21ff765cd1d28c77dfb9ace207f746d4610ee1", size = 85171, upload-time = "2025-10-06T14:12:16.935Z" },
     { url = "https://files.pythonhosted.org/packages/73/ae/b48f95715333080afb75a4504487cbe142cae1268afc482d06692d605ae6/yarl-1.22.0-py3-none-any.whl", hash = "sha256:1380560bdba02b6b6c90de54133c81c9f2a453dee9912fe58c1dcced1edb7cff", size = 46814, upload-time = "2025-10-06T14:12:53.872Z" },
+]
+
+[[package]]
+name = "yt-dlp"
+version = "2026.6.9"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/88/a4/1b0979d28f87774bb67fbbc66bce44f9dd1aa0e547a99e22985fac945c33/yt_dlp-2026.6.9.tar.gz", hash = "sha256:d50fcb95f48d61bedde33e408c1881d4c279e51c31354a599ce09e96ba0f4b86", size = 3030590, upload-time = "2026-06-09T23:27:14.831Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f3/ee/188a3dadf9dfdac713243521f919feca1cd091d4358c9ea7e8ebb710a7cc/yt_dlp-2026.6.9-py3-none-any.whl", hash = "sha256:442ba4c75724b9496144c8434b617962ee08d0ee7c26ec663848fe9b78d5a3e4", size = 3169035, upload-time = "2026-06-09T23:27:12.58Z" },
+]
+
+[[package]]
+name = "yt-dlp-get-pot-rustypipe"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "yt-dlp" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/be/81/0fd2368ecd062f2274dba9e8ab0296607adbe7f99876161a6bb9836debe0/yt_dlp_get_pot_rustypipe-0.2.0.tar.gz", hash = "sha256:ae0d9e33564c79b792a1a48648f9b8d45f655e3cfa6af5e3500325733564d6c4", size = 4121, upload-time = "2025-06-07T10:52:50.24Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ca/85/3e379cb2f2e214764c1e15485d1e2ec6d6f839b29289a1202fc26c93e07d/yt_dlp_get_pot_rustypipe-0.2.0-py3-none-any.whl", hash = "sha256:601b3b940e49bc45ba48fcdb2327850a75ba23c7e91709b5abbff5d4b914fa0b", size = 4234, upload-time = "2025-06-07T10:52:49.129Z" },
 ]
 
 [[package]]
