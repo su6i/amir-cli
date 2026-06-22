@@ -278,6 +278,9 @@ amir video download <url> [options]
 | `--formats / -F` | List available resolutions and estimated sizes before downloading. |
 | `--resolution / -R <h>` | Explicit download max height (e.g. `240/360/480/720/1080`). For auto-min selection, use `--extreme`. |
 | `--extreme` | Auto-pick smallest practical available resolution (floor: 240p) for minimum size. |
+| `--normalize` | Forces FFmpeg transcoding to H.264/AAC. (By default, AV1/VP9 and Opus are preserved if supported natively). |
+| `--po-token <token>` | Manually pass GVS PO Token for YouTube 720p+ (e.g. `mweb.gvs+XXX`). Overrides auto-generation. |
+| `--yt-dlp-args <args>` | Pass arbitrary arguments straight through to the underlying yt-dlp binary. |
 | `--browser <name>` | Browser for cookie extraction (default: `chrome`). |
 | `--cookies <file>` | Path to a Netscape `cookies.txt` file (for paywalled or geo-restricted content). |
 | `--keep-thumb` | Keep downloaded thumbnail sidecar file (otherwise temporary thumbs may be cleaned). |

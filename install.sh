@@ -326,6 +326,55 @@ else
 fi
 
 # ----------------------
+# 6.5. Setup YouTube PO Token Generator
+# ----------------------
+echo "-------------------------------------"
+echo "🔑 Setting up YouTube PO Token Auto-Generator..."
+if [[ $HAS_UV -eq 1 ]]; then
+    # Install yt-dlp with the rustypipe pot provider plugin globally using uv
+    uv tool install yt-dlp --with yt-dlp-get-pot-rustypipe --force >/dev/null 2>&1
+    
+    # Download the rustypipe-botguard binary if missing
+    if [[ ! -f "$HOME/.local/bin/rustypipe-botguard" ]]; then
+        BOTGUARD_ARCH=$(uname -m)
+        BOTGUARD_OS=$(uname -s)
+        
+        if [[ "$BOTGUARD_ARCH" == "arm64" || "$BOTGUARD_ARCH" == "aarch64" ]]; then
+            if [[ "$BOTGUARD_OS" == "Darwin" ]]; then
+                BOTGUARD_URL="https://codeberg.org/ThetaDev/rustypipe-botguard/releases/download/v0.1.2/rustypipe-botguard-v0.1.2-aarch64-apple-darwin.tar.xz"
+            else
+                BOTGUARD_URL="https://codeberg.org/ThetaDev/rustypipe-botguard/releases/download/v0.1.2/rustypipe-botguard-v0.1.2-aarch64-unknown-linux-gnu.tar.xz"
+            fi
+        else
+            if [[ "$BOTGUARD_OS" == "Darwin" ]]; then
+                BOTGUARD_URL="https://codeberg.org/ThetaDev/rustypipe-botguard/releases/download/v0.1.2/rustypipe-botguard-v0.1.2-x86_64-apple-darwin.tar.xz"
+            else
+                BOTGUARD_URL="https://codeberg.org/ThetaDev/rustypipe-botguard/releases/download/v0.1.2/rustypipe-botguard-v0.1.2-x86_64-unknown-linux-gnu.tar.xz"
+            fi
+        fi
+        
+        echo "⬇️  Downloading rustypipe-botguard ($BOTGUARD_ARCH)..."
+        mkdir -p "$HOME/.local/bin"
+        if curl -sL "$BOTGUARD_URL" -o /tmp/rustypipe-botguard.tar.xz; then
+            if tar -xf /tmp/rustypipe-botguard.tar.xz -C /tmp 2>/dev/null; then
+                mv /tmp/rustypipe-botguard "$HOME/.local/bin/rustypipe-botguard"
+                chmod +x "$HOME/.local/bin/rustypipe-botguard"
+                echo "✅ PO Token Auto-Generator installed."
+            else
+                echo "⚠️  Failed to extract rustypipe-botguard."
+            fi
+            rm -f /tmp/rustypipe-botguard.tar.xz
+        else
+            echo "⚠️  Failed to download rustypipe-botguard."
+        fi
+    else
+        echo "✅ PO Token Auto-Generator already installed."
+    fi
+else
+    echo "⚠️  uv not found, skipping yt-dlp plugin installation."
+fi
+
+# ----------------------
 # 7. Setup CV Repository (Dependency)
 # ----------------------
 echo "-------------------------------------"

@@ -2584,6 +2584,7 @@ embed_video_cover_art() {
 
 ensure_mac_playable_video() {
     local _video_file="$1"
+    local _force="${2:-false}"
     [[ -f "$_video_file" ]] || return 1
 
     local _vcodec _acodec
@@ -2596,7 +2597,7 @@ ensure_mac_playable_video() {
     # Keep native file when already compatible, otherwise normalize to H.264/AAC.
     local _video_ok=false
     case "$_vcodec" in
-        h264|hevc|h265|mpeg4|prores) _video_ok=true ;;
+        h264|hevc|h265|mpeg4|prores|av1|av01|vp9) _video_ok=true ;;
     esac
 
     local _audio_ok=false
@@ -2604,11 +2605,11 @@ ensure_mac_playable_video() {
         _audio_ok=true  # no audio stream
     else
         case "$_acodec" in
-            aac|alac|mp3|ac3|eac3) _audio_ok=true ;;
+            aac|alac|mp3|ac3|eac3|opus|vorbis) _audio_ok=true ;;
         esac
     fi
 
-    if $_video_ok && $_audio_ok; then
+    if [[ "$_force" != "true" ]] && $_video_ok && $_audio_ok; then
         return 0
     fi
 
@@ -2861,6 +2862,9 @@ video_download() {
     local EXTREME_DL=false
     local -a _LANG_POSITIONALS=()
     local -a SUB_LANG_TOKENS=()
+    local YT_PO_TOKEN=""
+    local -a EXTRA_YTDLP_ARGS=()
+    local FORCE_NORMALIZE=false
 
     # Ctrl+C abort flag: set by SIGINT trap so every pipeline step can check it
     local _DL_ABORTED=0
@@ -2890,6 +2894,15 @@ video_download() {
             --get-link|-l)   GET_LINK=true; shift ;;
             --formats|-F|--list-formats|--list-format|--lists-format) LIST_FORMATS=true; shift ;;
             --extreme)       EXTREME_DL=true; shift ;;
+            --po-token)
+                YT_PO_TOKEN="$2"
+                shift 2
+                ;;
+            --yt-dlp-args)
+                EXTRA_YTDLP_ARGS+=("$2")
+                shift 2
+                ;;
+            --normalize)     FORCE_NORMALIZE=true; shift ;;
             --resolution|-R)
                 DL_RESOLUTION="$2"
                 DL_RESOLUTION_EXPLICIT=true
@@ -3028,6 +3041,8 @@ video_download() {
         echo "  --resolution, -R <h> [q]  Download max height (e.g. 240/360/480/720/1080); optional quality after it" >&2
         echo "  --quality <q>         Download quality factor (1-100). Same as optional [q] after --resolution" >&2
         echo "  --extreme             Fast defaults for subtitle pipeline: 360p + q30" >&2
+        echo "  --po-token <token>    Pass GVS PO Token (e.g. mweb.gvs+XXX) for YouTube 720p+ streams" >&2
+        echo "  --yt-dlp-args <args>  Pass extra arguments directly to yt-dlp" >&2
         return 1
     fi
 
@@ -3079,7 +3094,10 @@ video_download() {
     # mweb formats skipped if no GVS PO Token (warning only, non-fatal).
     local -a YT_CLIENT_ARGS=()
     if $IS_YOUTUBE_URL; then
-        YT_CLIENT_ARGS=(--extractor-args "youtube:player_client=web,mweb")
+        YT_CLIENT_ARGS=()
+        if [[ -n "$YT_PO_TOKEN" ]]; then
+            YT_CLIENT_ARGS+=(--extractor-args "youtube:po_token=$YT_PO_TOKEN")
+        fi
     fi
 
     # ── Extreme download defaults ─────────────────────────────────────────
@@ -3126,6 +3144,8 @@ video_download() {
         if ! yt-dlp \
             "${COOKIE_ARGS[@]}" \
             "${IMPERSONATE_ARGS[@]}" \
+            "${YT_CLIENT_ARGS[@]}" \
+            "${EXTRA_YTDLP_ARGS[@]}" \
             --no-playlist \
             -j \
             "$URL" > "$_fmt_json" 2>/dev/null; then
@@ -3202,6 +3222,8 @@ PY
         yt-dlp \
             "${COOKIE_ARGS[@]}" \
             "${IMPERSONATE_ARGS[@]}" \
+            "${YT_CLIENT_ARGS[@]}" \
+            "${EXTRA_YTDLP_ARGS[@]}" \
             --remote-components "ejs:github" \
             --newline \
             -g \
@@ -3226,6 +3248,8 @@ PY
     _VID_TITLE=$(yt-dlp \
         "${COOKIE_ARGS[@]}" \
         "${IMPERSONATE_ARGS[@]}" \
+        "${YT_CLIENT_ARGS[@]}" \
+        "${EXTRA_YTDLP_ARGS[@]}" \
         --no-playlist \
         --print "%(title)s" \
         --skip-download \
@@ -3267,6 +3291,7 @@ PY
             "${COOKIE_ARGS[@]}" \
             "${IMPERSONATE_ARGS[@]}" \
             "${YT_CLIENT_ARGS[@]}" \
+            "${EXTRA_YTDLP_ARGS[@]}" \
             --remote-components "ejs:github" \
             --newline \
             --continue \
@@ -3447,7 +3472,7 @@ PY
     fi
 
     # Normalize codec/container profile for QuickTime/macOS if needed.
-    ensure_mac_playable_video "$VIDEO_FILE"
+    ensure_mac_playable_video "$VIDEO_FILE" "$FORCE_NORMALIZE"
 
     if [[ "$ACTUAL_HEIGHT" =~ ^[0-9]+$ ]]; then
         log_success "Saved → $(basename "$VIDEO_FILE") (${ACTUAL_HEIGHT}p actual)" >&2

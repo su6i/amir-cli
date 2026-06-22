@@ -182,6 +182,9 @@ TikTok, Twitter/X, Vimeo, and 1000+ other sites.
     --browser <name>       Browser for cookie auth (default: chrome)
     --cookies <file>       Netscape cookies.txt file
     --extreme              Fast mode: 360p, lower quality
+    --normalize            Force transcoding to H.264/AAC for older macOS compatibility
+    --po-token <token>     Pass GVS PO Token (e.g. web+XXX) for YouTube 720p+
+    --yt-dlp-args <args>   Pass extra arguments directly to yt-dlp
 
   Instagram photo/carousel options:
     --format <fmt>         Image format: jpg (default), png, webp
