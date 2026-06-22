@@ -362,6 +362,9 @@ _amir() {
                 '(-R --resolution)'{-R,--resolution}'[Max height in pixels]:height:(240 360 480 720 1080)' \
                 '(-b --browser)'{-b,--browser}'[Browser for cookies]:browser:(chrome safari firefox brave chromium)' \
                 '--cookies[Path to Netscape cookies.txt]:cookies file:_files' \
+                '--normalize[Force transcoding to H.264/AAC for older macOS compatibility]' \
+                '--po-token[Pass GVS PO Token (e.g. web+XXX) for YouTube 720p+]:token:' \
+                '--yt-dlp-args[Pass extra arguments directly to yt-dlp]:args:' \
                 '(-f --format)'{-f,--format}'[Image format for Instagram photos (default: jpg)]:format:(jpg png webp)'
             ;;
 
