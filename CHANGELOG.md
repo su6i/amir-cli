@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased] - 2026-06-22
+
+### Added
+- Auto-generation of YouTube PO-Token using `rustypipe-botguard`.
+- `--normalize` flag to force FFmpeg transcoding to H.264/AAC for older macOS devices.
+- `--po-token` flag to manually pass YouTube GVS PO tokens.
+- `--yt-dlp-args` flag to manually pass underlying yt-dlp arguments.
+
+### Changed
+- AV1, VP9, and Opus formats are now preserved and played natively on modern macOS (via QuickTime), avoiding slow and unnecessary FFmpeg transcoding.
+
+---
+
 ## [Unreleased] - 2026-06-12
 
 ### Added
