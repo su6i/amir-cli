@@ -1,5 +1,103 @@
 #!/bin/bash
 
+# ──────────────────────────────────────────────────────────────────
+# Batch build: amir pdf build <folder>
+#
+# Finds carousel.*.md and guide.*.md in <folder>, renders each with
+# the correct theme, auto-applies --force-rtl for RTL languages (fa,
+# ar), then merges:
+#   carousel.fr.pdf + carousel.en.pdf + carousel.fa.pdf → carousel.pdf
+#   guide.fr.pdf   + guide.en.pdf   + guide.fa.pdf   → guide.trilingue.pdf
+# ──────────────────────────────────────────────────────────────────
+run_pdf_build() {
+    local folder="$1"
+
+    if [[ -z "$folder" || ! -d "$folder" ]]; then
+        echo "❌ Usage: amir pdf build <folder>"
+        echo "   Example: amir pdf build posts/04_sejour_master_france"
+        return 1
+    fi
+
+    local RTL_LANGS="fa ar"
+    local LANG_ORDER=(fr en fa)
+
+    _is_rtl() { echo " $RTL_LANGS " | grep -q " $1 "; }
+
+    # Return md files sorted by LANG_ORDER, then any extra langs alphabetically
+    _sorted_mds() {
+        local prefix="$1"
+        local found=()
+        for lang in "${LANG_ORDER[@]}"; do
+            local f="$folder/$prefix.$lang.md"
+            [[ -f "$f" ]] && found+=("$f")
+        done
+        for f in "$folder"/$prefix.*.md; do
+            [[ -f "$f" ]] || continue
+            local b; b=$(basename "$f")
+            local lang="${b#$prefix.}"; lang="${lang%.md}"
+            local known=false
+            for lo in "${LANG_ORDER[@]}"; do [[ "$lo" == "$lang" ]] && known=true && break; done
+            [[ "$known" == "false" ]] && found+=("$f")
+        done
+        printf '%s\n' "${found[@]}"
+    }
+
+    local carousel_pdfs=() guide_pdfs=() errors=0
+
+    echo ""
+    echo "🔨  Building: $folder"
+    echo ""
+
+    # ── carousels ────────────────────────────────────────────────
+    while IFS= read -r md; do
+        [[ -f "$md" ]] || continue
+        local b; b=$(basename "$md")
+        local lang="${b#carousel.}"; lang="${lang%.md}"
+        local out="$folder/carousel.$lang.pdf"
+        local extra=""; _is_rtl "$lang" && extra="--force-rtl"
+        if run_pdf "$md" -o "$out" --theme carousel $extra; then
+            carousel_pdfs+=("$out")
+        else
+            echo "❌ Failed: $md"; ((errors++))
+        fi
+    done < <(_sorted_mds carousel)
+
+    if [[ ${#carousel_pdfs[@]} -gt 1 ]]; then
+        pdfunite "${carousel_pdfs[@]}" "$folder/carousel.pdf"
+        local cp; cp=$(pdfinfo "$folder/carousel.pdf" 2>/dev/null | awk '/^Pages:/{print $2}')
+        echo "📎  carousel.pdf — ${cp} pages"
+    fi
+
+    # ── guides ───────────────────────────────────────────────────
+    while IFS= read -r md; do
+        [[ -f "$md" ]] || continue
+        local b; b=$(basename "$md")
+        local lang="${b#guide.}"; lang="${lang%.md}"
+        local out="$folder/guide.$lang.pdf"
+        local extra=""; _is_rtl "$lang" && extra="--force-rtl"
+        if run_pdf "$md" -o "$out" --theme guide $extra; then
+            guide_pdfs+=("$out")
+        else
+            echo "❌ Failed: $md"; ((errors++))
+        fi
+    done < <(_sorted_mds guide)
+
+    if [[ ${#guide_pdfs[@]} -gt 1 ]]; then
+        pdfunite "${guide_pdfs[@]}" "$folder/guide.trilingue.pdf"
+        local gp; gp=$(pdfinfo "$folder/guide.trilingue.pdf" 2>/dev/null | awk '/^Pages:/{print $2}')
+        echo "📎  guide.trilingue.pdf — ${gp} pages"
+    fi
+
+    echo ""
+    local total=$(( ${#carousel_pdfs[@]} + ${#guide_pdfs[@]} ))
+    if [[ $errors -eq 0 ]]; then
+        echo "✅  Build complete — ${total} PDFs generated"
+    else
+        echo "⚠️   Build finished with ${errors} error(s)"
+        return 1
+    fi
+}
+
 # Multi-engine PDF Rendering - Final Robust Version
 run_pdf() {
     local cmd="magick"
@@ -262,4 +360,8 @@ run_pdf() {
     for f in "${CLEANUP_FILES[@]}"; do rm -f "$f"; done
 }
 
-run_pdf "$@"
+if [[ "$1" == "build" ]]; then
+    run_pdf_build "${@:2}"
+else
+    run_pdf "$@"
+fi
