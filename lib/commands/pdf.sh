@@ -182,7 +182,33 @@ run_pdf() {
         local abs_file=$(cd "$(dirname "$file")" && pwd)/$(basename "$file")
         local ext=$(echo "${file##*.}" | tr '[:upper:]' '[:lower:]')
         
-        if [[ "$ext" == "md" || "$ext" == "txt" ]]; then
+        if [[ "$ext" == "tex" ]]; then
+            local display_name=$(basename "$file")
+            [[ "$display_name" == amir_pdf_stdin_* ]] && display_name="clipboard"
+            echo "📝 Rendering $display_name [xelatex]..."
+            
+            if ! command -v xelatex &>/dev/null; then
+                echo "❌ Error: xelatex is not installed. Please install MacTeX or BasicTeX."
+                continue
+            fi
+
+            local jobname="render_$(printf "%03d" $i)"
+            local tmp_out="$tmp_dir/${jobname}.pdf"
+            
+            # Add amir's latex styles directory to TEXINPUTS (with trailing colon for default paths)
+            export TEXINPUTS="$LIB_DIR/latex//:${TEXINPUTS:-:}"
+            
+            # Run twice for TOC/references
+            xelatex -interaction=nonstopmode -output-directory="$tmp_dir" -jobname="$jobname" "$abs_file" &>/dev/null
+            xelatex -interaction=nonstopmode -output-directory="$tmp_dir" -jobname="$jobname" "$abs_file" &>/dev/null
+            
+            if [[ -f "$tmp_out" ]]; then
+                processed+=("${tmp_out}[0-999]")
+            else
+                echo "❌ Failed to render $display_name with xelatex. You might be missing some fonts or packages."
+            fi
+            
+        elif [[ "$ext" == "md" || "$ext" == "txt" ]]; then
             local display_name=$(basename "$file")
             [[ "$display_name" == amir_pdf_stdin_* ]] && display_name="clipboard"
             echo "📝 Rendering $display_name [$engine]..."
