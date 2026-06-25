@@ -131,10 +131,6 @@ case "$COMMAND" in
         fi
         ;;
 
-    mp3)
-        shift
-        if [[ -f "$LIB_DIR/commands/audio.sh" ]]; then source "$LIB_DIR/commands/audio.sh"; run_audio "extract" "$@"; exit $?; fi
-        ;;
     init-project)
         shift
         if [[ -f "$LIB_DIR/commands/init-project.sh" ]]; then source "$LIB_DIR/commands/init-project.sh"; run_init_project "$@"; exit $?; fi
@@ -278,18 +274,6 @@ case "$COMMAND" in
         exit 1
         ;;
 
-    ffmpeg)
-        shift
-        FFMPEG_PATH=$(get_ffmpeg_path)
-        if [[ -x "$FFMPEG_PATH" ]]; then
-            "$FFMPEG_PATH" "$@"
-            exit $?
-        else
-            echo "❌ Error: Full-featured FFmpeg not found."
-            exit 1
-        fi
-        ;;
-        
     help|--help|-h)
         if [[ -f "$LIB_DIR/commands/help.sh" ]]; then
             source "$LIB_DIR/commands/help.sh"

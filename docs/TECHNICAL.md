@@ -17,10 +17,13 @@ amir-cli/
 ├── lib/
 │   ├── amir_lib.sh       # Core libraries (colors, helpers, progress bar)
 │   ├── media_lib.sh      # Shared media functions (encoder, tables, probing)
-│   ├── python/           # Python helper scripts (standard library ONLY)
+│   ├── python/           # Python helpers (stdlib; render_post.py uses WeasyPrint via isolated uv)
+│   ├── themes/           # PDF CSS themes (guide, carousel)
+│   ├── fonts/            # Vendored fonts (Vazirmatn, DejaVu) for the LinkedIn-post renderer
 │   └── commands/         # Individual subcommand scripts
 │       ├── video.sh      # Video processing (compress, cut, download)
 │       ├── audio.sh      # Audio extraction, concat, youtube
+│       ├── pdf.sh        # PDF generator + `linkedin-post` trilingual builder
 │       ├── img.sh        # Image processing logic
 │       └── ...
 └── docs/
@@ -44,6 +47,7 @@ The `amir` script is the brain of the operation. It performs the following steps
 To ensure maximum portability and zero setup friction:
 - **No Pip/Venv:** We deliberately avoid using `pip` or virtual environments.
 - **Python Standard Library:** Any Python logic (in `lib/python/`) uses **only** the standard library (`json`, `os`, `sys`, `urllib`, etc.). This guarantees the CLI runs on any machine with Python 3 installed.
+  - **Exception — the LinkedIn-post renderer** (`render_post.py`) needs WeasyPrint, `markdown`, and `pyyaml`. To avoid polluting the venv, `pdf.sh` runs it **isolated** via `uv run --no-project --with weasyprint --with markdown --with pyyaml`. macOS also needs the Homebrew native libs (`brew install pango`), pulled in through `DYLD_FALLBACK_LIBRARY_PATH`. The renderer pins a restricted `FONTCONFIG_FILE` (only `lib/fonts/` + `~/Library/Fonts`) so Persian/RTL doesn't fall back to junk system fonts — see `.agent/constitution/skills/weasyprint-rtl-persian-pdf.md`.
 - **External Tools:** We rely on robust system binaries like `ffmpeg` (media), `magick` (images), and `bc` (math), which the installer checks for.
 
 ### 3. Zsh Autocompletion
