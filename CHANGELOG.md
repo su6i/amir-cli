@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] - 2026-06-22
 
 ### Added
+- `amir init-project` and `amir update-projects` now install the constitution
+  **`commit-msg`** hook alongside `pre-commit` (forbids AI co-authorship in commit
+  messages — see agent-constitution `rules/040-git.md`).
 - `amir pdf linkedin-post <folder>` renders trilingual (FR/EN/FA) LinkedIn posts
   with **WeasyPrint** via `lib/python/render_post.py` (guides + `guide.trilingue.pdf`
   + `carrousel.linkedin.pdf`), driven by a per-post `post.yml`. Subcommands let you
