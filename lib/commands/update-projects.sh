@@ -6,7 +6,7 @@
 
 run_update_projects() {
     local CONSTITUTION_PATH=".agent/constitution"
-    local HOOK_REL="$CONSTITUTION_PATH/templates/hooks/pre-commit"
+    local HOOKS_REL="$CONSTITUTION_PATH/templates/hooks"
 
     # ── defaults ────────────────────────────────────────────────────────────
     local BASE_DIR="${AMIR_PROJECTS_DIR:-$HOME/@-github}"
@@ -96,16 +96,19 @@ EOF
         fi
 
         if [[ $DO_HOOK == 1 ]]; then
-            if [[ -f "$d/$HOOK_REL" ]]; then
+            if [[ -f "$d/$HOOKS_REL/pre-commit" ]]; then
                 local hooks_dir
                 hooks_dir="$(git -C "$d" rev-parse --git-path hooks 2>/dev/null)"
                 [[ "$hooks_dir" != /* ]] && hooks_dir="$d/$hooks_dir"
                 mkdir -p "$hooks_dir"
-                if cp "$d/$HOOK_REL" "$hooks_dir/pre-commit" && chmod +x "$hooks_dir/pre-commit"; then
-                    echo "   ✅ pre-commit hook installed"
-                else
-                    echo "   ⚠️  hook install failed"; ok=0
-                fi
+                local _h
+                for _h in pre-commit commit-msg; do
+                    if cp "$d/$HOOKS_REL/$_h" "$hooks_dir/$_h" 2>/dev/null && chmod +x "$hooks_dir/$_h"; then
+                        echo "   ✅ $_h hook installed"
+                    else
+                        echo "   ⚠️  $_h hook install failed"; ok=0
+                    fi
+                done
             else
                 echo "   ⚠️  hook template not found — update the submodule first"; ok=0
             fi
