@@ -10,6 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] - 2026-06-22
 
 ### Added
+- `amir pdf linkedin-post <folder>` renders trilingual (FR/EN/FA) LinkedIn posts
+  with **WeasyPrint** via `lib/python/render_post.py` (guides + `guide.trilingue.pdf`
+  + `carrousel.linkedin.pdf`), driven by a per-post `post.yml`. Subcommands let you
+  rebuild only what changed: `carousel`, or `guide <fr en fa tri>` (one or several
+  targets at once — e.g. `guide fa` rebuilds just the Persian guide). See
+  `docs/TRILINGUAL_POSTS.md`.
+- Guide body text is justified; bare URLs and the author signature render LTR, and
+  « … » around a purely-Latin phrase are isolated LTR, even in the RTL Persian guide.
+- Vendored fonts in `lib/fonts/` (Vazirmatn + DejaVu) and a restricted
+  `FONTCONFIG_FILE` so macOS renders Persian/RTL correctly (no junk
+  Noto-Yezidi / Hiragino / Microsoft-Sans fallbacks). Background skill:
+  `.agent/constitution/skills/weasyprint-rtl-persian-pdf.md`.
 - Auto-generation of YouTube PO-Token using `rustypipe-botguard`.
 - `--normalize` flag to force FFmpeg transcoding to H.264/AAC for older macOS devices.
 - `--po-token` flag to manually pass YouTube GVS PO tokens.

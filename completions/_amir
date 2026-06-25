@@ -40,6 +40,9 @@ _amir() {
             'dl:Alias for download'
             'trend:Trending content and research — YouTube, GitHub, arXiv, Reddit...'
             'research:Alias for trend'
+            'skill:Search GitHub and generate local skill (knowledge) files'
+            'split:Split a media file into parts by size (MB)'
+            'dashboard:Open the amir dashboard'
         )
         _describe -t commands 'amir commands' commands
         return
@@ -104,32 +107,47 @@ _amir() {
             ;;
 
         pdf)
-            case $((CURRENT)) in
-                *)
-                    # PDF command: Uses standard argument parsing
-                    _arguments -s \
-                        '--smart[Smart Crop (content-aware trimming)]' \
-                        '--engine[Specify rendering engine]:engine:(puppeteer weasyprint pil pandoc)' \
-                        '--weasyprint[Use WeasyPrint engine]' \
-                        '--pil[Use PIL grayscale fallback engine]' \
-                        '--pandoc[Use Pandoc engine]' \
-                        '(-f --free-size)'{-f,--free-size}'[Generate a single continuous PDF with custom dimensions]' \
-                        '--page-width[Set PDF width in pixels for free-size/custom layout]:width (px):(1200 1440 1600 1800 2000 2480 max-content fit-content nowrap)' \
-                        '--page-height[Set PDF height in pixels for free-size/custom layout]:height (px):(1600 2000 2480 3000 3508 4000)' \
-                        {-o,--output}'[Specify output file]:filename:_files' \
-                        {-r,--rotate}'[Rotate images (degrees)]:angle' \
-                        {-q,--quality}'[JPEG Quality (default: 60)]:quality (0-100)' \
-                        '--resize[Resize percentage (default: 50)]:percentage' \
-                        '--pages[Create multi-page PDF (1 image per page) instead of collage]' \
-                        '--merge[Merge multiple files into a single PDF (alias for --pages)]' \
-                        '--radius[Corner radius (px)]:pixels' \
-                        '--no-round[Disable corner rounding]' \
-                        '--square[Alias for --no-round]' \
-                        '--no-deskew[Disable auto-straightening]' \
-                        '--no-straighten[Alias for --no-deskew]' \
-                        '*:images:_files -g "*.(jpg|jpeg|png|webp|pdf|md|txt|JPG|PNG|WEBP|PDF|MD|TXT)"'
-                    ;;
-            esac
+            # ── Sub-tool: amir pdf linkedin-post <folder> [carousel | guide [fr en fa tri]] ──
+            if [[ "${words[3]}" == "linkedin-post" ]]; then
+                case $CURRENT in
+                    4) _path_files -/ ;;                                   # the post folder
+                    5) _values 'subcommand' \
+                           'carousel[Render only the LinkedIn carousel]' \
+                           'guide[Render one or more guides: fr en fa tri]' ;;
+                    *) if [[ "${words[5]}" == "guide" ]]; then             # repeatable targets
+                           _values -s ' ' 'guide target' \
+                               'fr[French guide]' 'en[English guide]' \
+                               'fa[Persian guide]' 'tri[Trilingual merged PDF]'
+                       fi ;;
+                esac
+                return
+            fi
+
+            # Suggest the linkedin-post sub-tool at the first positional (alongside files)
+            (( CURRENT == 3 )) && [[ "$PREFIX" != -* ]] && compadd -X 'sub-tool' linkedin-post
+
+            # ── amir pdf <images...> (collage / convert) ──
+            _arguments -s \
+                '--smart[Smart Crop (content-aware trimming)]' \
+                '--engine[Specify rendering engine]:engine:(puppeteer weasyprint pil pandoc)' \
+                '--weasyprint[Use WeasyPrint engine]' \
+                '--pil[Use PIL grayscale fallback engine]' \
+                '--pandoc[Use Pandoc engine]' \
+                '(-f --free-size)'{-f,--free-size}'[Generate a single continuous PDF with custom dimensions]' \
+                '--page-width[Set PDF width in pixels for free-size/custom layout]:width (px):(1200 1440 1600 1800 2000 2480 max-content fit-content nowrap)' \
+                '--page-height[Set PDF height in pixels for free-size/custom layout]:height (px):(1600 2000 2480 3000 3508 4000)' \
+                {-o,--output}'[Specify output file]:filename:_files' \
+                {-r,--rotate}'[Rotate images (degrees)]:angle' \
+                {-q,--quality}'[JPEG Quality (default: 60)]:quality (0-100)' \
+                '--resize[Resize percentage (default: 50)]:percentage' \
+                '--pages[Create multi-page PDF (1 image per page) instead of collage]' \
+                '--merge[Merge multiple files into a single PDF (alias for --pages)]' \
+                '--radius[Corner radius (px)]:pixels' \
+                '--no-round[Disable corner rounding]' \
+                '--square[Alias for --no-round]' \
+                '--no-deskew[Disable auto-straightening]' \
+                '--no-straighten[Alias for --no-deskew]' \
+                '*:images:_files -g "*.(jpg|jpeg|png|webp|pdf|md|txt|JPG|PNG|WEBP|PDF|MD|TXT)"'
             ;;
 
         watermark)
@@ -1234,6 +1252,37 @@ _amir() {
             ;;
         clean)
             _message "Cleaning system temporary files..."
+            ;;
+
+        skill)
+            if (( CURRENT == 3 )); then
+                _values 'subcommand' \
+                    'harvest[Search GitHub, rank by stars, fetch READMEs → generate a skill file]' \
+                    'search[Search GitHub repos by query]' \
+                    'list[List local skill files]' \
+                    'show[Show a local skill file]'
+            fi
+            ;;
+
+        split)
+            case $CURRENT in
+                3) _files -g "*.(mp4|mkv|mov|avi|webm|flv|m4v|mp3|wav|m4a|aac|ogg|flac|MP4|MKV|MOV|AVI|WEBM|MP3|WAV|M4A)" ;;
+                4) _message 'size in MB (e.g. 25)' ;;
+            esac
+            ;;
+
+        dashboard)
+            _message 'no arguments — launches the dashboard'
+            ;;
+
+        help|--help|-h)
+            if (( CURRENT == 3 )); then
+                _values 'command' \
+                    video download audio pdf img watermark subtitle clip \
+                    transfer lock unlock qr weather short pass speed todo \
+                    chat code dashboard apply keyboard trend research skill \
+                    llm-lists split init-project sync-constitution update-projects clean
+            fi
             ;;
     esac
 }
