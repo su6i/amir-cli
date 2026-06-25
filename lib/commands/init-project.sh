@@ -305,16 +305,21 @@ ENVEOF
     done
     [[ "$added" == 1 ]] && echo "   ➕ Ensured critical ignore rules"
 
-    # ── 9b. Install the constitution pre-commit hook ────────────────────────────
-    # Deterministic enforcement of "no commits to main" + the docs checklist, so
-    # the rules can't be forgotten. Bypass deliberately with: git commit --no-verify
-    local HOOK_SRC="$CONSTITUTION_PATH/templates/hooks/pre-commit"
-    if [[ -f "$HOOK_SRC" && -d ".git" ]]; then
+    # ── 9b. Install the constitution git hooks ──────────────────────────────────
+    # Deterministic enforcement (no commits to main, docs checklist, and no AI
+    # co-authorship), so the rules can't be forgotten. Bypass: git commit --no-verify
+    if [[ -d ".git" ]]; then
         mkdir -p ".git/hooks"
-        cp "$HOOK_SRC" ".git/hooks/pre-commit" && chmod +x ".git/hooks/pre-commit"
-        echo "   ✅ pre-commit hook installed (.git/hooks/pre-commit)"
-    elif [[ -d ".git" ]]; then
-        echo "   ⚠️  pre-commit hook template not found in submodule — skipped"
+        local _hook _src
+        for _hook in pre-commit commit-msg; do
+            _src="$CONSTITUTION_PATH/templates/hooks/$_hook"
+            if [[ -f "$_src" ]]; then
+                cp "$_src" ".git/hooks/$_hook" && chmod +x ".git/hooks/$_hook"
+                echo "   ✅ $_hook hook installed (.git/hooks/$_hook)"
+            else
+                echo "   ⚠️  $_hook hook template not found in submodule — skipped"
+            fi
+        done
     fi
 
     # ── 10. Git stage ───────────────────────────────────────────────────────────
