@@ -204,9 +204,9 @@ PYTHON_EOF
     # Capture exit code robustly
     local exit_code
     if [[ -n "$ZSH_VERSION" ]]; then
-        exit_code=$pipestatus[1]
+        exit_code=${pipestatus[1]}
     else
-        exit_code=$PIPESTATUS[0]
+        exit_code=${PIPESTATUS[0]}
     fi
     
     # Export if requested

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased] - 2026-07-01
+
+### Added
+- `amir router` — single multi-model AI gateway wrapping the vault router
+  (`~/.local/share/agent-projects/_router/delegate.py`): gemini/gemma (free tier),
+  `deepseek-v4-flash`/`-pro`, `minimax` (prepaid default), `grok`. Conversation
+  memory via `--session`, provider-echoed proof + cost ledger via
+  `amir router audit`, provider model catalogs via `amir router models`, cost
+  dashboard placeholder `amir router cost`. Routing policy lives in
+  `_router/STRATEGY.md`. Natural prompts work unquoted:
+  `amir router --model gemini write a fib function`.
+
+### Removed
+- `amir chat` and `amir code` — superseded by `amir router` (use
+  `amir router --model gemini "..."` for the old free-tier behaviour). Handler
+  files `lib/commands/chat.sh` and `code.sh` are left in place but no longer wired
+  into the dispatcher; safe to delete later.
+
 ## [Unreleased] - 2026-06-22
 
 ### Added

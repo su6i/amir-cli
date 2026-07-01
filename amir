@@ -197,13 +197,9 @@ case "$COMMAND" in
         shift
         if [[ -f "$LIB_DIR/commands/clip.sh" ]]; then source "$LIB_DIR/commands/clip.sh"; run_clip "$@"; exit $?; fi
         ;;
-    chat)
+    router|ai)
         shift
-        if [[ -f "$LIB_DIR/commands/chat.sh" ]]; then source "$LIB_DIR/commands/chat.sh"; run_chat "$@"; exit $?; fi
-        ;;
-    code)
-        shift
-        if [[ -f "$LIB_DIR/commands/code.sh" ]]; then source "$LIB_DIR/commands/code.sh"; run_code "$@"; exit $?; fi
+        if [[ -f "$LIB_DIR/commands/router.sh" ]]; then source "$LIB_DIR/commands/router.sh"; run_router "$@"; exit $?; fi
         ;;
     dashboard)
         if [[ -f "$LIB_DIR/commands/dashboard.sh" ]]; then source "$LIB_DIR/commands/dashboard.sh"; run_dashboard; exit $?; fi
