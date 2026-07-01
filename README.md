@@ -75,7 +75,7 @@ During installation, you will be asked to provide the following API key for AI f
 
 | Key | Purpose (Why do I need this?) | Get it here |
 | :--- | :--- | :--- |
-| **`GEMINI_API_KEY`** | Enables the `amir chat` command, smart summaries, and intelligent help responses. | [Google AI Studio](https://aistudio.google.com/app/apikey) |
+| **`GEMINI_API_KEY`** | Enables the free tier of `amir router` (gemini/gemma), smart summaries, and intelligent help responses. | [Google AI Studio](https://aistudio.google.com/app/apikey) |
 | **`DEEPSEEK_API_KEY`** | Powers the subtitle translation system for 32 languages. Optional: fallback to Gemini if not set. | [DeepSeek Platform](https://platform.deepseek.com/) |
 | **`OPENAI_API_KEY`** | For `llm-lists openai` command (optional). | [OpenAI Platform](https://platform.openai.com/api-keys) |
 | **`GROQ_API_KEY`** | For `llm-lists groq` command (optional). | [Groq Console](https://console.groq.com/) |
@@ -217,9 +217,9 @@ export RESEARCH_TOOLKIT_DIR=/path/to/research_toolkit
 ### 🧠 AI & Productivity
 | Command | Description |
 | :--- | :--- |
-| `amir chat "hello"` | Ask the AI assistant a question. |
-| `amir code "fix this"` | Request code generation or refactoring. |
-| `amir llm-lists <provider> [-e fmt]` | **NEW:** Fetch model lists from LLM providers (gemini, openai, deepseek, groq, anthropic). Export to PDF/MD/JPG. |
+| `amir router "<prompt>"` | **AI gateway** — routes to gemini/gemma (free), deepseek, minimax, grok. Add `--model M` to pick a model, `--session S` for conversation memory. Replaces `amir chat`/`amir code`. |
+| `amir router audit` | Show the cost/usage ledger (provider-echoed proof of which model actually ran). |
+| `amir router models <provider> [-e fmt]` | Fetch model lists from LLM providers (gemini, openai, deepseek, groq, anthropic). Export to PDF/MD/JPG. |
 | `amir todo "task"` | Add a task to the local to-do list. |
 | `amir todo list` | Show all pending tasks. |
 | `amir todo done <n>` | Remove task number `<n>` from the list. |
