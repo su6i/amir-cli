@@ -153,7 +153,7 @@ run_init_project() {
 
     # ── 5c. Resolve vault workspace (rule 035) ───────────────────────────────────
     # Computed here (before CLAUDE.md is generated) so CLAUDE.md can point at the
-    # real path; reused by section 8 below to actually write TODO.md/SESSION.md.
+    # real path; reused by section 8 below to actually write SESSION.md.
     local PROJECT_SLUG
     if [[ -n "${AGENT_PROJECT_SLUG:-}" ]]; then
         PROJECT_SLUG="${AGENT_PROJECT_SLUG}"
@@ -186,14 +186,16 @@ ${SKILLS_HINT}
 
 ## Key Constraints
 <!-- TODO: any project-specific rules -->
-- Storage : persistent data/artifacts live in \`~/.${PROJECT_NAME}/\`, never in the repo.
-            A local \`.storage/\` is scratch only and is git-ignored.
+- Storage : persistent data/artifacts live in the rule-035 vault
+            (\`~/.local/share/agent-projects/${PROJECT_SLUG}/data/\`), never in
+            the repo. A local \`.storage/\` is scratch only and is git-ignored.
 
 ## First Session (do this before any feature work)
 This project is freshly scaffolded — \`CLAUDE.md\`, \`README.md\`, and \`.env.example\`
 still contain TODO placeholders. Follow
-\`.agent/constitution/workflows/first-session.md\` to fill them in, then tick the
-checklist in \`TODO.md\` (vault: \`${VAULT_WORKSPACE}/TODO.md\` — never in this repo, rules 035/040/045).
+\`.agent/constitution/workflows/first-session.md\` to fill them in. Tasks live
+ONLY in the central \`_memory/TODO.md\` under \`## ${PROJECT_NAME}\` (rule 050) —
+never a repo TODO, never a per-project vault TODO (rules 035/040/045/050).
 
 ## Rules & Workflows
 - Rules     : \`.agent/constitution/rules/\` — read 000-core.md, global.md, 040-git.md before every task
@@ -217,7 +219,7 @@ CLAUDEOF
 
     # ── 7. Standard directories (+ .gitkeep so git tracks them) ─────────────────
     # No lib/ — generic .gitignore patterns hide it; source goes under src/.
-    # No .storage/ — persistent data lives in ~/.<project>/ (see CLAUDE.md);
+    # No .storage/ — persistent data lives in the rule-035 vault data/ dir;
     # .storage/ stays git-ignored as scratch only.
     echo "🏗️  Creating standard directories..."
     for dir in src tests docs assets; do
@@ -231,7 +233,7 @@ CLAUDEOF
     done
     [[ -d ".agent/local-rules" && -z "$(ls -A .agent/local-rules 2>/dev/null)" ]] && touch ".agent/local-rules/.gitkeep"
 
-    # ── 8. Vault workspace files (TODO.md / SESSION.md — rules 035/040/045) ────
+    # ── 8. Vault workspace files (SESSION.md — rules 035/040/045/050) ──────────
     # Work-log files are never committed and must never even live in the repo
     # working tree (035's golden rule: .gitignore alone doesn't survive a
     # merge). They belong in the central vault's workspace/ dir.
@@ -245,28 +247,8 @@ CLAUDEOF
     fi
     mkdir -p "$VAULT_WORKSPACE"
 
-    # TODO.md — opens with the mandatory First Session checklist.
-    if [[ ! -f "$VAULT_WORKSPACE/TODO.md" ]]; then
-        cat > "$VAULT_WORKSPACE/TODO.md" << TODOEOF
-# TODO — ${PROJECT_NAME}
-
-## 🚀 First Session (do this before any feature work)
-Follow \`.agent/constitution/workflows/first-session.md\`.
-
-- [ ] Fill **CLAUDE.md** — Project summary, Tech Stack, Relevant Skills, Key Constraints
-- [ ] Fill **README.md** — title, one-line description, Quickstart commands
-- [ ] Fill **.env.example** — every required env var (API keys, DB URLs, model names)
-- [ ] Confirm storage policy — persistent data in \`~/.${PROJECT_NAME}/\`, not in the repo
-- [ ] Verify skeleton: \`git status\`, \`git check-ignore lib bin src tests\`, (Python) \`uv sync\`
-- [ ] Remove this section once onboarding is complete
-
-## Backlog
-<!-- add tasks here -->
-TODOEOF
-        echo "   ✅ TODO.md → $VAULT_WORKSPACE/TODO.md"
-    else
-        echo "   🔸 TODO.md already exists in vault workspace"
-    fi
+    # Tasks: NEVER a per-project TODO.md (rule 050) — one central file only.
+    echo "   📌 Tasks: add a '## ${PROJECT_NAME}' section in the central _memory/TODO.md (rule 050) — no per-project TODO.md"
 
     # SESSION.md — running session log.
     if [[ ! -f "$VAULT_WORKSPACE/SESSION.md" ]]; then
@@ -372,8 +354,8 @@ ENVEOF
     echo "🎉 Done! ${PROJECT_NAME} is now agent-governed."
     echo "   Constitution : ${CONSTITUTION_PATH}/ (symlink → $CONSTITUTION_CENTRAL, $(git -C "$CONSTITUTION_PATH" describe --tags --always 2>/dev/null || echo 'latest'))"
     echo "   Update later : git -C $CONSTITUTION_CENTRAL pull --ff-only"
-    echo "   Work log     : $VAULT_WORKSPACE  (TODO.md / SESSION.md — never in this repo)"
-    echo "   ▶ Next       : start your first session and complete the checklist in"
-    echo "                  $VAULT_WORKSPACE/TODO.md"
+    echo "   Work log     : $VAULT_WORKSPACE/SESSION.md  (never in this repo)"
+    echo "   Tasks        : central _memory/TODO.md → section '## ${PROJECT_NAME}' (rule 050)"
+    echo "   ▶ Next       : follow .agent/constitution/workflows/first-session.md"
     echo ""
 }
