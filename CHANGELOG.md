@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased] - 2026-07-02
+
+### Fixed
+- `amir init-project` — two rule-compliance fixes (035/040/045):
+  - `.agent/constitution` is now a symlink to one central clone
+    (`AGENT_CONSTITUTION_DIR`, default `~/@-github/agent-constitution`) instead
+    of a per-repo `git submodule`, which pinned a SHA and drifted.
+  - `TODO.md`/`SESSION.md` are created in the project's vault workspace
+    (`~/.local/share/agent-projects/<slug>/workspace/`) instead of the repo
+    root — these are per-session work-log files and must never be committed
+    or even sit in the working tree. `.gitignore` also enforces this if
+    either file is ever created locally by hand.
+- `amir update-projects` — now detects and handles both the symlink pattern
+  (refreshes the link; pulls the one central clone once up front, not per
+  project) and the legacy submodule pattern (updated in place, unchanged
+  behavior) so newly-scaffolded projects aren't silently skipped. New flag
+  `--no-link` (`--no-submodule` kept as a back-compat alias).
+
 ## [Unreleased] - 2026-07-01
 
 ### Added
