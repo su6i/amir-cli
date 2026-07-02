@@ -2,12 +2,15 @@
 
 run_init_project() {
 
-    # Constitution submodule config (override URL with AMIR_CONSTITUTION_URL).
-    # Default is HTTPS for portability: anyone cloning a project that uses this
-    # submodule (collaborators, CI, public users) can fetch the public
-    # constitution without SSH keys on the account. Set AMIR_CONSTITUTION_URL to
-    # the git@github.com:... SSH form if you prefer key-based auth for pushing.
+    # Constitution central-source config (rule 045 / bootstrap-installer skill).
+    # ".agent/constitution" is a symlink to ONE clone shared by every project —
+    # never a per-repo submodule (a submodule pins a per-repo SHA and drifts).
+    # Override the clone URL with AMIR_CONSTITUTION_URL, or the local clone
+    # location with AGENT_CONSTITUTION_DIR. Default URL is HTTPS for
+    # portability: anyone cloning a project that uses this can fetch the
+    # public constitution without SSH keys on the account.
     local CONSTITUTION_URL="${AMIR_CONSTITUTION_URL:-https://github.com/su6i/agent-constitution.git}"
+    local CONSTITUTION_CENTRAL="${AGENT_CONSTITUTION_DIR:-$HOME/@-github/agent-constitution}"
     local CONSTITUTION_PATH=".agent/constitution"
 
     # ── 1. Determine target & mode ─────────────────────────────────────────────
@@ -34,7 +37,7 @@ run_init_project() {
     case "$MODE" in
         NEW)      echo "   Mode    : ✨ New project (will create dir + git init)" ;;
         SCAFFOLD) echo "   Mode    : 🏗  Scaffold existing project (first time)" ;;
-        UPDATE)   echo "   Mode    : 🔄 Update existing constitution submodule" ;;
+        UPDATE)   echo "   Mode    : 🔄 Update existing constitution link" ;;
     esac
     echo ""
 
@@ -73,30 +76,29 @@ run_init_project() {
         fi
     fi
 
-    # ── 3. Add agent-constitution as submodule ─────────────────────────────────
-    echo "📦 Setting up agent-constitution submodule..."
+    # ── 3. Link agent-constitution from the central clone (no submodule) ───────
+    # Single source of truth (rule 045): one clone on disk, symlinked into every
+    # project. Idempotent for all three modes — NEW/SCAFFOLD get the link for
+    # the first time, UPDATE re-pulls the central clone and re-links (a no-op
+    # if already current). Never `git submodule` — see bootstrap-installer skill.
+    echo "📦 Linking agent-constitution (central clone, symlink)..."
     mkdir -p ".agent"
 
-    local submodule_exists=false
-    if [[ -f ".gitmodules" ]] && grep -qF "$CONSTITUTION_PATH" ".gitmodules" 2>/dev/null; then
-        submodule_exists=true
-    fi
-
-    if $submodule_exists; then
-        echo "   🔸 Submodule already registered"
-        if [[ "$MODE" == "UPDATE" ]]; then
-            git submodule update --remote --merge "$CONSTITUTION_PATH" 2>/dev/null && \
-                echo "   ✅ Submodule updated to latest" || \
-                echo "   ⚠️  Update failed — run: git submodule update --remote $CONSTITUTION_PATH"
-        fi
+    if [[ -d "$CONSTITUTION_CENTRAL/.git" ]]; then
+        git -C "$CONSTITUTION_CENTRAL" pull --ff-only >/dev/null 2>&1 && \
+            echo "   ✅ Central clone up to date ($CONSTITUTION_CENTRAL)" || \
+            echo "   ⚠️  Could not pull $CONSTITUTION_CENTRAL (offline/no access?) — using local copy as-is"
     else
-        git submodule add "$CONSTITUTION_URL" "$CONSTITUTION_PATH" 2>/dev/null && \
-            echo "   ✅ Submodule added ($CONSTITUTION_URL)" || {
-            echo "   ❌ git submodule add failed."
-            echo "      Check SSH access: ssh -T git@github.com"
+        git clone "$CONSTITUTION_URL" "$CONSTITUTION_CENTRAL" 2>/dev/null && \
+            echo "   ✅ Cloned constitution → $CONSTITUTION_CENTRAL" || {
+            echo "   ❌ git clone failed for $CONSTITUTION_URL"
+            echo "      Check network/SSH access, or set AGENT_CONSTITUTION_DIR to an existing local clone."
             return 1
         }
     fi
+
+    ln -sfn "$CONSTITUTION_CENTRAL" "$CONSTITUTION_PATH"
+    echo "   ✅ ${CONSTITUTION_PATH} → ${CONSTITUTION_CENTRAL} (symlink)"
 
     # ── 4. Local rules placeholder ─────────────────────────────────────────────
     if [[ ! -d ".agent/local-rules" ]]; then
@@ -149,6 +151,24 @@ run_init_project() {
         fi
     fi
 
+    # ── 5c. Resolve vault workspace (rule 035) ───────────────────────────────────
+    # Computed here (before CLAUDE.md is generated) so CLAUDE.md can point at the
+    # real path; reused by section 8 below to actually write TODO.md/SESSION.md.
+    local PROJECT_SLUG
+    if [[ -n "${AGENT_PROJECT_SLUG:-}" ]]; then
+        PROJECT_SLUG="${AGENT_PROJECT_SLUG}"
+    else
+        local remote_url; remote_url="$(git remote get-url origin 2>/dev/null)"
+        if [[ -n "$remote_url" ]]; then
+            PROJECT_SLUG="${remote_url##*/}"; PROJECT_SLUG="${PROJECT_SLUG%.git}"
+        else
+            PROJECT_SLUG="$PROJECT_NAME"
+        fi
+    fi
+    PROJECT_SLUG="$(printf '%s' "$PROJECT_SLUG" | tr '[:upper:]' '[:lower:]')"
+    local VAULT_BASE="${XDG_DATA_HOME:-$HOME/.local/share}/agent-projects"
+    local VAULT_WORKSPACE="$VAULT_BASE/$PROJECT_SLUG/workspace"
+
     # ── 6. Generate CLAUDE.md ──────────────────────────────────────────────────
     if [[ ! -f "CLAUDE.md" ]]; then
         cat > "CLAUDE.md" << CLAUDEOF
@@ -173,7 +193,7 @@ ${SKILLS_HINT}
 This project is freshly scaffolded — \`CLAUDE.md\`, \`README.md\`, and \`.env.example\`
 still contain TODO placeholders. Follow
 \`.agent/constitution/workflows/first-session.md\` to fill them in, then tick the
-checklist in \`TODO.md\`.
+checklist in \`TODO.md\` (vault: \`${VAULT_WORKSPACE}/TODO.md\` — never in this repo, rules 035/040/045).
 
 ## Rules & Workflows
 - Rules     : \`.agent/constitution/rules/\` — read 000-core.md, global.md, 040-git.md before every task
@@ -182,8 +202,9 @@ checklist in \`TODO.md\`.
 - Skills    : \`.agent/constitution/skills/\` — domain knowledge modules
 
 ## Updating the constitution
+\`.agent/constitution\` is a symlink to one central clone shared by every project — no submodule.
 \`\`\`bash
-git submodule update --remote .agent/constitution
+git -C ~/@-github/agent-constitution pull --ff-only
 \`\`\`
 
 ## Global Rules
@@ -210,12 +231,23 @@ CLAUDEOF
     done
     [[ -d ".agent/local-rules" && -z "$(ls -A .agent/local-rules 2>/dev/null)" ]] && touch ".agent/local-rules/.gitkeep"
 
-    # ── 8. Standard files ───────────────────────────────────────────────────────
-    echo "📝 Creating standard files..."
+    # ── 8. Vault workspace files (TODO.md / SESSION.md — rules 035/040/045) ────
+    # Work-log files are never committed and must never even live in the repo
+    # working tree (035's golden rule: .gitignore alone doesn't survive a
+    # merge). They belong in the central vault's workspace/ dir.
+    echo "📝 Creating vault workspace files..."
+
+    # Prefer the constitution's own scaffolder (creates the full vault: data/
+    # shared/references/secrets/workspace, with secrets/ chmod 700) — fall
+    # back to a bare mkdir if it's unavailable for any reason (fail-open).
+    if [[ -x "$CONSTITUTION_PATH/bin/scaffold-vault.sh" ]]; then
+        "$CONSTITUTION_PATH/bin/scaffold-vault.sh" "$PROJECT_SLUG" >/dev/null 2>&1
+    fi
+    mkdir -p "$VAULT_WORKSPACE"
 
     # TODO.md — opens with the mandatory First Session checklist.
-    if [[ ! -f "TODO.md" ]]; then
-        cat > "TODO.md" << TODOEOF
+    if [[ ! -f "$VAULT_WORKSPACE/TODO.md" ]]; then
+        cat > "$VAULT_WORKSPACE/TODO.md" << TODOEOF
 # TODO — ${PROJECT_NAME}
 
 ## 🚀 First Session (do this before any feature work)
@@ -231,18 +263,20 @@ Follow \`.agent/constitution/workflows/first-session.md\`.
 ## Backlog
 <!-- add tasks here -->
 TODOEOF
-        echo "   ✅ TODO.md (with First Session checklist)"
+        echo "   ✅ TODO.md → $VAULT_WORKSPACE/TODO.md"
     else
-        echo "   🔸 TODO.md already exists"
+        echo "   🔸 TODO.md already exists in vault workspace"
     fi
 
     # SESSION.md — running session log.
-    if [[ ! -f "SESSION.md" ]]; then
-        printf '# SESSION — %s\n\n_Running log of what happened each session._\n' "$PROJECT_NAME" > "SESSION.md"
-        echo "   ✅ SESSION.md"
+    if [[ ! -f "$VAULT_WORKSPACE/SESSION.md" ]]; then
+        printf '# SESSION — %s\n\n_Running log of what happened each session._\n' "$PROJECT_NAME" > "$VAULT_WORKSPACE/SESSION.md"
+        echo "   ✅ SESSION.md → $VAULT_WORKSPACE/SESSION.md"
     else
-        echo "   🔸 SESSION.md already exists"
+        echo "   🔸 SESSION.md already exists in vault workspace"
     fi
+
+    echo "   📌 Work log lives outside the repo: $VAULT_WORKSPACE  (rules 035/040/045)"
 
     # README.md — human-facing entry point.
     if [[ ! -f "README.md" ]]; then
@@ -297,8 +331,10 @@ ENVEOF
         echo "   🔸 .gitignore exists"
     fi
     # Enforce critical rules regardless of how .gitignore got here.
+    # ".agent/constitution" is the symlink to the central clone (section 3) —
+    # it must never be staged as a repo entry; only .agent/local-rules is ours.
     local added=0
-    for rule in ".storage/" ".env" ".venv/" "__pycache__/" ".DS_Store"; do
+    for rule in ".storage/" ".env" ".venv/" "__pycache__/" ".DS_Store" ".agent/constitution" "TODO.md" "SESSION.md"; do
         if ! grep -qxF "$rule" ".gitignore" 2>/dev/null; then
             echo "$rule" >> ".gitignore"; added=1
         fi
@@ -317,22 +353,27 @@ ENVEOF
                 cp "$_src" ".git/hooks/$_hook" && chmod +x ".git/hooks/$_hook"
                 echo "   ✅ $_hook hook installed (.git/hooks/$_hook)"
             else
-                echo "   ⚠️  $_hook hook template not found in submodule — skipped"
+                echo "   ⚠️  $_hook hook template not found in constitution clone — skipped"
             fi
         done
     fi
 
     # ── 10. Git stage ───────────────────────────────────────────────────────────
+    # No .gitmodules (no submodule), no TODO.md/SESSION.md (vault-only, and now
+    # gitignored above). `git add .agent` only picks up local-rules/ — the
+    # constitution symlink is excluded by the .gitignore rule from section 9.
     echo "💾 Staging..."
-    git add .gitmodules .agent CLAUDE.md README.md .env.example .gitignore \
-            src tests docs assets TODO.md SESSION.md \
+    git add .agent CLAUDE.md README.md .env.example .gitignore \
+            src tests docs assets \
             pyproject.toml .python-version main.py 2>/dev/null
     echo "   ✅ Staged"
 
     echo ""
     echo "🎉 Done! ${PROJECT_NAME} is now agent-governed."
-    echo "   Constitution : ${CONSTITUTION_PATH}/ (submodule — $(git -C "$CONSTITUTION_PATH" describe --tags --always 2>/dev/null || echo 'latest'))"
-    echo "   Update later : git submodule update --remote ${CONSTITUTION_PATH}"
-    echo "   ▶ Next       : start your first session and complete the checklist in TODO.md"
+    echo "   Constitution : ${CONSTITUTION_PATH}/ (symlink → $CONSTITUTION_CENTRAL, $(git -C "$CONSTITUTION_PATH" describe --tags --always 2>/dev/null || echo 'latest'))"
+    echo "   Update later : git -C $CONSTITUTION_CENTRAL pull --ff-only"
+    echo "   Work log     : $VAULT_WORKSPACE  (TODO.md / SESSION.md — never in this repo)"
+    echo "   ▶ Next       : start your first session and complete the checklist in"
+    echo "                  $VAULT_WORKSPACE/TODO.md"
     echo ""
 }
