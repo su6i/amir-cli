@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-07-02 — init-project template: rule-050 compliance
+
+- `init-project` no longer creates a per-project `TODO.md` anywhere (repo or
+  vault) — tasks live only in the central `_memory/TODO.md` (rule 050); the
+  command now prints a pointer instead.
+- Generated `CLAUDE.md`: storage line points at the rule-035 vault `data/`
+  dir (was `~/.<project>/`), and no absolute personal path is embedded
+  (040 security check).
+- Final summary output updated accordingly.
+
 ## [Unreleased] - 2026-07-02
 
 ### Fixed
