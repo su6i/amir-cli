@@ -13,6 +13,11 @@ run_init_project() {
     local CONSTITUTION_CENTRAL="${AGENT_CONSTITUTION_DIR:-$HOME/@-github/agent-constitution}"
     local CONSTITUTION_PATH=".agent/constitution"
 
+    # Every file this run creates (or deliberately modifies) is appended here,
+    # and ONLY these paths are staged at the end — never whole directories, so
+    # pre-existing WIP/untracked files are left alone.
+    local STAGE_LIST=""
+
     # ── 1. Determine target & mode ─────────────────────────────────────────────
     local TARGET_DIR="${1:-.}"
     [[ "$TARGET_DIR" == "." || "$TARGET_DIR" == "./" ]] && TARGET_DIR="$(pwd)"
@@ -84,6 +89,21 @@ run_init_project() {
     echo "📦 Linking agent-constitution (central clone, symlink)..."
     mkdir -p ".agent"
 
+    # Guard: a legacy submodule (or plain clone) is a REAL directory here.
+    # `ln -sfn` onto a real directory drops the symlink INSIDE it
+    # (.agent/constitution/agent-constitution) instead of replacing it, leaving
+    # the submodule in place plus a junk nested link. Refuse and point at the
+    # migration procedure instead of half-scaffolding.
+    if [[ -e "$CONSTITUTION_PATH" && ! -L "$CONSTITUTION_PATH" ]]; then
+        echo "   🚫 $CONSTITUTION_PATH is a real directory (legacy submodule/clone) — not migrating it implicitly."
+        echo "      Migrate first, then re-run amir init-project:"
+        echo "        git -C $TARGET_DIR submodule deinit -f .agent/constitution"
+        echo "        git -C $TARGET_DIR rm -f .agent/constitution"
+        echo "        rm -rf $TARGET_DIR/.git/modules/.agent/constitution"
+        echo "      (also remove the .agent/constitution entry from .gitmodules if it is not the only one)"
+        return 1
+    fi
+
     if [[ -d "$CONSTITUTION_CENTRAL/.git" ]]; then
         git -C "$CONSTITUTION_CENTRAL" pull --ff-only >/dev/null 2>&1 && \
             echo "   ✅ Central clone up to date ($CONSTITUTION_CENTRAL)" || \
@@ -132,19 +152,45 @@ run_init_project() {
     # and .gitignore we generate ourselves below.
     if [[ "$STACK_KIND" == "python" || "$STACK_KIND" == "unknown" ]]; then
         if [[ ! -f "pyproject.toml" ]]; then
-            if command -v uv >/dev/null 2>&1; then
-                echo "🐍 Python setup (uv)..."
-                # --no-workspace: never attach to / mutate a parent uv project's
-                # pyproject.toml (the workspace-hijack footgun).
-                if uv init --no-readme --vcs none --no-workspace >/dev/null 2>&1; then
-                    STACK_KIND="python"; STACK="Python (uv)"
-                    [[ "$SKILLS_HINT" == "<!--"* ]] && SKILLS_HINT="python-core-standards, python-containerization"
-                    echo "   ✅ uv init → pyproject.toml + .python-version"
+            # An EXISTING repo with no recognizable stack markers is usually not
+            # a Python project (media/docs/config repos) — a silent uv init
+            # would plant junk pyproject.toml/main.py there. Ask when
+            # interactive; skip when not. NEW projects keep the Python default.
+            local do_py=1
+            if [[ "$STACK_KIND" == "unknown" && "$MODE" != "NEW" ]]; then
+                if [[ -t 0 ]]; then
+                    printf '   ❓ No stack markers found — scaffold Python here (uv init)? [y/N] '
+                    local _ans=""; read -r _ans
+                    [[ "$_ans" == "y" || "$_ans" == "Y" ]] || do_py=0
                 else
-                    echo "   ⚠️  uv init failed — skipping Python scaffold"
+                    do_py=0
                 fi
-            else
-                echo "   ⚠️  uv not found — skipping pyproject.toml (install: https://docs.astral.sh/uv/)"
+                [[ "$do_py" == "0" ]] && echo "   ⏭  No stack markers — skipping Python scaffold (answer y interactively, or add a marker like requirements.txt and re-run)"
+            fi
+            if [[ "$do_py" == "1" ]]; then
+                if command -v uv >/dev/null 2>&1; then
+                    echo "🐍 Python setup (uv)..."
+                    # Record what already exists: only files uv init actually
+                    # creates may be staged — a pre-existing main.py is the
+                    # user's file, not ours.
+                    local _had_main=0 _had_pyver=0
+                    [[ -f "main.py" ]] && _had_main=1
+                    [[ -f ".python-version" ]] && _had_pyver=1
+                    # --no-workspace: never attach to / mutate a parent uv project's
+                    # pyproject.toml (the workspace-hijack footgun).
+                    if uv init --no-readme --vcs none --no-workspace >/dev/null 2>&1; then
+                        STACK_KIND="python"; STACK="Python (uv)"
+                        [[ "$SKILLS_HINT" == "<!--"* ]] && SKILLS_HINT="python-core-standards, python-containerization"
+                        echo "   ✅ uv init → pyproject.toml + .python-version"
+                        STAGE_LIST="$STAGE_LIST pyproject.toml"
+                        [[ "$_had_pyver" == "0" && -f ".python-version" ]] && STAGE_LIST="$STAGE_LIST .python-version"
+                        [[ "$_had_main" == "0" && -f "main.py" ]] && STAGE_LIST="$STAGE_LIST main.py"
+                    else
+                        echo "   ⚠️  uv init failed — skipping Python scaffold"
+                    fi
+                else
+                    echo "   ⚠️  uv not found — skipping pyproject.toml (install: https://docs.astral.sh/uv/)"
+                fi
             fi
         else
             echo "   🔸 pyproject.toml exists, skipping uv init"
@@ -213,6 +259,7 @@ git -C ~/@-github/agent-constitution pull --ff-only
 Git protocol, cost control, and code quality are in ~/.claude/CLAUDE.md (auto-loaded).
 CLAUDEOF
         echo "   ✅ CLAUDE.md (fill in the TODOs)"
+        STAGE_LIST="$STAGE_LIST CLAUDE.md"
     else
         echo "   🔸 CLAUDE.md already exists, skipping"
     fi
@@ -228,10 +275,17 @@ CLAUDEOF
         else
             echo "   🔸 $dir/ exists"
         fi
-        # git does not track empty dirs — keep them with .gitkeep
-        [[ -z "$(ls -A "$dir" 2>/dev/null)" ]] && touch "$dir/.gitkeep"
+        # git does not track empty dirs — keep them with .gitkeep. Only the
+        # .gitkeep is staged later, never the directory wholesale.
+        if [[ -z "$(ls -A "$dir" 2>/dev/null)" ]]; then
+            touch "$dir/.gitkeep"
+            STAGE_LIST="$STAGE_LIST $dir/.gitkeep"
+        fi
     done
-    [[ -d ".agent/local-rules" && -z "$(ls -A .agent/local-rules 2>/dev/null)" ]] && touch ".agent/local-rules/.gitkeep"
+    if [[ -d ".agent/local-rules" && -z "$(ls -A .agent/local-rules 2>/dev/null)" ]]; then
+        touch ".agent/local-rules/.gitkeep"
+        STAGE_LIST="$STAGE_LIST .agent/local-rules/.gitkeep"
+    fi
 
     # ── 8. Vault workspace files (SESSION.md — rules 035/040/045/050) ──────────
     # Work-log files are never committed and must never even live in the repo
@@ -279,6 +333,7 @@ ${QUICKSTART}
 - Constitution (rules / workflows / skills): \`.agent/constitution/\`
 READMEEOF
         echo "   ✅ README.md"
+        STAGE_LIST="$STAGE_LIST README.md"
     else
         echo "   🔸 README.md already exists"
     fi
@@ -292,6 +347,7 @@ READMEEOF
 # DATABASE_URL=postgresql://user:pass@localhost:5432/db
 ENVEOF
         echo "   ✅ .env.example"
+        STAGE_LIST="$STAGE_LIST .env.example"
     else
         echo "   🔸 .env.example already exists"
     fi
@@ -309,6 +365,7 @@ ENVEOF
             printf '# Minimal fallback — constitution template not found\n.storage/\n.env\n.env.*\n!.env.example\n.venv/\n__pycache__/\n*.py[cod]\n.DS_Store\n' > ".gitignore"
             echo "   ✅ .gitignore (minimal fallback)"
         fi
+        STAGE_LIST="$STAGE_LIST .gitignore"
     else
         echo "   🔸 .gitignore exists"
     fi
@@ -321,7 +378,11 @@ ENVEOF
             echo "$rule" >> ".gitignore"; added=1
         fi
     done
-    [[ "$added" == 1 ]] && echo "   ➕ Ensured critical ignore rules"
+    if [[ "$added" == 1 ]]; then
+        echo "   ➕ Ensured critical ignore rules"
+        # Our append to a pre-existing .gitignore is our change — stage it.
+        case " $STAGE_LIST " in *" .gitignore "*) ;; *) STAGE_LIST="$STAGE_LIST .gitignore" ;; esac
+    fi
 
     # ── 9b. Install the constitution git hooks ──────────────────────────────────
     # Deterministic enforcement (no commits to main, docs checklist, and no AI
@@ -341,14 +402,17 @@ ENVEOF
     fi
 
     # ── 10. Git stage ───────────────────────────────────────────────────────────
-    # No .gitmodules (no submodule), no TODO.md/SESSION.md (vault-only, and now
-    # gitignored above). `git add .agent` only picks up local-rules/ — the
-    # constitution symlink is excluded by the .gitignore rule from section 9.
-    echo "💾 Staging..."
-    git add .agent CLAUDE.md README.md .env.example .gitignore \
-            src tests docs assets \
-            pyproject.toml .python-version main.py 2>/dev/null
-    echo "   ✅ Staged"
+    # Stage ONLY the files this run created/modified (tracked in STAGE_LIST) —
+    # never whole directories. Blanket `git add src tests docs assets` used to
+    # sweep the user's pre-existing WIP/untracked files into the index.
+    if [[ -n "$STAGE_LIST" ]]; then
+        echo "💾 Staging (only files created by this run)..."
+        # shellcheck disable=SC2086 — intentional word splitting; fixed filenames, no spaces
+        git add -- $STAGE_LIST 2>/dev/null
+        echo "   ✅ Staged:$STAGE_LIST"
+    else
+        echo "💾 Nothing new to stage (all files already existed)"
+    fi
 
     echo ""
     echo "🎉 Done! ${PROJECT_NAME} is now agent-governed."
