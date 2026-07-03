@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-07-03 — init-project: three footguns removed
+
+- **Targeted staging:** `init-project` now stages only the files it created or
+  deliberately modified this run (tracked in an explicit list) instead of
+  `git add src tests docs assets …`, which used to sweep pre-existing
+  WIP/untracked files into the index. A pre-existing `main.py`/`.python-version`
+  is never staged even when `uv init` runs. Re-running on an already-scaffolded
+  repo stages nothing.
+- **No silent Python scaffold:** on an existing repo with no stack markers
+  (no pyproject/requirements/package.json/go.mod/Cargo.toml), `uv init` now
+  asks interactively and skips when non-interactive — media/docs repos no
+  longer get junk `pyproject.toml`/`main.py`. NEW projects keep the Python
+  default.
+- **Legacy submodule guard:** if `.agent/constitution` is a real directory
+  (legacy submodule/clone), the command refuses and prints the migration steps.
+  Previously `ln -sfn` dropped the symlink *inside* the directory
+  (`.agent/constitution/agent-constitution`), leaving the submodule plus a junk
+  nested link.
+
 ## 2026-07-03 — install the pre-merge-commit hook · neutral env var names
 
 - **Renamed (no alias, breaking):** `AMIR_CONSTITUTION_URL` →
