@@ -38,8 +38,8 @@ run_sync_constitution() {
 
     # ── 3. Fallback: locate constitution repo for copy-based sync ─────────────
     local SOURCE_ROOT=""
-    if [[ -n "$AMIR_CONSTITUTION_PATH" && -d "$AMIR_CONSTITUTION_PATH" ]]; then
-        SOURCE_ROOT="$AMIR_CONSTITUTION_PATH"
+    if [[ -n "${AGENT_CONSTITUTION_PATH:-}" && -d "${AGENT_CONSTITUTION_PATH:-}" ]]; then
+        SOURCE_ROOT="$AGENT_CONSTITUTION_PATH"
     else
         local SIBLING="$SCRIPT_DIR/../agent-constitution"
         [[ -d "$SIBLING" ]] && SOURCE_ROOT="$(cd "$SIBLING" && pwd)"
@@ -48,7 +48,7 @@ run_sync_constitution() {
     if [[ -z "$SOURCE_ROOT" ]]; then
         echo "❌ No submodule found and cannot locate agent-constitution repo."
         echo "   Run 'amir init-project .' to set up the submodule, or"
-        echo "   set AMIR_CONSTITUTION_PATH to the repo path."
+        echo "   set AGENT_CONSTITUTION_PATH to the repo path."
         return 1
     fi
 

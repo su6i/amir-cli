@@ -5,11 +5,11 @@ run_init_project() {
     # Constitution central-source config (rule 045 / bootstrap-installer skill).
     # ".agent/constitution" is a symlink to ONE clone shared by every project —
     # never a per-repo submodule (a submodule pins a per-repo SHA and drifts).
-    # Override the clone URL with AMIR_CONSTITUTION_URL, or the local clone
+    # Override the clone URL with AGENT_CONSTITUTION_URL, or the local clone
     # location with AGENT_CONSTITUTION_DIR. Default URL is HTTPS for
     # portability: anyone cloning a project that uses this can fetch the
     # public constitution without SSH keys on the account.
-    local CONSTITUTION_URL="${AMIR_CONSTITUTION_URL:-https://github.com/su6i/agent-constitution.git}"
+    local CONSTITUTION_URL="${AGENT_CONSTITUTION_URL:-https://github.com/su6i/agent-constitution.git}"
     local CONSTITUTION_CENTRAL="${AGENT_CONSTITUTION_DIR:-$HOME/@-github/agent-constitution}"
     local CONSTITUTION_PATH=".agent/constitution"
 
@@ -329,7 +329,7 @@ ENVEOF
     if [[ -d ".git" ]]; then
         mkdir -p ".git/hooks"
         local _hook _src
-        for _hook in pre-commit commit-msg; do
+        for _hook in pre-commit pre-merge-commit commit-msg; do
             _src="$CONSTITUTION_PATH/templates/hooks/$_hook"
             if [[ -f "$_src" ]]; then
                 cp "$_src" ".git/hooks/$_hook" && chmod +x ".git/hooks/$_hook"
