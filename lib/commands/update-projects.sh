@@ -143,7 +143,7 @@ EOF
                 [[ "$hooks_dir" != /* ]] && hooks_dir="$d/$hooks_dir"
                 mkdir -p "$hooks_dir"
                 local _h
-                for _h in pre-commit commit-msg; do
+                for _h in pre-commit pre-merge-commit commit-msg; do
                     if cp "$d/$HOOKS_REL/$_h" "$hooks_dir/$_h" 2>/dev/null && chmod +x "$hooks_dir/$_h"; then
                         echo "   ✅ $_h hook installed"
                     else

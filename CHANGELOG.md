@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-07-03 — install the pre-merge-commit hook · neutral env var names
+
+- **Renamed (no alias, breaking):** `AMIR_CONSTITUTION_URL` →
+  `AGENT_CONSTITUTION_URL` (init-project clone URL) and
+  `AMIR_CONSTITUTION_PATH` → `AGENT_CONSTITUTION_PATH` (sync-constitution
+  source override). Constitution-related settings carry no personal branding —
+  anyone adopting the constitution repo gets neutral `AGENT_*` names, matching
+  the existing `AGENT_CONSTITUTION_DIR`. If you exported the old names in your
+  shell profile, rename them.
+
+- `amir init-project` and `amir update-projects` now install the constitution's
+  new **`pre-merge-commit`** hook alongside `pre-commit`/`commit-msg`, so the
+  privacy and skill-version gates also cover merge commits (git never runs
+  pre-commit on automatic merges). Requires an agent-constitution clone that
+  contains `templates/hooks/pre-merge-commit` — update the central clone first,
+  otherwise the hook step reports a failure for that project.
+
 ## 2026-07-02 — init-project template: rule-050 compliance
 
 - `init-project` no longer creates a per-project `TODO.md` anywhere (repo or
