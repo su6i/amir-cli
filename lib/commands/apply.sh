@@ -1,5 +1,14 @@
 #!/bin/bash
 
+# ── apply_tracker wrap (wo-applyforge-0007) ──────────────────────────────────
+# apply_tracker now lives in ApplyForge (src/apply_tracker/) — same wrap
+# pattern as the CV generator below: (cd "$APPLYFORGE_DIR" && uv run ...).
+_tracker_py() {
+    local script="$1"; shift
+    local applyforge_dir="${APPLYFORGE_DIR:-$HOME/@-github/ApplyForge}"
+    (cd "$applyforge_dir" && uv run python -m "src.apply_tracker.${script%.py}" "$@")
+}
+
 run_apply() {
     # ── PhD/Job urgent alert (shown on every apply invocation) ────────────────
     _apply_urgent_check
@@ -27,8 +36,7 @@ run_apply() {
     # ── alert ─────────────────────────────────────────────────────────────────
     if [[ "$1" == "alert" ]]; then
         local base_dir="${APPLY_BASE_DIR:-$HOME/@-Amir/Apply/2026-2027}"
-        PYTHONPATH="$LIB_DIR/python" uv run --directory "$AMIR_ROOT" python \
-            "$LIB_DIR/python/apply_tracker/daily_alert.py" "$base_dir"
+        _tracker_py daily_alert.py "$base_dir"
         return $?
     fi
 
@@ -37,8 +45,7 @@ run_apply() {
         shift
         local kind="${1:-phd}"
         local base_dir="${APPLY_BASE_DIR:-$HOME/@-Amir/Apply/2026-2027}"
-        PYTHONPATH="$LIB_DIR/python" uv run --directory "$AMIR_ROOT" python \
-            "$LIB_DIR/python/apply_tracker/tui.py" "$base_dir" "$kind"
+        _tracker_py tui.py "$base_dir" "$kind"
         return $?
     fi
 
@@ -62,16 +69,14 @@ run_apply() {
         export APPLY_BASE_DIR="$base_dir"
         # Open browser after short delay (server needs ~1s to bind)
         { sleep 1.2 && open "http://localhost:$port"; } &
-        PYTHONPATH="$LIB_DIR/python" uv run --directory "$AMIR_ROOT" python \
-            "$LIB_DIR/python/apply_tracker/web.py" "$base_dir" "$port"
+        _tracker_py web.py "$base_dir" "$port"
         return $?
     fi
 
     # ── stats ─────────────────────────────────────────────────────────────────
     if [[ "$1" == "stats" ]]; then
         local base_dir="${APPLY_BASE_DIR:-$HOME/@-Amir/Apply/2026-2027}"
-        PYTHONPATH="$LIB_DIR/python" uv run --directory "$AMIR_ROOT" python \
-            "$LIB_DIR/python/apply_tracker/stats_cli.py" "$base_dir"
+        _tracker_py stats_cli.py "$base_dir"
         return $?
     fi
 
@@ -139,11 +144,11 @@ _apply_sync_both() {
 
 _gmail_sync_direct() {
     local base_dir="$1"
-    PYTHONPATH="$LIB_DIR/python" uv run --directory "$AMIR_ROOT" python - <<PYEOF
+    local applyforge_dir="${APPLYFORGE_DIR:-$HOME/@-github/ApplyForge}"
+    (cd "$applyforge_dir" && uv run python - <<PYEOF
 import sys
-sys.path.insert(0, '$LIB_DIR/python')
-from apply_tracker.gmail_sync import fetch_and_process, has_valid_token
 from pathlib import Path
+from src.apply_tracker.gmail_sync import fetch_and_process, has_valid_token
 if not has_valid_token():
     print("  ❌ No Gmail token — run 'amir apply web' and click 'Connect Gmail' first")
     sys.exit(1)
@@ -151,6 +156,7 @@ r = fetch_and_process(Path('$base_dir'))
 print(f"  {'✅' if r.get('ok') else '❌'} {r.get('message', 'Unknown error')}")
 sys.exit(0 if r.get('ok') else 1)
 PYEOF
+)
 }
 
 _apply_urgent_check() {
@@ -159,13 +165,9 @@ _apply_urgent_check() {
     local job_dir="${JOB_SEARCH_DIR:-$HOME/@-Amir/Apply/2026-2027/Job-Search}"
 
     if [[ -d "$phd_dir/found" ]]; then
-        PYTHONPATH="$LIB_DIR/python" uv run --directory "$AMIR_ROOT" python \
-            "$LIB_DIR/python/apply_tracker/status.py" \
-            "$phd_dir" --urgent-header --type phd 2>/dev/null
+        _tracker_py status.py "$phd_dir" --urgent-header --type phd 2>/dev/null
     fi
     if [[ -d "$job_dir/found" ]]; then
-        PYTHONPATH="$LIB_DIR/python" uv run --directory "$AMIR_ROOT" python \
-            "$LIB_DIR/python/apply_tracker/status.py" \
-            "$job_dir" --urgent-header --type job 2>/dev/null
+        _tracker_py status.py "$job_dir" --urgent-header --type job 2>/dev/null
     fi
 }
