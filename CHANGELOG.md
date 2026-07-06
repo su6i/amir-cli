@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-07-06 — Apply Tracker moved to ApplyForge (wo-applyforge-0007)
+
+- **Refactor:** `lib/python/apply_tracker/` deleted from this repo and moved to
+  ApplyForge (`src/apply_tracker/`) — the tracker depends on ApplyForge's own
+  CV-generation pipeline, so keeping it here duplicated that dependency.
+  `amir apply web/tui/sync/stats/alert` and `amir phd`/`amir job` are unaffected
+  from the user's side; internally they now shell out to ApplyForge via a new
+  `_tracker_py()` helper in `lib/commands/apply.sh`
+  (`cd "$APPLYFORGE_DIR" && uv run python -m src.apply_tracker.<module>`),
+  the same wrap pattern already used for `amir apply <url>` → `main.py apply`.
+  Data (tracking.json, tracker.db, the `~/@-Amir/Apply/2026-2027` vault) is
+  untouched. Updated `docs/APPLY_TRACKER.md` and `docs/fa/APPLY_TRACKER_FA.md`
+  architecture sections to reflect the new location.
+
 ## 2026-07-03 — init-project: three footguns removed
 
 - **Targeted staging:** `init-project` now stages only the files it created or

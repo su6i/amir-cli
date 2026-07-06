@@ -14,8 +14,17 @@ amir apply <cmd>
   ├─ tui [phd|job]          → tui.py     (Textual TUI)
   ├─ web [port]             → web.py     (FastAPI — localhost:8765)
   └─ stats                  → stats_cli.py (terminal bar charts)
+```
 
-lib/python/apply_tracker/
+The tracker code itself lives in **ApplyForge** (`src/apply_tracker/`), not
+amir-cli — this repo only wraps it (`_tracker_py()` in `lib/commands/apply.sh`
+shells out via `cd "$APPLYFORGE_DIR" && uv run python -m src.apply_tracker.<module>`,
+same pattern as `amir apply <url>` forwarding to ApplyForge's `main.py apply`).
+Moved in wo-applyforge-0007 (2026-07-06) because the tracker depends on
+ApplyForge's own pipeline; keeping it in amir-cli duplicated that dependency.
+
+```
+ApplyForge/src/apply_tracker/
   ├─ db.py             SQLite CRUD — schema + migrations
   ├─ service.py        Business logic — single entry point for all UIs
   ├─ service_cli.py    Bash → service.py bridge (reject, watch)
@@ -258,7 +267,8 @@ New columns are added automatically via migration in `get_db()` — no manual SQ
 ## service.py API (for developers)
 
 ```python
-from apply_tracker.service import (
+# from ApplyForge's repo root:
+from src.apply_tracker.service import (
     get_positions,   # list[dict] — main query with enriched days_left
     get_stats,       # {"phd": {...}, "job": {...}}
     get_countries,   # sorted list of countries in DB

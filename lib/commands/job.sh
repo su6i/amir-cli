@@ -69,17 +69,13 @@ run_job() {
 
 _job_python() {
     local script="$1"; shift
-    PYTHONPATH="$LIB_DIR/python" uv run python \
-        "$LIB_DIR/python/apply_tracker/$script" \
-        "$_JOB_SEARCH_DIR" --type job "$@"
+    _tracker_py "$script" "$_JOB_SEARCH_DIR" --type job "$@"
 }
 
 _job_show() {
     local pos_id="$1"
     if [[ -z "$pos_id" ]]; then
-        PYTHONPATH="$LIB_DIR/python" uv run python \
-            "$LIB_DIR/python/apply_tracker/status.py" \
-            "$_JOB_SEARCH_DIR" --list --type job
+        _tracker_py status.py "$_JOB_SEARCH_DIR" --list --type job
         return 0
     fi
 
@@ -131,8 +127,7 @@ _job_draft() {
         return 1
     fi
 
-    PYTHONPATH="$LIB_DIR/python" uv run python \
-        "$LIB_DIR/python/apply_tracker/draft.py" \
+    _tracker_py draft.py \
         "$_JOB_SEARCH_DIR" "$pos_id" \
         $force_flag $lang_flag $track_flag \
         --type job
@@ -140,9 +135,7 @@ _job_draft() {
 
 _job_tracker() {
     local subcmd="$1"; shift
-    PYTHONPATH="$LIB_DIR/python" uv run python \
-        "$LIB_DIR/python/apply_tracker/tracker.py" \
-        "$_JOB_SEARCH_DIR" "$subcmd" "$@"
+    _tracker_py tracker.py "$_JOB_SEARCH_DIR" "$subcmd" "$@"
 }
 
 _job_open() {
@@ -217,8 +210,7 @@ _job_add_source() {
         return 1
     fi
     local src="$_JOB_SEARCH_DIR/../context/job_search_sources.md"
-    PYTHONPATH="$LIB_DIR/python" uv run python \
-        "$LIB_DIR/python/apply_tracker/sources.py" "$src" \
+    _tracker_py sources.py "$src" \
         add "$name" "$url" "$desc" $priority_flag
 }
 
@@ -316,8 +308,6 @@ _job_usage() {
 # Expose urgent header for apply.sh
 job_urgent_header() {
     if [[ -d "$_JOB_SEARCH_DIR/found" ]]; then
-        PYTHONPATH="$LIB_DIR/python" uv run python \
-            "$LIB_DIR/python/apply_tracker/status.py" \
-            "$_JOB_SEARCH_DIR" --urgent-header --type job 2>/dev/null
+        _tracker_py status.py "$_JOB_SEARCH_DIR" --urgent-header --type job 2>/dev/null
     fi
 }

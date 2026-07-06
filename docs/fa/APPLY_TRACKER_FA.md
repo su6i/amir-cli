@@ -14,8 +14,17 @@ amir apply <cmd>
   ├─ tui [phd|job]          → tui.py     (Textual TUI)
   ├─ web [port]             → web.py     (FastAPI — localhost:8765)
   └─ stats                  → stats_cli.py (نمودار ترمینال)
+```
 
-lib/python/apply_tracker/
+خودِ کدِ tracker در **ApplyForge** است (`src/apply_tracker/`)، نه amir-cli —
+این ریپو فقط wrap می‌کند (`_tracker_py()` در `lib/commands/apply.sh` با
+`cd "$APPLYFORGE_DIR" && uv run python -m src.apply_tracker.<module>` صدا
+می‌زند، دقیقاً مثل الگوی `amir apply <url>` که به `main.py apply` در
+ApplyForge forward می‌شود). در wo-applyforge-0007 (2026-07-06) منتقل شد،
+چون tracker به pipeline خودِ ApplyForge وابسته بود.
+
+```
+ApplyForge/src/apply_tracker/
   ├─ db.py             SQLite CRUD — schema + migration خودکار
   ├─ service.py        منطق کسب‌وکار — یک entry point برای همه UI‌ها
   ├─ service_cli.py    پل bash ↔ service.py (reject، watch)

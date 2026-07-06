@@ -76,21 +76,14 @@ run_phd() {
 
 _phd_python() {
     local script="$1"; shift
-    local script_path="$LIB_DIR/python/apply_tracker/$script"
-    if [[ ! -f "$script_path" ]]; then
-        echo "❌  Script not found: $script_path" >&2
-        return 1
-    fi
-    PYTHONPATH="$LIB_DIR/python" uv run python "$script_path" "$_PHD_SEARCH_DIR" "$@"
+    _tracker_py "$script" "$_PHD_SEARCH_DIR" "$@"
 }
 
 _phd_show() {
     local pos_id="$1"
     if [[ -z "$pos_id" ]]; then
         # Show list of available IDs instead of error
-        PYTHONPATH="$LIB_DIR/python" uv run python \
-            "$LIB_DIR/python/apply_tracker/status.py" \
-            "$_PHD_SEARCH_DIR" --list --type phd
+        _tracker_py status.py "$_PHD_SEARCH_DIR" --list --type phd
         return 0
     fi
 
@@ -143,8 +136,7 @@ _phd_draft() {
         return 1
     fi
 
-    PYTHONPATH="$LIB_DIR/python" uv run python \
-        "$LIB_DIR/python/apply_tracker/draft.py" \
+    _tracker_py draft.py \
         "$_PHD_SEARCH_DIR" "$pos_id" \
         $force_flag $lang_flag $track_flag \
         --type phd
@@ -152,9 +144,7 @@ _phd_draft() {
 
 _phd_tracker() {
     local subcmd="$1"; shift
-    PYTHONPATH="$LIB_DIR/python" uv run python \
-        "$LIB_DIR/python/apply_tracker/tracker.py" \
-        "$_PHD_SEARCH_DIR" "$subcmd" "$@"
+    _tracker_py tracker.py "$_PHD_SEARCH_DIR" "$subcmd" "$@"
 }
 
 _phd_open() {
@@ -188,8 +178,7 @@ _phd_audit() {
         echo "Usage: amir apply phd audit <position-id>" >&2
         return 1
     fi
-    PYTHONPATH="$LIB_DIR/python" uv run python \
-        "$LIB_DIR/python/apply_tracker/audit.py" \
+    _tracker_py audit.py \
         "$_PHD_SEARCH_DIR" "$pos_id" \
         --applyforge "${APPLYFORGE_DIR:-$HOME/@-github/ApplyForge}"
 }
@@ -351,8 +340,7 @@ _phd_add_source() {
         return 1
     fi
     local src="$_PHD_SEARCH_DIR/../context/phd_search_sources.md"
-    PYTHONPATH="$LIB_DIR/python" uv run python \
-        "$LIB_DIR/python/apply_tracker/sources.py" "$src" \
+    _tracker_py sources.py "$src" \
         add "$name" "$url" "$desc" $priority_flag
 }
 
@@ -405,8 +393,6 @@ _phd_sync() {
 
 phd_urgent_header() {
     if [[ -d "$_PHD_SEARCH_DIR" ]]; then
-        PYTHONPATH="$LIB_DIR/python" uv run python \
-            "$LIB_DIR/python/apply_tracker/status.py" \
-            "$_PHD_SEARCH_DIR" --urgent-header --type phd 2>/dev/null
+        _tracker_py status.py "$_PHD_SEARCH_DIR" --urgent-header --type phd 2>/dev/null
     fi
 }
