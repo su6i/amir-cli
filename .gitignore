@@ -18,6 +18,9 @@ venv/
 .venv/
 env/
 
+# Node (vendored deps — reinstall with: npm install --prefix lib/nodejs)
+node_modules/
+
 # Editor
 .vscode/
 .idea/
