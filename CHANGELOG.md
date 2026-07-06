@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-07-06 — gitignore node_modules (wo-applyforge-0011)
+
+- `lib/nodejs/node_modules/` was tracked in git (4177 files, never gitignored) —
+  discovered while scrubbing leaked personal data from history, since it was the
+  source of hundreds of unrelated npm-maintainer emails showing up in the audit.
+  Purged from all history via `git filter-repo` and added to `.gitignore`.
+  Restore locally with `npm install --prefix lib/nodejs`.
+
 ## 2026-07-06 — Apply Tracker moved to ApplyForge (wo-applyforge-0007)
 
 - **Refactor:** `lib/python/apply_tracker/` deleted from this repo and moved to
