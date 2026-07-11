@@ -145,8 +145,8 @@ amir (bash entry point)
 | `amir audio extract` | `lib/commands/audio.sh` → `audio_extract()` | استخراج MP3 از ویدیو. batch: `*.mp4 192` |
 | `amir audio split` | `lib/commands/audio.sh` → `audio_split()` | تقسیم فایل صوتی به chunks. batch |
 | `amir subtitle` | `lib/commands/subtitle.sh` | زیرنویس AI چندزبانه |
-| `amir pdf` | `lib/commands/pdf.sh` | PDF با Puppeteer |
-| `amir chat` | `lib/commands/chat.sh` | چت با Gemini/Gemma |
+| `amir pdf` | `lib/commands/pdf.sh` | PDF با Puppeteer؛ `amir pdf split` برای استخراج/ترکیب صفحات با qpdf |
+| `amir router` | `lib/commands/router.sh` | AI gateway (gemini/gemma رایگان، deepseek، minimax، grok) — جایگزین `amir chat`/`amir code` (هر دو حذف شدند) |
 | `amir keyboard` / `amir kb` | `lib/commands/keyboard.sh` → `lib/python/keyboard_layout.py` | layout کیبرد Apple Compact — FR/EN/FA + لایه‌های `--opt`/`--shift`/`--find` |
 | `amir skill` | `lib/commands/skill.sh` | مدیریت skill — `search`, `harvest`, `list`, `show` |
 
