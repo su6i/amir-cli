@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-07-12 — clip clipboard-to-file, pdf split, completion fixes
+
+- **feat(completions):** added `altacv-contact-up`/`altacv-contact-side` to
+  `--template`'s tab-completion list (new ApplyForge template variants — see
+  its own changelog).
+- **fix(completions):** `amir apply <job-url> --template ... --stack ...` had the
+  same fixed-word-position completion bug as `apply preview` — the dispatch
+  only recognized `phd`/`job`/`sync`/`tui`/`web`/`stats`/`alert` as word 3, so
+  a job URL (or any unrecognized word) at that position got zero completion
+  for every flag after it. Now any non-keyword word 3 (a URL) routes through
+  `_apply_arguments` the same way `preview` does. Also added `--stack` to
+  `_apply_arguments` completion (see ApplyForge's own changelog for the
+  feature itself).
+- **fix(llm-lists):** replaced the `groq` provider with `grok` (xAI) across
+  `lib/commands/llm-lists.sh`, completions, and docs — the owner has never
+  used Groq (the LPU inference host) and only holds an xAI/Grok API key, so
+  `groq` was dead weight that also collided by name with the unrelated
+  `grok` model already used in `amir router --model grok`. `GROQ_API_KEY` →
+  `GROK_API_KEY`, base URL → `https://api.x.ai/v1`.
+- **fix(clip):** `amir clip <single-word-non-existing-file>` (e.g. `amir clip
+  notes.md`) now saves the current clipboard content into that file, instead
+  of overwriting the clipboard with the literal argument text. Multi-word
+  arguments still copy as plain text (unchanged).
+- **feat(pdf):** new `amir pdf split <file.pdf> --pages <spec> [--combined]
+  [-o out]` subcommand, implemented via `qpdf`'s native page-range syntax.
+  `--pages 1,3,4` / `1,2-3,4-8` produces one PDF per comma-separated group;
+  `--combined` merges the selected pages/ranges into a single output PDF
+  instead.
+- **fix(completions):** `--theme` was never wired into `amir pdf`'s zsh
+  completion — added, backed by a dynamic `_amir_pdf_themes` function that
+  lists `lib/themes/*.css`.
+- **fix(completions):** `amir apply preview --role <TAB>` and any flag typed
+  after it stopped completing, because the dispatch only called
+  `_apply_arguments` when `CURRENT == 4`. Now handled for `CURRENT >= 4`,
+  matching the pattern already used by `subtitle`.
+- **feat(completions):** `amir router` had no subcommand/flag completion at
+  all (only the top-level command name completed) — added `audit`/`cost`/
+  `models` subcommands and `-m/--model`, `-s/--session`, `--new`, `--system`,
+  `--out`, `--plan` flags.
+- **chore:** removed dead `chat)`/`code)` blocks from `completions/_amir` and
+  deleted the orphaned `lib/commands/chat.sh`/`code.sh` — `amir chat`/`amir
+  code` were already replaced by `amir router` at the entry-point dispatcher
+  level, but the completion blocks and source files were never cleaned up,
+  so tab-completion kept advertising two commands that no longer run.
+- **docs:** documented the general fixed-position `case $((CURRENT))`
+  completion pitfall in `docs/TECHNICAL.md` (§3) — it affected multiple
+  commands and will resurface when adding new flag-style subcommands.
+
 ## 2026-07-06 — gitignore node_modules (wo-applyforge-0011)
 
 - `lib/nodejs/node_modules/` was tracked in git (4177 files, never gitignored) —

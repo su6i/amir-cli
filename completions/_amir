@@ -122,8 +122,18 @@ _amir() {
                 return
             fi
 
-            # Suggest the linkedin-post sub-tool at the first positional (alongside files)
-            (( CURRENT == 3 )) && [[ "$PREFIX" != -* ]] && compadd -X 'sub-tool' linkedin-post
+            # ── Sub-tool: amir pdf split <file.pdf> --pages <spec> [--combined] [-o out] ──
+            if [[ "${words[3]}" == "split" ]]; then
+                _arguments -s \
+                    '--pages[Comma-separated page numbers/ranges: 1,3,4 or 1,2-3,4-8]:pages spec: ' \
+                    '--combined[Merge the selected pages/ranges into one PDF instead of separate files]' \
+                    {-o,--output}'[Output filename (combined) or stem (split)]:filename:_files -g "*.pdf"' \
+                    '*:pdf file:_files -g "*.pdf"'
+                return
+            fi
+
+            # Suggest the linkedin-post/split sub-tools at the first positional (alongside files)
+            (( CURRENT == 3 )) && [[ "$PREFIX" != -* ]] && compadd -X 'sub-tool' linkedin-post split
 
             # ── amir pdf <images...> (collage / convert) ──
             _arguments -s \
@@ -132,6 +142,9 @@ _amir() {
                 '--weasyprint[Use WeasyPrint engine]' \
                 '--pil[Use PIL grayscale fallback engine]' \
                 '--pandoc[Use Pandoc engine]' \
+                '--theme[CSS theme from lib/themes/]:theme:_amir_pdf_themes' \
+                '--force-rtl[Force right-to-left rendering for the whole document]' \
+                '--rtl[Alias for --force-rtl]' \
                 '(-f --free-size)'{-f,--free-size}'[Generate a single continuous PDF with custom dimensions]' \
                 '--page-width[Set PDF width in pixels for free-size/custom layout]:width (px):(1200 1440 1600 1800 2000 2480 max-content fit-content nowrap)' \
                 '--page-height[Set PDF height in pixels for free-size/custom layout]:height (px):(1600 2000 2480 3000 3508 4000)' \
@@ -1015,23 +1028,40 @@ _amir() {
             esac
             ;;
 
-        chat)
-            if (( CURRENT == 2 )); then
-                _arguments ': :(--history)'
-            else
-                _message "💬 Ask Gemini/Gemma anything..."
-            fi
+        router|ai)
+            case "${words[3]:-}" in
+                audit|cost)
+                    ;;
+                models)
+                    if (( CURRENT == 4 )); then
+                        _values 'provider' 'minimax' 'deepseek' 'grok' 'gemini'
+                    fi
+                    ;;
+                *)
+                    if (( CURRENT == 3 )); then
+                        local -a router_cmds
+                        router_cmds=(
+                            'audit:Cost / usage ledger (raw)'
+                            'cost:Cost dashboard'
+                            'models:List provider model catalogs'
+                        )
+                        _describe -t commands 'router subcommand' router_cmds
+                        _message "or enter a prompt"
+                    fi
+                    # Flags/value pairs work at any position in the free-form prompt
+                    # (not gated by CURRENT — see the apply/preview fix above for why).
+                    _arguments -s \
+                        {-m,--model}'[Model to use]:model:(minimax flash pro grok gemini gemini-lite gemma)' \
+                        {-s,--session}'[Session name — reused across calls for memory]:session' \
+                        '--new[Reset/start a fresh session]' \
+                        '--system[System prompt/instruction text]: : ' \
+                        '--out[Write response to this file]:filename:_files' \
+                        '--plan[Read task/plan from this file]:filename:_files' \
+                        '*:prompt: '
+                    ;;
+            esac
             ;;
 
-        code)
-            if (( CURRENT == 2 )); then
-                _arguments ': :(--history clip)'
-                _files
-            else
-                _message "💻 Describe the refactoring or logic you want..."
-            fi
-            ;;
-        
         subtitle)
             case $((CURRENT)) in
                 *)
@@ -1102,6 +1132,22 @@ _amir() {
             ;;
         
         apply)
+            # Both "amir apply preview ..." and "amir apply <job-url> ..." take
+            # free-form flags (--role, --template, --stack, ...) in any order —
+            # handle them once via _arguments instead of the fixed word-position
+            # dispatch below, which only ever fires at CURRENT==4 and drops
+            # completion for every flag/value typed after that. Only the known
+            # keyword subcommands (phd/job/sync/tui/web/stats/alert) keep their
+            # own positional grammar, handled further down.
+            case "${words[3]}" in
+                phd|job|sync|tui|web|stats|alert) ;;
+                *)
+                    if (( CURRENT >= 4 )); then
+                        _apply_arguments
+                        return
+                    fi
+                    ;;
+            esac
             case $((CURRENT)) in
                 3)
                     local -a apply_cmds
@@ -1168,9 +1214,6 @@ _amir() {
                             )
                             _describe -t commands 'job subcommand' job_cmds
                             ;;
-                        preview)
-                            _apply_arguments
-                            ;;
                     esac
                     ;;
                 5)
@@ -1223,7 +1266,7 @@ _amir() {
                         'gemini:Google Gemini models'
                         'openai:OpenAI GPT models'
                         'deepseek:DeepSeek models'
-                        'groq:Groq models'
+                        'grok:xAI Grok models'
                         'anthropic:Claude models'
                     )
                     _describe -t providers 'LLM provider' providers
@@ -1372,6 +1415,19 @@ _amir_bg_colors() {
     _describe -t bg_colors 'Background Color' bg_colors
 }
 
+_amir_pdf_themes() {
+    # Dynamically list CSS theme names from lib/themes/*.css
+    local themes_dir="${HOME}/@-github/amir-cli/lib/themes"
+    local -a themes=()
+    if [[ -d "$themes_dir" ]]; then
+        for f in "$themes_dir"/*.css(N); do
+            themes+=("${f:t:r}")
+        done
+    fi
+    (( ${#themes[@]} == 0 )) && themes=('carousel' 'guide')
+    _values 'theme' "${themes[@]}"
+}
+
 _amir_cv_roles() {
     # Dynamically detect roles from canonical *-CV_ROLE_source.json files in CV repo
     local cv_repo="${HOME}/@-github/CV"
@@ -1425,11 +1481,12 @@ _apply_arguments() {
     # Custom arguments handler for apply command with dynamic role/lang completion
     _arguments -s \
         '1:action_or_url:' \
-        '--template[Choose LaTeX template layout]:template:(altacv lato tina classic experimental)' \
+        '--template[Choose LaTeX template layout]:template:(altacv altacv-contact-up altacv-contact-side lato tina classic experimental)' \
         '--role[Target role/variant]:role:_amir_cv_roles' \
         '--lang[Output language for CV/cover letter]:lang:_amir_cv_langs' \
         '--no-localize-preview[Preview only: skip profile text localization for faster generation]' \
-        '--color[Sidebar background color highlight]:color:(blue green orange red purple gray)'
+        '--color[Sidebar background color highlight]:color:(blue green orange red purple gray)' \
+        '--stack[Render tech/stack lists as bold boxed tags instead of plain text (altacv, lato)]'
 }
 
 # ── trend / research ──────────────────────────────────────────────────────────

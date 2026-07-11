@@ -78,7 +78,7 @@ During installation, you will be asked to provide the following API key for AI f
 | **`GEMINI_API_KEY`** | Enables the free tier of `amir router` (gemini/gemma), smart summaries, and intelligent help responses. | [Google AI Studio](https://aistudio.google.com/app/apikey) |
 | **`DEEPSEEK_API_KEY`** | Powers the subtitle translation system for 32 languages. Optional: fallback to Gemini if not set. | [DeepSeek Platform](https://platform.deepseek.com/) |
 | **`OPENAI_API_KEY`** | For `llm-lists openai` command (optional). | [OpenAI Platform](https://platform.openai.com/api-keys) |
-| **`GROQ_API_KEY`** | For `llm-lists groq` command (optional). | [Groq Console](https://console.groq.com/) |
+| **`GROK_API_KEY`** | For `llm-lists grok`/`amir router --model grok` (optional). | [xAI Console](https://console.x.ai/) |
 | **`ANTHROPIC_API_KEY`** | For `llm-lists anthropic` command (optional). | [Anthropic Console](https://console.anthropic.com/) |
 
 
@@ -165,6 +165,7 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir img <file> <size> [g]` | Legacy mode (detects resize vs crop). |
 | `amir pdf [files] [opts]` | **Multi-Engine PDF Generator**: Render Markdown/Text/Images/LaTeX to PDF. Supports piping (e.g., `amir clip | amir pdf`), Puppeteer (Default), WeasyPrint, PIL (Robust Fallback), and **xelatex** for `.tex` files. Features: High-fidelity Persian RTL (Vazirmatn), auto-pagination, ExFAT compatibility, `--free-size` (`-f`) for continuous/custom dimensions, `--page-width/--page-height` (Puppeteer, pixels) for manual page sizing, `--theme carousel` (square 1080px LinkedIn slides, `##` = one slide), `--theme guide` (clean professional A4 long-form document — coloured headings, boxed blockquotes, clickable links; works LTR + RTL), and **`--force-rtl`** (alias `--rtl`) to force the whole document right-to-left. For LaTeX, custom `.sty` and `.cls` styles can be placed in `lib/latex/` to automatically include them. Common widths: 1200, 1440, 1600, 1800, 2000, 2480. |
 | `amir pdf linkedin-post <folder> [carousel \| guide [fr en fa tri]]` | **Trilingual LinkedIn post builder (WeasyPrint)**: from `<folder>/guide.{fr,en,fa}.md` + `<folder>/post.yml` it renders the three guides, `guide.trilingue.pdf`, and `carrousel.linkedin.pdf`. Subcommands rebuild only what changed: `carousel`, or `guide <fr en fa tri>` (one or several targets, e.g. `guide fa` rebuilds just the Persian guide; `tri` = the merged trilingual PDF). Fonts are vendored in `lib/fonts/` and a restricted `fontconfig` keeps Persian/RTL correct on macOS. See `docs/TRILINGUAL_POSTS.md`. Example: `amir pdf linkedin-post posts/04_my_post`. |
+| `amir pdf split <file.pdf> --pages <spec> [--combined] [-o out]` | **Split/extract PDF pages** (via `qpdf`). `--pages` is a comma-separated list of page numbers/ranges: `--pages 1,3,4` → 3 separate single-page PDFs; `--pages 1,2-3,4-8` → 3 separate PDFs `[1]`, `[2-3]`, `[4-8]`. Add `--combined` to merge the selected pages/ranges into one PDF instead (e.g. `--pages 1,2-3,4-8 --combined` → one PDF with pages 1,2,3,4,5,6,7,8). `-o`/`--output` sets the output filename (combined) or the filename stem (split, e.g. `out_p1.pdf`). |
 | `amir watermark <file> [text]` | Add watermark to image (auto-saved or `-o output`). |
 | `amir subtitle <file/URL> [options]` | **AI-Powered Multilingual Subtitles**: Transcribe, translate (32 languages), and render. Source is auto-detected by default; practical default layout is source-top + Persian-bottom (`--sub auto fa`). Key flags: `--yt-subs` (force YouTube internal subs), `--ass-input <srt/ass>` (render from manual file; `.srt` files are automatically styled with Vazirmatn), `--resolution <h>` and `--quality <0-100>` (final render controls), `--style channel_brand_blue|shorts_brand_blue|news_guest_blue`, `--subtitle-banner-image/--subtitle-banner-color`, `--subtitle-logo [--subtitle-logo-animated]`, `--guest-tag "start,duration,name,title[,pos]"`, `--brand-kit <logo> [--brand-kit-shorts]`, `--save` (default export: `pdf`), and `--no-render` (SRT only). Default render height follows input video height when not provided. See [SUBTITLE.md](docs/SUBTITLE.md). |
 | `amir video record [--list] [--screen N] [--audio N] [--fps N] [-o FILE]` | Record screen to MP4 using macOS AVFoundation. `--list` shows available screens/audio devices. Ctrl+C to stop. Alias: `amir video rec`. |
@@ -217,9 +218,10 @@ export RESEARCH_TOOLKIT_DIR=/path/to/research_toolkit
 ### 🧠 AI & Productivity
 | Command | Description |
 | :--- | :--- |
-| `amir router "<prompt>"` | **AI gateway** — routes to gemini/gemma (free), deepseek, minimax, grok. Add `--model M` to pick a model, `--session S` for conversation memory. Replaces `amir chat`/`amir code`. |
+| `amir router "<prompt>"` | **AI gateway** — routes to minimax (default), deepseek (`flash`/`pro`), grok, gemini/gemini-lite/gemma (free). Flags: `-m`/`--model M` to pick a model, `-s`/`--session S` for conversation memory (reused across calls), `--new` to reset the session, `--system T` for a system prompt, `--plan FILE`/`--out FILE` to read a task from a file and write the response to one. Replaces `amir chat`/`amir code`. |
+| `amir router cost` | Cost dashboard (points to `amir router audit` for the raw ledger). |
 | `amir router audit` | Show the cost/usage ledger (provider-echoed proof of which model actually ran). |
-| `amir router models <provider> [-e fmt]` | Fetch model lists from LLM providers (gemini, openai, deepseek, groq, anthropic). Export to PDF/MD/JPG. |
+| `amir router models <provider> [-e fmt]` | Fetch model lists from LLM providers (gemini, openai, deepseek, grok, anthropic). Export to PDF/MD/JPG. |
 | `amir todo "task"` | Add a task to the local to-do list. |
 | `amir todo list` | Show all pending tasks. |
 | `amir todo done <n>` | Remove task number `<n>` from the list. |
