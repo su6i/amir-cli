@@ -252,7 +252,7 @@ Full PhD and job application tracker with SQLite backend, web UI, and Gmail sync
 | `amir transfer <file>` | Upload file to temporary cloud storage & copy link. |
 | `amir qr <content>` | Create QR Code (URL, WiFi, Email, Phone, Text). |
 | `amir short <url>` | Shorten a long URL. |
-| `amir clip [input]` | **Piped Clipboard**: Copies text/files to clipboard, or outputs clipboard content to stdout when piped (e.g., `amir clip | amir pdf`). |
+| `amir clip [input]` | **Piped Clipboard**: Copies text/files to clipboard, or outputs clipboard content to stdout when piped (e.g., `amir clip | amir pdf`). Single-word arg naming a file that doesn't exist yet (e.g. `amir clip notes.md`) saves the current clipboard content into that file instead. |
 | `amir pass [len]` | Generate a strong, random password. |
 | `amir lock <file>` | Encrypt a file (GPG). |
 | `amir unlock <file>` | Decrypt a file. |
