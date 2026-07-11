@@ -68,7 +68,7 @@ run_clip() {
                 return 0
             fi
             echo "❌ Error: No input provided."
-            echo "Usage: clip <file>  OR  clip <text>  OR  echo 'hi' | clip"
+            echo "Usage: clip <existing-file>  OR  clip <new-filename>  OR  clip <word1 word2 ...>  OR  echo 'hi' | clip"
             return 1
         fi
     
@@ -85,8 +85,24 @@ run_clip() {
                 _osc52_copy "$(cat "$full_path")"
                 echo "📍 File contents copied: $full_path"
             fi
+        elif [[ $# -eq 1 ]]; then
+            # --- Single word, no such file: save clipboard content into it ---
+            local target="$1"
+            local clip_content
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                clip_content=$(pbpaste)
+            elif [[ -n "$DISPLAY" ]] || [[ -n "$WAYLAND_DISPLAY" ]]; then
+                clip_content=$(xclip -selection clipboard -o 2>/dev/null || xsel --clipboard --output 2>/dev/null)
+            else
+                echo "❌ Error: cannot read clipboard on a headless session (OSC 52 is write-only)."
+                return 1
+            fi
+            printf '%s' "$clip_content" > "$target"
+            local full_path
+            full_path=$(realpath "$target")
+            echo "💾 Clipboard content saved to: $full_path"
         else
-            # --- Plain Text Copy Section ---
+            # --- Plain Text Copy Section (multi-word args) ---
             local text_to_copy="$*"
             if [[ "$OSTYPE" == "darwin"* ]]; then
                 printf '%s' "$text_to_copy" | pbcopy
