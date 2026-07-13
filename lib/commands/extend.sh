@@ -121,28 +121,28 @@ BOTTOM_COL="${BOTTOM_COL:-$GLOBAL_COLOR}"
 LEFT_COL="${LEFT_COL:-$GLOBAL_COLOR}"
 RIGHT_COL="${RIGHT_COL:-$GLOBAL_COLOR}"
 
-CMD="magick \"$INPUT_FILE\""
+CMD=(magick "$INPUT_FILE")
 
 if [[ "$TOP_PX" -gt 0 ]]; then
-    CMD+=" -background \"$TOP_COL\" -gravity North -splice 0x${TOP_PX}"
+    CMD+=(-background "$TOP_COL" -gravity North -splice "0x${TOP_PX}")
 fi
 
 if [[ "$BOTTOM_PX" -gt 0 ]]; then
-    CMD+=" -background \"$BOTTOM_COL\" -gravity South -splice 0x${BOTTOM_PX}"
+    CMD+=(-background "$BOTTOM_COL" -gravity South -splice "0x${BOTTOM_PX}")
 fi
 
 if [[ "$LEFT_PX" -gt 0 ]]; then
-    CMD+=" -background \"$LEFT_COL\" -gravity West -splice ${LEFT_PX}x0"
+    CMD+=(-background "$LEFT_COL" -gravity West -splice "${LEFT_PX}x0")
 fi
 
 if [[ "$RIGHT_PX" -gt 0 ]]; then
-    CMD+=" -background \"$RIGHT_COL\" -gravity East -splice ${RIGHT_PX}x0"
+    CMD+=(-background "$RIGHT_COL" -gravity East -splice "${RIGHT_PX}x0")
 fi
 
-CMD+=" \"$OUTPUT_FILE\""
+CMD+=("$OUTPUT_FILE")
 
 echo "Processing $INPUT_FILE..."
-eval $CMD
+"${CMD[@]}"
 
 if [[ $? -eq 0 ]]; then
     echo "Success! Saved as: $OUTPUT_FILE"

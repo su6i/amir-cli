@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-07-13 — security: eval-based command injection fixes
+
+Audit against `agent-constitution/rules/030-security.md` ("Do not use
+`eval()` ... with user input") found two `eval` call sites in amir-cli;
+both fixed by switching to Bash arrays, which eliminates the shell
+re-parsing step that made injection possible in the first place.
+
+- **fix(extend)!:** `lib/commands/extend.sh:145` built the ImageMagick
+  command as one concatenated string (`CMD="magick \"$INPUT_FILE\" ..."`)
+  from unvalidated CLI args (input/output filenames, `--top/--bottom/
+  --left/--right` colors) and ran it via unquoted `eval $CMD`. A crafted
+  argument broke out of the string and ran arbitrary shell commands, e.g.
+  `amir img extend photo.jpg --top 20 'red; touch pwned #'`. Verified
+  exploitable before the fix and closed after: `CMD` is now a Bash array
+  (`CMD=(magick "$INPUT_FILE"); CMD+=(-background "$TOP_COL" ...)`) invoked
+  directly as `"${CMD[@]}"` — every value is passed to `magick` as a single
+  literal argument, never re-interpreted as shell syntax. Pre-existing bug,
+  unrelated to today's earlier changes; found while auditing the whole repo
+  against the security rule for the `amir scripts` change below.
+- **fix(scripts):** `lib/commands/scripts.sh`'s two `eval "$cmd" ...`
+  call sites (added earlier today for the `amir scripts` feature) are
+  gone — replaced with `read -ra cmd_arr <<< "$cmd"` (splits the trusted
+  `lib/config/scripts.txt` command string into an array) followed by
+  `"${cmd_arr[@]}" "$@"`. Same behavior (`amir scripts <id> [args...]`
+  still runs multi-word registry commands with extra args appended), no
+  `eval` in the path from user-supplied arguments to a shell.
+
 ## 2026-07-13 — docs/TECHNICAL.md accuracy pass (follow-up)
 
 `docs/TECHNICAL.md` was missed in the scripts-subcommand commit below — this
