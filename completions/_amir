@@ -17,31 +17,20 @@ _amir() {
             'img:Resize images (logo and custom sizes)'
             'pdf:Convert images to PDF with custom sizing'
             'info:Show file technical properties'
-            'transfer:Upload temporary file and get link'
-            'lock:Encrypt and lock file'
-            'unlock:Unlock encrypted file'
             'clean:Clean system caches and trash'
-            'qr:Create smart QR Code'
-            'weather:Show weather information'
             'keyboard:Show keyboard layout (FR/EN/FA) with key combos'
-            'kb:Alias for keyboard'
-            'short:Shorten long URLs'
-            'pass:Generate secure password'
-            'speed:Test internet speed'
             'todo:Manage quick task list'
             'clip:Copy text or file to clipboard'
-            'router:AI gateway (gemini/gemma free, deepseek, minimax, grok) + memory'
+            'router:AI gateway (gemini/gemma free, deepseek, minimax, grok) + memory; models subcommand replaces llm-lists'
             'apply:Tailor CV and Cover Letter for a job from a URL'
             'watermark:Add logo or text watermark to images/videos'
             'subtitle:Generate multi-language subtitles using AI'
-            'llm-lists:Fetch model lists from LLM providers'
             'download:Download video, photo or carousel from YouTube, Instagram, TikTok, Twitter/X and 1000+ sites'
-            'dl:Alias for download'
             'trend:Trending content and research — YouTube, GitHub, arXiv, Reddit...'
-            'research:Alias for trend'
+            'research:Find/deep-research PhD supervisors — discover by keywords, or research one professor'
             'skill:Search GitHub and generate local skill (knowledge) files'
             'split:Split a media file into parts by size (MB)'
-            'dashboard:Open the amir dashboard'
+            'scripts:Pick & run a saved script (weather, qr, pass, dashboard, transfer, short, lock, unlock, speed live here now)'
         )
         _describe -t commands 'amir commands' commands
         return
@@ -374,7 +363,7 @@ _amir() {
             esac
             ;;
 
-        download|dl)
+        download)
             _arguments -s \
                 '1: : ' \
                 '2:url: ' \
@@ -952,7 +941,7 @@ _amir() {
             fi
             ;;
 
-        keyboard|kb)
+        keyboard)
             _arguments \
                 '2::layout:(fr en fa auto)' \
                 '--shift[Show keyboard with Shift held]' \
@@ -1028,14 +1017,58 @@ _amir() {
             esac
             ;;
 
+        scripts)
+            if (( CURRENT == 3 )); then
+                local -a script_opts
+                script_opts=('list:List saved scripts without prompting')
+                local registry="${HOME}/@-github/amir-cli/lib/config/scripts.txt"
+                if [[ -f "$registry" ]]; then
+                    while IFS='|' read -r id desc _; do
+                        [[ -z "$id" || "$id" == \#* ]] && continue
+                        script_opts+=("${id}:${desc}")
+                    done < "$registry"
+                fi
+                _describe -t script_opts 'scripts command' script_opts
+            fi
+            ;;
+
         router|ai)
             case "${words[3]:-}" in
                 audit|cost)
                     ;;
                 models)
-                    if (( CURRENT == 4 )); then
-                        _values 'provider' 'minimax' 'deepseek' 'grok' 'gemini'
-                    fi
+                    case $((CURRENT)) in
+                        4)
+                            local -a providers
+                            providers=(
+                                'gemini:Google Gemini models'
+                                'openai:OpenAI GPT models'
+                                'deepseek:DeepSeek models'
+                                'grok:xAI Grok models'
+                                'anthropic:Claude models'
+                            )
+                            _describe -t providers 'LLM provider' providers
+                            ;;
+                        5)
+                            local -a export_opts
+                            export_opts=(
+                                '-e:Export format'
+                                '--export:Export format'
+                            )
+                            _describe -t export_opts 'options' export_opts
+                            ;;
+                        6)
+                            if [[ "${words[5]}" == "-e" || "${words[5]}" == "--export" ]]; then
+                                local -a formats
+                                formats=(
+                                    'pdf:Export as PDF'
+                                    'md:Export as Markdown'
+                                    'jpg:Export as image'
+                                )
+                                _describe -t formats 'export format' formats
+                            fi
+                            ;;
+                    esac
                     ;;
                 *)
                     if (( CURRENT == 3 )); then
@@ -1258,40 +1291,6 @@ _amir() {
                     ;;
             esac
             ;;
-        llm-lists)
-            case $((CURRENT)) in
-                3)
-                    local -a providers
-                    providers=(
-                        'gemini:Google Gemini models'
-                        'openai:OpenAI GPT models'
-                        'deepseek:DeepSeek models'
-                        'grok:xAI Grok models'
-                        'anthropic:Claude models'
-                    )
-                    _describe -t providers 'LLM provider' providers
-                    ;;
-                4)
-                    local -a export_opts
-                    export_opts=(
-                        '-e:Export format'
-                        '--export:Export format'
-                    )
-                    _describe -t export_opts 'options' export_opts
-                    ;;
-                5)
-                    if [[ "${words[4]}" == "-e" || "${words[4]}" == "--export" ]]; then
-                        local -a formats
-                        formats=(
-                            'pdf:Export as PDF'
-                            'md:Export as Markdown'
-                            'jpg:Export as image'
-                        )
-                        _describe -t formats 'export format' formats
-                    fi
-                    ;;
-            esac
-            ;;
         clean)
             _message "Cleaning system temporary files..."
             ;;
@@ -1320,10 +1319,9 @@ _amir() {
         help|--help|-h)
             if (( CURRENT == 3 )); then
                 _values 'command' \
-                    video download audio pdf img watermark subtitle clip \
-                    transfer lock unlock qr weather short pass speed todo \
-                    chat code dashboard apply keyboard trend research skill \
-                    llm-lists split init-project sync-constitution update-projects clean
+                    video download audio pdf img info watermark subtitle clip \
+                    clean todo router apply keyboard trend research skill \
+                    split init-project sync-constitution update-projects scripts
             fi
             ;;
     esac
