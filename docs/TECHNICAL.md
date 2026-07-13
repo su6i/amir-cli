@@ -20,11 +20,13 @@ amir-cli/
 │   ├── python/           # Python helpers (stdlib; render_post.py uses WeasyPrint via isolated uv)
 │   ├── themes/           # PDF CSS themes (guide, carousel)
 │   ├── fonts/            # Vendored fonts (Vazirmatn, DejaVu) for the LinkedIn-post renderer
+│   ├── config/           # Static config data: media.json, scripts.txt (see `amir scripts` below)
 │   └── commands/         # Individual subcommand scripts
 │       ├── video.sh      # Video processing (compress, cut, download)
 │       ├── audio.sh      # Audio extraction, concat, youtube
 │       ├── pdf.sh        # PDF generator + `linkedin-post` trilingual builder
 │       ├── img.sh        # Image processing logic
+│       ├── scripts.sh    # `amir scripts` — picker/runner for lib/config/scripts.txt entries
 │       └── ...
 └── docs/
     └── TECHNICAL.md      # This file
@@ -173,6 +175,17 @@ amir qr "https://google.com"
 # Save as image
 amir qr "+989123456789" contact.png
 ```
+
+### Lightweight Alternative: the `amir scripts` Registry
+
+The `run_mycmd`/dispatcher/completion path above is the right choice for anything with real flags, its own completion, or day-to-day usage. For a low-traffic, one-off, or purely personal script (added 2026-07-13, `lib/commands/scripts.sh`), skip all four steps and just add a line to `lib/config/scripts.txt`:
+
+```
+id|description|command
+mcp-map|Reconcile MCP server enable/disable map|python3 ~/.claude/scripts/apply-mcp-map.py
+```
+
+`amir scripts` (no args) shows a numbered picker built from that file; `amir scripts list` prints it without prompting; `amir scripts <id> [args...]` runs an entry directly. No dispatcher case, no `commands=()` entry, no completion block — the registry itself *is* the completion (word 3 after `scripts` is generated live from `lib/config/scripts.txt`, see `completions/_amir`'s `scripts)` case). Existing dispatcher commands can point their `command` field back at `amir <cmd>` to be reachable both ways during a migration — see `weather`/`qr`/`pass`/`dashboard`/`transfer`/`short`/`lock`/`unlock`/`speed` in `lib/config/scripts.txt`, moved off the top-level `commands=()` list and `amir help` 2026-07-13 (near-zero real usage per `~/.zsh_history`) but still callable directly, unchanged, at the dispatcher level.
 
 ---
 
@@ -512,7 +525,7 @@ amir subtitle video.mp4 --sub en fa ar es
   - `create_ass_with_font()`: ASS generation with bilingual support
   - `_ingest_partial_srt()`: Resume translation recovery
 
-### `trend` / `research` (Research Toolkit Bridge)
+### `trend` (Research Toolkit Bridge)
 
 **Purpose:** Surface trending content and drive idea generation from 6 platforms — YouTube, GitHub, arXiv, Reddit, ProductHunt, Indie Hackers — without leaving the terminal.
 
@@ -576,9 +589,6 @@ amir trend "climate agriculture" --semantic
 
 # Generate AI-powered ideas from collected data (calls the idea pipeline)
 amir trend "fintech" --ideas --count 15
-
-# amir research = alias for amir trend
-amir research "open source AI"
 ```
 
 #### All Options
@@ -628,18 +638,46 @@ Default path: `$HOME/@-github/research_toolkit`
 4. **`--semantic` flag** → bypasses SQLite, queries ChromaDB + BM25 hybrid pipeline with cross-encoder reranker
 5. **`--ideas` flag** → calls `python main.py idea --keywords [keyword]` (Multi-Agent RAG synthesis pipeline)
 
-### `llm-lists` (LLM Model Discovery)
+### `research` (PhD/Postdoc Supervisor Scout)
+
+**Not an alias for `trend`.** Split out of `trend.sh` into its own `lib/commands/research.sh` on 2026-06-01 (commit `1930927`) — unrelated feature that happens to bridge the same [Research Toolkit](https://github.com/su6i/research-toolkit) repo, but hits its `professor_scout` pipeline instead of `query`/`idea`. `amir help`/`completions/_amir`/README all called it "Alias for trend" until 2026-07-13; that was stale documentation, not the actual dispatch — the `amir` script has always routed `research)` to `run_research` (`research.sh`), a completely separate function from `run_trend` (`trend.sh`).
+
+#### Architecture
+
+```
+amir research discover --keywords K [opts]     amir research professor --professor N [opts]
+  │                                               │
+  └─ lib/commands/research.sh → run_research()     ┘
+       │
+       ├─ _research_toolkit_dir(): $RESEARCH_TOOLKIT_DIR → $AMIR_ROOT/lib/research_toolkit → ~/@-github/research_toolkit
+       ├─ _research_python(): <toolkit_dir>/.venv/bin/python  (same direct-binary rationale as trend.sh — avoids uv run's VIRTUAL_ENV bleed)
+       └─ calls: python main.py discover|research [args]  (cd'd into toolkit_dir)
+                   └─ research_toolkit's professor_scout pipeline (ArXiv + DBLP author search, paper/topic overlap scoring, LLM-drafted outreach email)
+```
+
+#### Subcommands
+
+- **`discover`** — find candidate supervisors by topic keywords. Required: `--keywords KW [KW...]`. Optional: `--sources arxiv dblp`, `--since-year Y` (default 2022), `--min-papers N` (default 2), `--top N` (default 10), `--format txt|md|xlsx`, `--categories`, `--profile FILE` (LLM scoring), `--save FILE` (defaults to `./discover_<keywords-slug>_<date>.<fmt>` in the caller's CWD, not the toolkit dir).
+- **`professor`** — deep-research one named professor: papers → topic overlap → drafted email. Required: `--professor NAME`. Optional: `--institution`, `--email`, `--gender M|F` (default M), `--lang fr|en` (default fr), `--story TEXT`, `--since-year Y` (default 2021), `--scholar-url URL` (for non-CS profiles Google Scholar doesn't cover well), `--profile FILE`, `--tracking FILE` + `--position-id ID` (updates a position in the Apply Tracker's `tracking.json` directly).
+
+Both subcommands no-op into `_research_help()` (usage text) if called with `--help`/`-h` or missing their required flag, rather than failing hard.
+
+Same `RESEARCH_TOOLKIT_DIR` env var and setup as `trend` above.
+
+### LLM Model Discovery (`amir router models`, was `amir llm-lists`)
 **Purpose:** Fetch and export available models from AI providers for quick reference.
+
+**No top-level `amir llm-lists` command since 2026-07-13** — `run_router`'s `models` case has always been a pure passthrough (`source lib/commands/llm-lists.sh; llm_lists "$@"`), 1:1 identical to calling the file directly, so the redundant dispatcher entry, `commands=()` completion item, and standalone completion block were dropped in favor of the one true entry point. The implementation file, its `llm_lists()` function name, and every provider/export flag below are unchanged — only the top-level command name went away.
 
 #### Supported Providers
 1. **Gemini:** Google's latest models via `google-genai` SDK
 2. **OpenAI:** GPT models via official SDK
 3. **DeepSeek:** Chat/Coder models (OpenAI-compatible endpoint)
-4. **Groq:** Ultra-fast inference models
+4. **Grok (xAI):** via `https://api.x.ai/v1`, OpenAI-compatible endpoint
 5. **Anthropic:** Claude models (manually curated list)
 
 #### Architecture
-- **Implementation:** Hybrid Bash/Python (`lib/commands/llm-lists.sh`)
+- **Implementation:** Hybrid Bash/Python (`lib/commands/llm-lists.sh`, function `llm_lists()`)
 - **Python Script:** Dynamically generated with embedded code
 - **Environment:** Uses `.env` for API keys
 - **Execution:** Prefers virtual environment Python if available
@@ -647,12 +685,12 @@ Default path: `$HOME/@-github/research_toolkit`
 #### Usage
 ```bash
 # List models
-amir llm-lists gemini
-amir llm-lists deepseek
+amir router models gemini
+amir router models deepseek
 
 # Export formats
-amir llm-lists openai -e md        # Markdown
-amir llm-lists grok --export pdf   # PDF (requires pandoc)
+amir router models openai -e md        # Markdown
+amir router models grok --export pdf   # PDF (requires pandoc)
 ```
 
 #### Export Features
@@ -710,10 +748,10 @@ This prevents home directory pollution. The structure is:
 ~/.amir/
 ├── config.yaml        # User configuration
 ├── learning_data      # AI stats for video compression
-├── todo_list.txt      # Todo items
-├── chat_history.md    # AI chat logs
-└── code_history.md    # Code generation logs
+└── todo_list.txt      # Todo items
 ```
+
+`amir chat`/`amir code` (and their `~/.amir/chat_history.md`/`code_history.md` logs) were removed in favor of `amir router` (see "AI Gateway" below) — `router`'s own session memory and cost ledger live outside `~/.amir/`, in the vault at `~/.local/share/agent-projects/_router/` (see `run_router()` in `lib/commands/router.sh`).
 
 ### Customizing the Location
 You can change this location (e.g., if you want to rename the project or store data elsewhere) by setting the `AMIR_CONFIG_DIR` environment variable.
