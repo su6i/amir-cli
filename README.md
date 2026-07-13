@@ -23,11 +23,11 @@ Built with modularity and ease of use in mind, `amir` works seamlessly across **
 - **🧠 Skill Management:** `amir skill harvest` searches GitHub by stars, fetches READMEs, and synthesizes `.agent/skills/` reference files for AI agents. Covers YouTube automation, TTS (Fish Speech, GPT-SoVITS, XTTS v2), video production, ComfyUI, music generation, and analytics.
 - **🖼️ Advanced Image Processing:** AI-powered upscaling (Real-ESRGAN), document enhancement lab (140 variations), smart stacking (front/back), professional corner rounding, and perfect SVG rendering via `librsvg`.
 - **🌍 Advanced Subtitle System:** AI-powered multilingual subtitles supporting **32 languages**. Features automatic translation, multi-platform hardware encoding (Mac/Ubuntu) with 1:1 size parity, Whisper Turbo as default, and document export via `--save` (no argument defaults to `pdf`).
-- **🤖 AI Powered:** Chat with Gemini/Gemma, generate code, and fetch model lists from 5 LLM providers (Gemini, OpenAI, DeepSeek, Groq, Anthropic).
+- **🤖 AI Powered:** `amir router` gateway to minimax/deepseek/grok/gemini/gemma (free tier), with conversation memory and a cost ledger; `amir router models` fetches model lists from 5 providers (Gemini, OpenAI, DeepSeek, Grok, Anthropic).
 - **🎓 Apply Tracker:** Full PhD and job application pipeline — SQLite backend, FastAPI web UI, Textual TUI, Gmail sync with one click, bidirectional sort, reject/sent/reply tracking, and experience requirements field.
-- **📡 Research & Trends:** Multi-Agent RAG pipeline that searches YouTube, GitHub, arXiv, Reddit, ProductHunt, and Indie Hackers. Find trending content, filter by language/region, and generate cross-source ideas.
-- **🛠️ System Utilities:** One-command system cleanup, password generation, file locking/unlocking, and QR code generation.
-- **☁️ File Transfer:** Instantly upload files to temporary hosting services and get a shareable link.
+- **📡 Research & Trends:** Multi-Agent RAG pipeline that searches YouTube, GitHub, arXiv, Reddit, ProductHunt, and Indie Hackers. Find trending content, filter by language/region, and generate cross-source ideas. Separately, `amir research` scouts and deep-researches PhD/postdoc supervisors (ArXiv+DBLP discovery, paper-overlap analysis, drafted outreach email).
+- **🛠️ System Utilities:** One-command system cleanup, password generation, file locking/unlocking, and QR code generation — via `amir scripts` (or directly, e.g. `amir pass`).
+- **☁️ File Transfer:** Instantly upload files to temporary hosting services and get a shareable link — via `amir scripts transfer` (or `amir transfer` directly).
 - **⚡ Super Fast:** Written in optimized Bash/Zsh with minimal overhead.
 
 ## 📦 Installation

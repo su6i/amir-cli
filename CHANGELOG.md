@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-07-13 — docs/TECHNICAL.md accuracy pass (follow-up)
+
+`docs/TECHNICAL.md` was missed in the scripts-subcommand commit below — this
+closes that gap:
+
+- **docs(scripts):** documented the new `amir scripts` registry as a
+  lightweight alternative extension path (new subsection under "🛠 Extending
+  Amir CLI"), and added `lib/config/` + `lib/commands/scripts.sh` to the
+  Project Structure tree.
+- **docs(research):** split the `### `trend` / `research`` section in two —
+  `research` was never actually an alias for `trend` (separate
+  `research.sh` since commit `1930927`, 2026-06-01); it's a PhD/postdoc
+  supervisor-scout pipeline (`discover`/`professor` subcommands) that just
+  happens to bridge the same Research Toolkit repo. Removed the false
+  `amir research "open source AI"` alias example from `trend`'s usage
+  block and wrote a real architecture/subcommand section for `research`.
+- **docs(llm-lists):** updated the LLM Model Discovery section for its
+  `amir router models` rename (2026-07-13, see below) — usage examples,
+  heading, and a note on why the dispatcher entry was safe to drop
+  (pure passthrough, same underlying `llm_lists()` function). Also fixed a
+  pre-existing stale provider name (`Groq` → `Grok (xAI)`, the actual
+  provider since `groq`→`grok` was renamed 2026-07-12) while in the
+  neighborhood.
+- **docs(readme):** the top-level "✨ Features" bullets in README had drifted
+  even further out of sync than the sections below them: **AI Powered**
+  still advertised "Chat with Gemini/Gemma, generate code" (`amir
+  chat`/`amir code` — deleted 2026-07-12, replaced by `amir router`) and
+  `Groq` (renamed to `Grok` 2026-07-12); rewritten to describe `amir
+  router`/`amir router models`. **Research & Trends** didn't mention `amir
+  research` (the professor-scout pipeline, see above) at all — added.
+  **System Utilities**/**File Transfer** now note the `amir scripts`
+  relocation for `pass`/`lock`/`unlock`/`qr`/`transfer` (still directly
+  callable too).
+- **docs(technical):** the `~/.amir/` storage-layout diagram still listed
+  `chat_history.md`/`code_history.md` — dead since `chat.sh`/`code.sh` were
+  deleted 2026-07-12 (verified: nothing under `lib/`/`amir` writes those
+  paths anymore). Removed them and added a pointer to where `amir router`
+  actually keeps session memory/cost-ledger data now (outside `~/.amir/`,
+  in the `_router` vault).
+
 ## 2026-07-13 — scripts subcommand
 
 - **feat(scripts):** new `amir scripts` subcommand — a picker for saved
