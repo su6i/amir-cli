@@ -56,6 +56,25 @@ The completion script (`completions/_amir`) is a sophisticated Zsh function that
 - Provides context-aware suggestions (e.g., listing image sizes for `img resize` or gravity options for `img crop`).
 - Is properly registered to `fpath` by the installer.
 
+**⚠️ Known pitfall — fixed-position `case $((CURRENT)) in 3) ... 4) ... esac` dispatch:**
+Several subcommand blocks route completion by matching the *exact* word position
+(`CURRENT == 4`, `CURRENT == 5`, ...). This works only as long as the user is
+still typing that exact word; once they type past it (e.g. `amir apply preview
+--role X --l<TAB>`, which is word 7+), no branch matches and Tab silently does
+nothing. This bit `amir apply preview --role` (2026-07) — completion worked only
+immediately after `preview`, not after typing `--role <value>` and reaching for
+the next flag. **Fix:** for any subcommand whose remaining arguments are
+flags/values in arbitrary order (not a fixed positional grammar), call
+`_arguments -s` unconditionally (or guarded by `(( CURRENT >= N ))`, not
+`== N`) instead of gating it inside the position-keyed case. `_arguments`
+reads the whole `$words`/`$CURRENT` state itself, so it doesn't need to be
+re-dispatched per word — see the `apply preview` and `router` blocks in
+`completions/_amir` for the corrected pattern, and the pre-existing `subtitle)`
+block (`case $((CURRENT)) in *) _arguments -s ... ;; esac`) for another
+working example of the same idiom. Fixed positional `case` is still fine for
+strictly ordered positional grammars (e.g. `pdf linkedin-post <folder>
+[carousel|guide] [targets...]`), just not for free-form flag sets.
+
 ---
 
 ## 🛠 Extending Amir CLI
@@ -164,6 +183,10 @@ amir qr "+989123456789" contact.png
 - **Piping Architecture**:
     - **Input Pipe**: If `stdin` is not a TTY, it reads the stream. If a filename is provided, it saves to that file; otherwise, it copies to the system clipboard.
     - **Output Pipe**: If `stdout` is not a TTY and no arguments are provided, it outputs the current clipboard content. This enables workflows like `amir clip | amir pdf`.
+- **Direct-argument dispatch** (no pipe involved, `amir clip <arg>`):
+    - Existing file → copied as a file object (macOS) or its contents via OSC 52 (Linux/SSH).
+    - Single word, no such file (e.g. `amir clip notes.md`) → **saves the current clipboard content into that file** (fixed 2026-07-12; previously this overwrote the clipboard with the literal argument text, which was a footgun).
+    - Multiple words (e.g. `amir clip hello world`) → copied to the clipboard as plain text (unchanged).
 - **System Commands**: Wraps `pbcopy`/`pbpaste` (macOS), `xclip`/`xsel` (Linux).
 
 ### `img` (Image Processing)
@@ -348,6 +371,7 @@ amir video download <url> [options]
     - **Direction Detection & `--force-rtl`:** By default `render_puppeteer.js` auto-detects document direction (Persian vs Latin character count) and, as a per-element fallback, flips any block that *starts* with a Latin character to LTR. This heuristic breaks RTL documents whose lines legitimately begin with a Latin token (URLs, code, legal references like `CESEDA L421-1`, `€2,800.53`): such lines get left-aligned, scrambling a Persian/Arabic page. The **`--force-rtl`** flag (alias `--rtl`; passed as the 9th positional arg to `render_puppeteer.js` and forwarded by `pdf.sh`) pins `docDir = rtl` and disables the per-element LTR flip, forcing every block (`p, li, ul, ol, h1–h6, th, td, blockquote`) to `dir="rtl"` / `text-align:right`. **Rule of thumb: always pass `--force-rtl` when rendering a Persian/Arabic file that mixes in Latin tokens.**
     - **Smart Pagination:** Uses CSS `page-break-inside: avoid` to prevent element splitting. The assembly loop in `pdf.sh` uses explicit page selection (`[0-999]`) to ensure ImageMagick captures every page from multi-page PDFs.
     - **Finder Optimization:** On macOS, the script executes `touch` on the final output to force Finder to refresh "Date Added" and "Date Modified" metadata.
+    - **Page splitting/extraction (`amir pdf split`, added 2026-07-12):** `run_pdf_split()` in `pdf.sh` wraps `qpdf`'s native `--pages . <range> -- out.pdf` syntax — `qpdf` itself already accepts comma-separated page-number/range specs (`1,3,5-9`), so no manual range parser was written. `--pages 1,3,4` (or `1,2-3,4-8`) splits the top-level comma groups into one output PDF per group (named `<stem>_p<spec>.pdf`); `--combined` instead passes the whole spec straight to a single `qpdf` call to merge those pages into one output. Requires `qpdf` (`brew install qpdf`); no Python PDF library needed.
     - **Disk Space Overflow:** If the internal disk is full (100% capacity), the script automatically redirects `TMPDIR`, `UV_CACHE_DIR`, and Chrome profiles to `/Volumes/SanDisk/amir_data`.
 
 ### `img` (Image Manipulation) - AI & Laboratory
@@ -628,7 +652,7 @@ amir llm-lists deepseek
 
 # Export formats
 amir llm-lists openai -e md        # Markdown
-amir llm-lists groq --export pdf   # PDF (requires pandoc)
+amir llm-lists grok --export pdf   # PDF (requires pandoc)
 ```
 
 #### Export Features

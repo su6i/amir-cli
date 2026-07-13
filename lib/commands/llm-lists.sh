@@ -6,7 +6,7 @@
 #
 # Usage: amir llm-lists [provider] [-e|--export format]
 #
-# Providers: gemini, openai, deepseek, groq, anthropic
+# Providers: gemini, openai, deepseek, grok, anthropic
 # Export formats: pdf, md, jpg (optional)
 
 llm_lists() {
@@ -33,26 +33,26 @@ llm_lists() {
                 echo "   • gemini    (Google Gemini SDK)"
                 echo "   • openai    (GPT-4/o1 via OpenAI SDK)"
                 echo "   • deepseek  (DeepSeek V3/R1 via API)"
-                echo "   • groq      (Llama-3/Mistral via Groq)"
+                echo "   • grok      (xAI Grok via API)"
                 echo "   • anthropic (Claude-3.5/3.7 via SDK)"
                 return 0
                 ;;
-            gemini|openai|deepseek|groq|anthropic)
+            gemini|openai|deepseek|grok|anthropic)
                 provider="$1"
                 shift
                 ;;
             *)
                 echo "❌ Unknown option: $1"
-                echo "Usage: amir llm-lists [gemini|openai|deepseek|groq|anthropic] [-e|--export pdf|md|jpg]"
+                echo "Usage: amir llm-lists [gemini|openai|deepseek|grok|anthropic] [-e|--export pdf|md|jpg]"
                 return 1
                 ;;
         esac
     done
-    
+
     # Default to gemini if no provider specified
     if [[ -z "$provider" ]]; then
         echo "🤖 No provider specified. Available providers:"
-        echo "   • gemini, openai, deepseek, groq, anthropic"
+        echo "   • gemini, openai, deepseek, grok, anthropic"
         echo ""
         echo "Usage: amir llm-lists <provider> [-e|--export pdf|md|jpg]"
         return 1
@@ -136,17 +136,17 @@ def get_models_list(provider):
                 print("❌ Error: 'openai' package not installed.")
                 return
 
-        # 4. Groq (OpenAI Compatible)
-        elif provider == "groq":
+        # 4. xAI Grok (OpenAI Compatible)
+        elif provider == "grok":
             try:
                 from openai import OpenAI
-                api_key = os.getenv("GROQ_API_KEY")
+                api_key = os.getenv("GROK_API_KEY")
                 if not api_key:
-                    print("❌ Error: GROQ_API_KEY not found.")
+                    print("❌ Error: GROK_API_KEY not found.")
                     return
                 client = OpenAI(
-                    api_key=api_key, 
-                    base_url="https://api.groq.com/openai/v1"
+                    api_key=api_key,
+                    base_url="https://api.x.ai/v1"
                 )
                 models = client.models.list()
                 for m in models.data:

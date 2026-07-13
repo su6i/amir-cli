@@ -122,7 +122,7 @@ case "$COMMAND" in
         fi
         ;;
 
-    download|dl)
+    download)
         shift
         if [[ -f "$LIB_DIR/commands/download.sh" ]]; then
             source "$LIB_DIR/commands/download.sh"
@@ -217,7 +217,7 @@ case "$COMMAND" in
         if [[ -f "$LIB_DIR/commands/apply.sh" ]]; then source "$LIB_DIR/commands/apply.sh"; run_apply "$@"; exit $?; fi
         ;;
     
-    keyboard|kb)
+    keyboard)
         shift
         if [[ -f "$LIB_DIR/commands/keyboard.sh" ]]; then source "$LIB_DIR/commands/keyboard.sh"; run_keyboard "$@"; exit $?; fi
         ;;
@@ -237,14 +237,14 @@ case "$COMMAND" in
         if [[ -f "$LIB_DIR/commands/skill.sh" ]]; then source "$LIB_DIR/commands/skill.sh"; run_skill "$@"; exit $?; fi
         ;;
 
-    llm-lists)
-        shift
-        if [[ -f "$LIB_DIR/commands/llm-lists.sh" ]]; then source "$LIB_DIR/commands/llm-lists.sh"; llm_lists "$@"; exit $?; fi
-        ;;
-
     audio)
         shift
         if [[ -f "$LIB_DIR/commands/audio.sh" ]]; then source "$LIB_DIR/commands/audio.sh"; run_audio "$@"; exit $?; fi
+        ;;
+
+    scripts)
+        shift
+        if [[ -f "$LIB_DIR/commands/scripts.sh" ]]; then source "$LIB_DIR/commands/scripts.sh"; run_scripts "$@"; exit $?; fi
         ;;
 
     split)

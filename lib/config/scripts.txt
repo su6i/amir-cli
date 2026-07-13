@@ -1,0 +1,16 @@
+# amir scripts registry
+# format: id|description|command
+mcp-map|Reconcile MCP server enable/disable map across projects|python3 /Users/su6i/.claude/scripts/apply-mcp-map.py
+
+# --- low-traffic amir subcommands, moved off the top-level menu 2026-07-13 ---
+# still runnable directly too (amir <cmd>) — dispatcher entries kept, just
+# dropped from `amir help` and word-2 tab-completion.
+weather|Show weather (optional city arg, default: Montpellier)|amir weather
+qr|Generate a QR code from text/URL/phone/email|amir qr
+pass|Generate a secure random password (optional length arg)|amir pass
+dashboard|Show system status dashboard (CPU, RAM, Space)|amir dashboard
+transfer|Upload a file to temporary cloud storage & copy link|amir transfer
+short|Shorten a long URL|amir short
+lock|Encrypt a file (GPG)|amir lock
+unlock|Decrypt a file (GPG)|amir unlock
+speed|Test internet connection speed|amir speed

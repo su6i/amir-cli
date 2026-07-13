@@ -18,16 +18,9 @@ run_help() {
     
     echo ""
     echo -e "${BOLD}Utilities:${NC}"
-    echo "  transfer <file>              Upload file to temporary hosting"
-    echo "  qr <text> [out]              Generate QR code"
-    echo "  short <url>                  Shorten URL"
-    echo "  lock/unlock <file>           Encrypt/Decrypt file"
-    echo "  pass [len]                   Generate secure password"
     echo "  clip <text|file>             Smart clipboard tool"
     echo "  clean                        Clean system cache/trash"
-    echo "  speed                        Test internet speed"
-    echo "  weather [city]               Show weather"
-    
+
     echo ""
     echo -e "${BOLD}Research & Trends:${NC}"
     echo "  trend [keyword]              Trending content & research (default: YouTube most viewed)"
@@ -36,14 +29,16 @@ run_help() {
     echo "  trend [keyword] --region CC  Region: IR US GB DE ... (default: global)"
     echo "  trend [keyword] --metric M   Sort by: views likes stars citations comments"
     echo "  trend [keyword] --ideas      Generate AI ideas from collected data"
-    echo "  research                     Alias for trend"
+    echo "  research discover --keywords K [opts]   Find PhD/postdoc supervisors by topic (ArXiv+DBLP)"
+    echo "  research professor --professor N [opts] Deep-research a specific professor + draft email"
 
     echo ""
     echo -e "${BOLD}AI & Productivity:${NC}"
     echo "  router \"<prompt>\" [--model M]  AI gateway: gemini/gemma(free), deepseek, minimax, grok + memory"
     echo "  router audit | cost | models  Cost ledger / dashboard / provider model lists"
     echo "  todo [add/done]              Manage local todo list"
-    echo "  dashboard                    Show system status dashboard"
+    echo "  scripts [id|list]            Pick & run a saved script (no args = menu; includes"
+    echo "                                weather/qr/pass/dashboard/transfer/short/lock/unlock/speed)"
     
     echo ""
     echo -e "${BOLD}System:${NC}"
