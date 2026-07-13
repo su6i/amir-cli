@@ -38,9 +38,10 @@ run_scripts() {
     if [[ -n "$1" ]]; then
         for i in "${!ids[@]}"; do
             if [[ "${ids[$i]}" == "$1" ]]; then
-                local cmd="${cmds[$i]}"
+                local -a cmd_arr
+                read -ra cmd_arr <<< "${cmds[$i]}"
                 shift
-                eval "$cmd" '"$@"'
+                "${cmd_arr[@]}" "$@"
                 return $?
             fi
         done
@@ -74,5 +75,7 @@ run_scripts() {
     fi
 
     echo "▶️  Running: ${ids[$idx]}"
-    eval "${cmds[$idx]}"
+    local -a cmd_arr
+    read -ra cmd_arr <<< "${cmds[$idx]}"
+    "${cmd_arr[@]}"
 }
