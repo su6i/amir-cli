@@ -56,3 +56,6 @@ completions/*.zwc
 .storage/
 .agent/skills.bak/
 *.bak
+
+# Project-specific agent notes — symlink to vault, never commit (rule 035)
+CLAUDE.local.md
