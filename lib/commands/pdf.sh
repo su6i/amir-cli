@@ -364,8 +364,80 @@ run_pdf() {
     for f in "${CLEANUP_FILES[@]}"; do rm -f "$f"; done
 }
 
+# ──────────────────────────────────────────────────────────────────
+# amir pdf split <file.pdf> --pages <spec> [--combined] [-o output]
+#
+# --pages is a comma-separated list of page numbers/ranges, e.g.:
+#   --pages 1,3,4          → three files, each a single page
+#   --pages 1,2-3,4-8      → three files: [1], [2,3], [4,5,6,7,8]
+#   --pages 1,2-3,4-8 --combined  → one file with pages 1,2,3,4,5,6,7,8
+#
+# Implemented via qpdf's native --pages page-range syntax (qpdf itself
+# accepts "1,3,5-9"-style ranges), so no manual page-range parsing needed.
+# ──────────────────────────────────────────────────────────────────
+run_pdf_split() {
+    local input="" pages_spec="" combined=false output=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --pages) pages_spec="$2"; shift 2 ;;
+            --combined) combined=true; shift ;;
+            -o|--output) output="$2"; shift 2 ;;
+            -*) echo "❌ Unknown option: $1"; return 1 ;;
+            *) input="$1"; shift ;;
+        esac
+    done
+
+    if [[ -z "$input" || ! -f "$input" ]]; then
+        echo "❌ Usage: amir pdf split <file.pdf> --pages <spec> [--combined] [-o output]"
+        echo "   --pages 1,3,4          → 3 separate PDFs, one page each"
+        echo "   --pages 1,2-3,4-8      → 3 separate PDFs: [1] [2-3] [4-8]"
+        echo "   --pages 1,2-3,4-8 --combined  → 1 PDF with all those pages merged"
+        return 1
+    fi
+    if [[ -z "$pages_spec" ]]; then
+        echo "❌ --pages is required (e.g. --pages 1,3,4 or --pages 1,2-3,4-8)"
+        return 1
+    fi
+    if ! command -v qpdf &>/dev/null; then
+        echo "❌ qpdf not found. Install with: brew install qpdf"
+        return 1
+    fi
+
+    pages_spec="${pages_spec// /}"
+    local stem="${input%.pdf}"
+    [[ -n "$output" ]] && stem="${output%.pdf}"
+
+    if [[ "$combined" == "true" ]]; then
+        local out="${stem}_combined.pdf"
+        [[ -n "$output" ]] && out="${output%.pdf}.pdf"
+        if qpdf "$input" --pages . "$pages_spec" -- "$out"; then
+            echo "✅ Combined PDF saved: $(realpath "$out")"
+        else
+            echo "❌ qpdf failed to build combined PDF."
+            return 1
+        fi
+        return 0
+    fi
+
+    local -a tokens
+    IFS=',' read -ra tokens <<< "$pages_spec"
+    local i=1
+    for token in "${tokens[@]}"; do
+        local out="${stem}_p${token}.pdf"
+        if qpdf "$input" --pages . "$token" -- "$out"; then
+            echo "✅ Part $i saved: $(realpath "$out")  (pages $token)"
+        else
+            echo "❌ qpdf failed on range: $token"
+        fi
+        ((i++))
+    done
+}
+
 if [[ "$1" == "linkedin-post" ]]; then
     run_pdf_linkedin_post "${@:2}"
+elif [[ "$1" == "split" ]]; then
+    run_pdf_split "${@:2}"
 else
     run_pdf "$@"
 fi

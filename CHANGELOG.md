@@ -7,6 +7,116 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-07-13 — scripts subcommand
+
+- **feat(scripts):** new `amir scripts` subcommand — a picker for saved
+  one-off scripts. `amir scripts` with no args shows a numbered menu and
+  prompts for a selection; `amir scripts list` just prints the menu;
+  `amir scripts <id> [args...]` runs a saved entry directly, skipping the
+  prompt. Registry lives in `lib/config/scripts.txt` (`id|description|command`
+  per line, `#`-comments allowed) so new scripts can be added by editing that
+  file — no code changes needed. Seeded with `mcp-map`, which runs
+  `~/.claude/scripts/apply-mcp-map.py` (per-project MCP connector
+  allocation). Intended destination for current top-level subcommands that
+  turn out to be low-traffic, to keep `amir help` shorter over time.
+- **feat(completions):** `amir scripts` wired into zsh tab-completion — word 2
+  offers `scripts` alongside the other top-level commands, word 3 offers
+  `list` plus every saved id/description pulled live from
+  `lib/config/scripts.txt`, so new registry entries show up in completion
+  automatically without touching `completions/_amir`.
+- **chore(scripts):** moved 9 low-traffic subcommands into the `scripts`
+  registry — `weather`, `qr`, `pass`, `dashboard`, `transfer`, `short`,
+  `lock`, `unlock`, `speed`. Picked by counting real invocations in
+  `~/.zsh_history` (Feb–Jul 2026, 13k commands): all 9 had 0–4 hits vs.
+  hundreds/dozens for `video`/`img`/`pdf`/`apply`/etc. Each still works as a
+  direct top-level command (`amir weather` unchanged, dispatcher untouched)
+  — they're just dropped from `amir help` and the word-2 tab-completion
+  list, and now also reachable via `amir scripts weather` / the `amir
+  scripts` menu. Kept `sync-constitution`/`init-project`/`update-projects`/
+  `skill`/`split`/`watermark`/`trend`/`research` at top level for now despite
+  low counts — infra/workflow commands, not one-off utility scripts;
+  candidates for a later pass.
+- **fix(dl/kb aliases):** dropped the `dl` (→`download`) and `kb`
+  (→`keyboard`) aliases entirely — dispatcher case patterns (`download|dl` →
+  `download`, `keyboard|kb` → `keyboard`), their `commands=()` completion
+  entries, and the `Alias:`/`(alias: ...)` mentions in README. `amir dl` /
+  `amir kb` now fall through to the default (compress) case instead of
+  running download/keyboard — no more aliases, one name per command.
+- **fix(llm-lists):** removed the top-level `amir llm-lists` command —
+  `amir router models` has been a 1:1 passthrough to the same
+  `lib/commands/llm-lists.sh` function all along (`run_router`'s `models`
+  case just sources it and forwards `"$@"`), so nothing was lost. Dropped
+  the dispatcher case in `amir`, the `commands=()` completion entry, and the
+  dead completion block in `completions/_amir` — and while there, fixed
+  `amir router models`'s own completion, which had drifted from the real
+  `llm-lists` one (wrong/incomplete provider list, no `-e`/`--export`
+  pdf\|md\|jpg completion at all). It now carries the exact provider +
+  export-flag completion `llm-lists` had. README env-var hints
+  (`OPENAI_API_KEY` etc.) repointed from `llm-lists <provider>` to `amir
+  router models <provider>`. Also purged `dl`/`kb`/`llm-lists` and other
+  already-stale/removed names (`transfer lock unlock qr weather short pass
+  speed chat code dashboard`) from the `amir help <TAB>` value list in
+  `completions/_amir`, which had drifted out of sync with the real command
+  set.
+- **docs(research):** fixed a stale "Alias for `amir trend`" description for
+  `amir research` in `amir help`, `completions/_amir`, and README —
+  leftover from before commit `1930927` (2026-06-01) split `research.sh` out
+  of `trend.sh` into its own PhD/postdoc supervisor-scout pipeline
+  (`amir research discover --keywords ...`, `amir research professor
+  --professor ... --institution ...`). The two commands are unrelated
+  (trending content vs. academic outreach) and both stay — `research` was
+  never actually redundant, its docs just never caught up with the refactor.
+  Added a proper README subsection for it (options, `RESEARCH_TOOLKIT_DIR`
+  setup) since it previously had none at all.
+
+## 2026-07-12 — clip clipboard-to-file, pdf split, completion fixes
+
+- **feat(completions):** added `altacv-contact-up`/`altacv-contact-side` to
+  `--template`'s tab-completion list (new ApplyForge template variants — see
+  its own changelog).
+- **fix(completions):** `amir apply <job-url> --template ... --stack ...` had the
+  same fixed-word-position completion bug as `apply preview` — the dispatch
+  only recognized `phd`/`job`/`sync`/`tui`/`web`/`stats`/`alert` as word 3, so
+  a job URL (or any unrecognized word) at that position got zero completion
+  for every flag after it. Now any non-keyword word 3 (a URL) routes through
+  `_apply_arguments` the same way `preview` does. Also added `--stack` to
+  `_apply_arguments` completion (see ApplyForge's own changelog for the
+  feature itself).
+- **fix(llm-lists):** replaced the `groq` provider with `grok` (xAI) across
+  `lib/commands/llm-lists.sh`, completions, and docs — the owner has never
+  used Groq (the LPU inference host) and only holds an xAI/Grok API key, so
+  `groq` was dead weight that also collided by name with the unrelated
+  `grok` model already used in `amir router --model grok`. `GROQ_API_KEY` →
+  `GROK_API_KEY`, base URL → `https://api.x.ai/v1`.
+- **fix(clip):** `amir clip <single-word-non-existing-file>` (e.g. `amir clip
+  notes.md`) now saves the current clipboard content into that file, instead
+  of overwriting the clipboard with the literal argument text. Multi-word
+  arguments still copy as plain text (unchanged).
+- **feat(pdf):** new `amir pdf split <file.pdf> --pages <spec> [--combined]
+  [-o out]` subcommand, implemented via `qpdf`'s native page-range syntax.
+  `--pages 1,3,4` / `1,2-3,4-8` produces one PDF per comma-separated group;
+  `--combined` merges the selected pages/ranges into a single output PDF
+  instead.
+- **fix(completions):** `--theme` was never wired into `amir pdf`'s zsh
+  completion — added, backed by a dynamic `_amir_pdf_themes` function that
+  lists `lib/themes/*.css`.
+- **fix(completions):** `amir apply preview --role <TAB>` and any flag typed
+  after it stopped completing, because the dispatch only called
+  `_apply_arguments` when `CURRENT == 4`. Now handled for `CURRENT >= 4`,
+  matching the pattern already used by `subtitle`.
+- **feat(completions):** `amir router` had no subcommand/flag completion at
+  all (only the top-level command name completed) — added `audit`/`cost`/
+  `models` subcommands and `-m/--model`, `-s/--session`, `--new`, `--system`,
+  `--out`, `--plan` flags.
+- **chore:** removed dead `chat)`/`code)` blocks from `completions/_amir` and
+  deleted the orphaned `lib/commands/chat.sh`/`code.sh` — `amir chat`/`amir
+  code` were already replaced by `amir router` at the entry-point dispatcher
+  level, but the completion blocks and source files were never cleaned up,
+  so tab-completion kept advertising two commands that no longer run.
+- **docs:** documented the general fixed-position `case $((CURRENT))`
+  completion pitfall in `docs/TECHNICAL.md` (§3) — it affected multiple
+  commands and will resurface when adding new flag-style subcommands.
+
 ## 2026-07-06 — gitignore node_modules (wo-applyforge-0011)
 
 - `lib/nodejs/node_modules/` was tracked in git (4177 files, never gitignored) —
