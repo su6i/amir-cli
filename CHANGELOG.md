@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-07-17 — feat: amir clean gains orphan-detection items
+
+Found while auditing disk usage on a low-space Mac: `~/Library/Containers/
+com.utmapp.UTM` and `com.docker.docker` can linger at several GB each after
+UTM.app/Docker.app are uninstalled, and `com.docker.install` /
+`com.anthropic.claudefordesktop.ShipIt` accumulate as installer/update
+leftovers regardless. `lib/commands/clean.sh` now lists four more items:
+
+- **Claude Desktop Update Cache** (`~/Library/Caches/
+  com.anthropic.claudefordesktop.ShipIt`) — always safe, pure updater cache.
+- **Docker Installer Leftover** (`~/Library/Application Support/
+  com.docker.install`) — always safe, not Docker's runtime data.
+- **UTM Container (orphaned)** / **Docker Desktop Container (orphaned)** —
+  only sized and deletable when `/Applications/UTM.app` /
+  `/Applications/Docker.app` is absent; the app-presence check runs again at
+  delete time (not just at display time) so toggling the item can never wipe
+  a live VM/container if the app got reinstalled mid-session.
+
+All four default OFF, same as the existing Aerials/Claude VM items.
+
+---
+
 ## 2026-07-13 — security: eval-based command injection fixes
 
 Audit against `agent-constitution/rules/030-security.md` ("Do not use
