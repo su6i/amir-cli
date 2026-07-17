@@ -264,7 +264,7 @@ Full PhD and job application tracker with SQLite backend, web UI, and Gmail sync
 | Command | Description |
 | :--- | :--- |
 | `amir clip [input]` | **Piped Clipboard**: Copies text/files to clipboard, or outputs clipboard content to stdout when piped (e.g., `amir clip | amir pdf`). Single-word arg naming a file that doesn't exist yet (e.g. `amir clip notes.md`) saves the current clipboard content into that file instead. |
-| `amir clean` | Interactive cleanup menu — toggle items on/off with Space/numbers, navigate with ↑↓, confirm with Enter. Covers: Trash, User Caches, System Logs, VS Code workspaceStorage, macOS Aerials Screensaver, Claude Desktop VM. |
+| `amir clean` | Interactive cleanup menu — toggle items on/off with Space/numbers, navigate with ↑↓, confirm with Enter. Covers: Trash, User Caches, System Logs, VS Code workspaceStorage, macOS Aerials Screensaver, Claude Desktop VM, Claude Desktop update cache, Docker installer leftover, and orphaned UTM/Docker Desktop containers (auto-detected only when those apps are no longer installed — never touched otherwise). |
 | `amir keyboard [fr\|en\|fa\|auto]` | Show keyboard layout for Apple Compact keyboard. Flags: `--opt` (Option layer), `--shift` (Shift layer), `--normal`, `--find <char>` (locate any character), `--auto` (detect active OS layout). |
 
 `amir transfer`, `qr`, `short`, `pass`, `lock`/`unlock`, `speed`, `weather` moved to [`amir scripts`](#-ai--productivity) 2026-07-13 (low real-world usage) — still directly callable, just no longer listed here or in `amir help`.

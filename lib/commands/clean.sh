@@ -25,6 +25,11 @@ run_clean() {
             | xargs du -ch 2>/dev/null | tail -1 | awk '{print $1}'
     }
 
+    # ── Orphan detection (app no longer installed → its leftover data is safe) ─
+    local UTM_ORPHANED=0 DOCKER_ORPHANED=0
+    [[ ! -d "/Applications/UTM.app" ]] && UTM_ORPHANED=1
+    [[ ! -d "/Applications/Docker.app" ]] && DOCKER_ORPHANED=1
+
     # ── Items ─────────────────────────────────────────────────────────────────
     local -a LABELS=(
         "Trash"
@@ -33,6 +38,10 @@ run_clean() {
         "VS Code workspaceStorage"
         "macOS Aerials Screensaver"
         "Claude Desktop VM"
+        "Claude Desktop Update Cache"
+        "Docker Installer Leftover"
+        "UTM Container (orphaned)"
+        "Docker Desktop Container (orphaned)"
     )
 
     printf "\n📊 Analyzing system clutter...\n"
@@ -45,11 +54,23 @@ run_clean() {
         ~/Library/Application\ Support/com.apple.wallpaper/aerials \
         ~/Library/Containers/com.apple.wallpaper.extension.aerials/Data)"
     SIZES[5]="$(_sz ~/Library/Application\ Support/Claude/vm_bundles/claudevm.bundle)"
+    SIZES[6]="$(_sz ~/Library/Caches/com.anthropic.claudefordesktop.ShipIt)"
+    SIZES[7]="$(_sz ~/Library/Application\ Support/com.docker.install)"
+    if [[ "$UTM_ORPHANED" == "1" ]]; then
+        SIZES[8]="$(_sz ~/Library/Containers/com.utmapp.UTM)"
+    else
+        SIZES[8]="UTM.app installed — skipped"
+    fi
+    if [[ "$DOCKER_ORPHANED" == "1" ]]; then
+        SIZES[9]="$(_sz ~/Library/Containers/com.docker.docker)"
+    else
+        SIZES[9]="Docker.app installed — skipped"
+    fi
 
     for i in "${!SIZES[@]}"; do [[ -z "${SIZES[$i]}" ]] && SIZES[$i]="—"; done
 
     # ── State ─────────────────────────────────────────────────────────────────
-    local -a SEL=(1 1 1 0 0 0)   # first 3 on by default
+    local -a SEL=(1 1 1 0 0 0 0 0 0 0)   # first 3 on by default
     local cursor=0
     local n=${#LABELS[@]}
     local msg=""
@@ -72,7 +93,7 @@ run_clean() {
             fi
         done
         printf "══════════════════════════════════════════════════════════\n"
-        printf "  ↑↓ Move  │  Space/1-6 Toggle  │  Enter/d Delete  │  q Cancel\n"
+        printf "  ↑↓ Move  │  Space/1-9,0 Toggle  │  Enter/d Delete  │  q Cancel\n"
         [[ -n "$msg" ]] && printf "\n  \033[33m%s\033[0m\n" "$msg"
     }
 
@@ -94,8 +115,13 @@ run_clean() {
             ' ')          # Space — toggle highlighted row
                 [[ "${SEL[$cursor]}" == "1" ]] && SEL[$cursor]=0 || SEL[$cursor]=1
                 ;;
-            [1-6])        # Number — jump + toggle
+            [1-9])        # Number — jump + toggle
                 local idx=$((key - 1))
+                cursor=$idx
+                [[ "${SEL[$idx]}" == "1" ]] && SEL[$idx]=0 || SEL[$idx]=1
+                ;;
+            0)            # 0 — jump + toggle 10th item
+                local idx=9
                 cursor=$idx
                 [[ "${SEL[$idx]}" == "1" ]] && SEL[$idx]=0 || SEL[$idx]=1
                 ;;
@@ -135,6 +161,30 @@ run_clean() {
                 [[ "${SEL[5]}" == "1" ]] && {
                     printf "  → Removing Claude Desktop VM bundle...\n"
                     rm -rf ~/Library/Application\ Support/Claude/vm_bundles/claudevm.bundle 2>/dev/null
+                }
+                [[ "${SEL[6]}" == "1" ]] && {
+                    printf "  → Removing Claude Desktop update cache (ShipIt)...\n"
+                    rm -rf ~/Library/Caches/com.anthropic.claudefordesktop.ShipIt 2>/dev/null
+                }
+                [[ "${SEL[7]}" == "1" ]] && {
+                    printf "  → Removing Docker installer leftover...\n"
+                    rm -rf ~/Library/Application\ Support/com.docker.install 2>/dev/null
+                }
+                [[ "${SEL[8]}" == "1" ]] && {
+                    if [[ "$UTM_ORPHANED" == "1" ]]; then
+                        printf "  → Removing orphaned UTM container...\n"
+                        rm -rf ~/Library/Containers/com.utmapp.UTM 2>/dev/null
+                    else
+                        printf "  → Skipping UTM container — UTM.app is installed.\n"
+                    fi
+                }
+                [[ "${SEL[9]}" == "1" ]] && {
+                    if [[ "$DOCKER_ORPHANED" == "1" ]]; then
+                        printf "  → Removing orphaned Docker Desktop container...\n"
+                        rm -rf ~/Library/Containers/com.docker.docker 2>/dev/null
+                    else
+                        printf "  → Skipping Docker Desktop container — Docker.app is installed.\n"
+                    fi
                 }
 
                 printf "\n✅ Done!\n"
