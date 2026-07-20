@@ -97,8 +97,8 @@ _gallery_dl_download() {
 
     if ! command -v gallery-dl &>/dev/null; then
         log_info "📦 gallery-dl not found — installing via uv tool..." >&2
-        if ! uv tool install gallery-dl 2>&1; then
-            log_error "Failed to install gallery-dl. Install manually: uv tool install gallery-dl" >&2
+        if ! uv tool install gallery-dl --with yt-dlp 2>&1; then
+            log_error "Failed to install gallery-dl. Install manually: uv tool install gallery-dl --with yt-dlp" >&2
             return 1
         fi
         log_info "✅ gallery-dl installed." >&2
@@ -130,6 +130,7 @@ _gallery_dl_download() {
         "${COOKIE_ARGS[@]}" \
         --directory "$real_out_dir" \
         --filename "{filename}.{extension}" \
+        -o 'postprocessors=[{"name":"metadata","mode":"custom","content-format":"{description}"}]' \
         "$URL"
     local rc=$?
 

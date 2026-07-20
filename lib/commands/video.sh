@@ -3301,6 +3301,7 @@ PY
             --keep-video \
             --write-info-json \
             --write-thumbnail \
+            --write-description \
             --convert-thumbnails jpg \
             -f "bestvideo[height<=${DL_RESOLUTION}][format_id!*=timeline]+bestaudio/best[height<=${DL_RESOLUTION}][format_id!*=timeline]/best[height<=${DL_RESOLUTION}][vcodec!=none]/best[vcodec!=none]/best" \
             --merge-output-format mp4 \
@@ -3336,6 +3337,7 @@ PY
                 --keep-video \
                 --write-info-json \
                 --write-thumbnail \
+                --write-description \
                 --convert-thumbnails jpg \
                 -f "bestvideo[height<=${DL_RESOLUTION}][format_id!*=timeline]+bestaudio/best[height<=${DL_RESOLUTION}][format_id!*=timeline]/best[height<=${DL_RESOLUTION}][vcodec!=none]/best[vcodec!=none]/best" \
                 --merge-output-format mp4 \
@@ -3384,6 +3386,16 @@ PY
     elif [[ -f "${VIDEO_FILE%.*}.info.json" ]]; then
         INFO_JSON_FILE="${VIDEO_FILE%.*}.info.json"
     fi
+    local DESC_FILE=""
+    if [[ -f "${VIDEO_FILE}.description" ]]; then
+        DESC_FILE="${VIDEO_FILE}.description"
+    elif [[ -f "${VIDEO_FILE%.*}.description" ]]; then
+        DESC_FILE="${VIDEO_FILE%.*}.description"
+    fi
+    if [[ -n "$DESC_FILE" && -f "$DESC_FILE" ]]; then
+        mv "$DESC_FILE" "${DESC_FILE%.description}.txt"
+        DESC_FILE="${DESC_FILE%.description}.txt"
+    fi
 
     # Enforce terminal-safe filename in-place before entering subtitle pipeline.
     # Skip this step when reusing an existing file — it already has a safe name.
@@ -3414,6 +3426,11 @@ PY
             local _safe_info="${VIDEO_FILE}.info.json"
             mv "$INFO_JSON_FILE" "$_safe_info"
             INFO_JSON_FILE="$_safe_info"
+        fi
+        if [[ -n "$DESC_FILE" && -f "$DESC_FILE" ]]; then
+            local _safe_desc="${VIDEO_FILE%.*}.txt"
+            mv "$DESC_FILE" "$_safe_desc"
+            DESC_FILE="$_safe_desc"
         fi
     fi
     fi  # end of !_IS_REUSED normalization block
@@ -3451,6 +3468,10 @@ PY
             if [[ -n "$INFO_JSON_FILE" && -f "$INFO_JSON_FILE" ]]; then
                 mv "$INFO_JSON_FILE" "${_res_new}.info.json"
                 INFO_JSON_FILE="${_res_new}.info.json"
+            fi
+            if [[ -n "$DESC_FILE" && -f "$DESC_FILE" ]]; then
+                mv "$DESC_FILE" "${_res_new%.*}.txt"
+                DESC_FILE="${_res_new%.*}.txt"
             fi
             VIDEO_FILE="$_res_new"
         fi
