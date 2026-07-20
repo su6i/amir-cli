@@ -382,3 +382,7 @@ closes that gap:
   parent `pyproject.toml` workspace). Override with `AMIR_ALLOW_NESTED=1`.
 - `uv init` is invoked with `--no-workspace` so it can never mutate a parent
   uv project's `pyproject.toml`.
+
+## Unreleased
+- fix(download): Restore missing caption sidecar (.txt) and fix yt-dlp import error in gallery-dl.
+
