@@ -55,10 +55,21 @@ _download_instagram() {
         esac
     done
 
+    local -a PROBE_COOKIE_ARGS=()
+    if [[ -n "$COOKIES_FILE" ]]; then
+        PROBE_COOKIE_ARGS=(--cookies "$COOKIES_FILE")
+    elif [[ -f "cookies.txt" ]]; then
+        PROBE_COOKIE_ARGS=(--cookies "cookies.txt")
+    elif [[ -f "$HOME/su6i-yar/cookies.txt" ]]; then
+        PROBE_COOKIE_ARGS=(--cookies "$HOME/su6i-yar/cookies.txt")
+    elif [[ -n "$BROWSER" && "$BROWSER" != "none" ]]; then
+        PROBE_COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
+    fi
+
     log_info "🔍 Probing Instagram URL..." >&2
 
     local probe_json
-    probe_json=$(yt-dlp --no-playlist -J "$URL" 2>/dev/null)
+    probe_json=$(yt-dlp --no-playlist "${PROBE_COOKIE_ARGS[@]}" -J "$URL" 2>/dev/null)
 
     local has_video="no"
     if [[ -n "$probe_json" ]]; then
@@ -97,8 +108,8 @@ _gallery_dl_download() {
 
     if ! command -v gallery-dl &>/dev/null; then
         log_info "📦 gallery-dl not found — installing via uv tool..." >&2
-        if ! uv tool install gallery-dl 2>&1; then
-            log_error "Failed to install gallery-dl. Install manually: uv tool install gallery-dl" >&2
+        if ! uv tool install gallery-dl --with yt-dlp 2>&1; then
+            log_error "Failed to install gallery-dl. Install manually: uv tool install gallery-dl --with yt-dlp" >&2
             return 1
         fi
         log_info "✅ gallery-dl installed." >&2
@@ -130,6 +141,7 @@ _gallery_dl_download() {
         "${COOKIE_ARGS[@]}" \
         --directory "$real_out_dir" \
         --filename "{filename}.{extension}" \
+        -o 'postprocessors=[{"name":"metadata","mode":"custom","content-format":"{description}"}]' \
         "$URL"
     local rc=$?
 
