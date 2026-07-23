@@ -25,6 +25,19 @@ play before the fix and played correctly after re-running normalization.
   compatibility allow-list in `ensure_mac_playable_video()`, restoring the
   pre-2026-06-22 behavior of transcoding them to H.264/AAC. The `--normalize`
   / force-normalize flag added in that same commit is unaffected.
+- **fix(download):** the fix above turned out not to be enough on its own —
+  `_download_instagram()`'s `yt-dlp -J` probe (used to decide reel/video vs.
+  photo/carousel) ran with **no cookies at all**, even though
+  `--browser`/`--cookies` were already parsed a few lines above it. Instagram
+  now returns an empty/auth-blocked response to anonymous format probes, so
+  the probe silently failed, `has_video` fell back to `no`, and every reel
+  got routed to the `gallery-dl` photo path instead of `video_download` —
+  which meant `ensure_mac_playable_video()` never ran on it at all,
+  regardless of the fix above. The probe now builds the same
+  `--cookies`/`--cookies-from-browser` args as `_gallery_dl_download()`
+  before calling `yt-dlp -J`. Verified end-to-end on the same reel URL:
+  probe now detects the video, download goes through `video_download`, and
+  the saved file is `h264`/`aac` in `.mp4`.
 
 ---
 
@@ -403,3 +416,7 @@ closes that gap:
   parent `pyproject.toml` workspace). Override with `AMIR_ALLOW_NESTED=1`.
 - `uv init` is invoked with `--no-workspace` so it can never mutate a parent
   uv project's `pyproject.toml`.
+
+## Unreleased
+- fix(download): Restore missing caption sidecar (.txt) and fix yt-dlp import error in gallery-dl.
+
