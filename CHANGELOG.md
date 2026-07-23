@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-07-23 — fix: restore macOS-playable video normalization
+
+`ensure_mac_playable_video()` in `lib/commands/video.sh` was regressed by the
+2026-06-22 PO-Token commit: `av1`/`av01`/`vp9` video codecs and `opus`/`vorbis`
+audio codecs were added to the "already compatible" list, even though the
+comment right above them still warned that vp9/av1 in an mp4 container is
+unreliable on macOS. As a result, `amir download`/`amir dl` stopped
+transcoding such files to H.264/AAC, and Quick Look (spacebar preview) could
+no longer play them.
+
+Confirmed against a real Instagram reel download
+(`vp9` video / `aac` audio in an `.mp4` container) that Quick Look failed to
+play before the fix and played correctly after re-running normalization.
+
+- **fix(video):** removed `av1`/`av01`/`vp9`/`opus`/`vorbis` from the
+  compatibility allow-list in `ensure_mac_playable_video()`, restoring the
+  pre-2026-06-22 behavior of transcoding them to H.264/AAC. The `--normalize`
+  / force-normalize flag added in that same commit is unaffected.
+
+---
+
 ## 2026-07-17 — feat: amir clean gains orphan-detection items
 
 Found while auditing disk usage on a low-space Mac: `~/Library/Containers/
