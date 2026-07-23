@@ -2597,7 +2597,7 @@ ensure_mac_playable_video() {
     # Keep native file when already compatible, otherwise normalize to H.264/AAC.
     local _video_ok=false
     case "$_vcodec" in
-        h264|hevc|h265|mpeg4|prores|av1|av01|vp9) _video_ok=true ;;
+        h264|hevc|h265|mpeg4|prores) _video_ok=true ;;
     esac
 
     local _audio_ok=false
@@ -2605,7 +2605,7 @@ ensure_mac_playable_video() {
         _audio_ok=true  # no audio stream
     else
         case "$_acodec" in
-            aac|alac|mp3|ac3|eac3|opus|vorbis) _audio_ok=true ;;
+            aac|alac|mp3|ac3|eac3) _audio_ok=true ;;
         esac
     fi
 
