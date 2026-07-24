@@ -2566,9 +2566,15 @@ embed_video_cover_art() {
     local _ffmpeg_cmd="${FFMPEG_EXEC:-ffmpeg}"
     local _tmp_out="${_video_file%.*}.cover_tmp.${_ext}"
 
+    # Map only the primary video/audio streams (never a blanket "-map 0"): if the
+    # file already carries a cover-art stream from a previous embed call (e.g. a
+    # reused download), re-including it here would leave it stripped of its
+    # attached_pic disposition — a phantom "real" video stream with ~0 duration
+    # that breaks AVFoundation/QuickTime/Quick Look playback entirely. Always
+    # rebuilding from just v:0 + audio + the new cover keeps this idempotent.
     if "$_ffmpeg_cmd" -hide_banner -loglevel error -y \
         -i "$_video_file" -i "$_thumb_file" \
-        -map 0 -map 1 \
+        -map "0:v:0" -map "0:a?" -map "1:v:0" \
         -c copy -c:v:1 mjpeg \
         -disposition:v:1 attached_pic \
         -metadata:s:v:1 title="Cover" \
