@@ -132,10 +132,12 @@ _gallery_dl_download() {
 
     log_info "⬇️  Downloading with gallery-dl → $real_out_dir" >&2
 
-    # Snapshot of pre-existing webp files so we only convert newly downloaded ones
-    local _snapshot
+    # Snapshot of pre-existing webp/video files so we only touch newly downloaded ones
+    local _snapshot _video_snapshot
     _snapshot=$(mktemp)
+    _video_snapshot=$(mktemp)
     find "$real_out_dir" -maxdepth 1 -name "*.webp" 2>/dev/null > "$_snapshot"
+    find "$real_out_dir" -maxdepth 1 \( -name "*.mp4" -o -name "*.mov" -o -name "*.mkv" -o -name "*.webm" \) 2>/dev/null > "$_video_snapshot"
 
     gallery-dl \
         "${COOKIE_ARGS[@]}" \
@@ -172,6 +174,17 @@ _gallery_dl_download() {
     fi
 
     rm -f "$_snapshot"
+
+    # Normalize newly downloaded video items (carousel posts can mix photos + reels;
+    # gallery-dl saves those raw — often vp9/av1 in mp4, unplayable in QuickTime).
+    local normalized=0
+    while IFS= read -r video_file; do
+        grep -qxF "$video_file" "$_video_snapshot" && continue  # skip pre-existing
+        ensure_mac_playable_video "$video_file" && normalized=$((normalized + 1))
+    done < <(find "$real_out_dir" -maxdepth 1 \( -name "*.mp4" -o -name "*.mov" -o -name "*.mkv" -o -name "*.webm" \) 2>/dev/null)
+    [[ $normalized -gt 0 ]] && log_info "✅ $normalized video(s) verified/normalized for macOS playback" >&2
+
+    rm -f "$_video_snapshot"
     log_info "✅ Download complete." >&2
     return 0
 }
