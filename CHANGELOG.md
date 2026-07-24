@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-07-24 — fix: dedupe cover-art stream in embed_video_cover_art()
+
+Follow-up to the 2026-07-23 mac-playback fixes: even with those fixed, a
+downloaded reel (`Video_by_yashar_1280p.mp4`, already `h264`/`aac`, no codec
+issue at all) still would not play, thumbnail visible but video refusing to
+load.
+
+`ffprobe` showed **two** `mjpeg` video streams instead of one: the correctly
+tagged cover (`attached_pic=1`) plus a second `mjpeg` stream with every
+disposition flag at `0` — not `attached_pic`, not even `default`. A stray
+video track like that (single frame, ~0 duration, not marked as a thumbnail)
+is exactly the kind of malformed asset AVFoundation/QuickTime/Quick Look
+reject outright, even though the file's own poster-frame metadata (and thus
+the Finder thumbnail) stays intact.
+
+Root cause, reproduced locally with a throwaway test file: `embed_video_cover_art()`
+used a blanket `-map 0 -map 1`, so any *existing* cover-art stream from a
+prior embed call (e.g. `find_existing_downloaded_video` reusing an
+already-processed file across two `amir download` runs of the same URL) got
+folded back into the output — and lost its `attached_pic` disposition in the
+process, since `-disposition:v:1` only ever targets the newest stream. Every
+extra call added one more zombie video stream.
+
+- **fix(video):** `embed_video_cover_art()` now maps `0:v:0 / 0:a? / 1:v:0`
+  instead of `0 / 1`, so it always rebuilds from just the primary video +
+  audio + one fresh cover, regardless of how many stray streams the input
+  already carries. Verified idempotent by running the fixed command twice in
+  a row on the same file (and once on an already-corrupted double-cover
+  file) — always exactly 3 streams, single `attached_pic` cover, both times.
+- The reported broken file was repaired in place with the same corrected
+  ffmpeg invocation (re-muxed, no re-encode) rather than requiring a
+  re-download.
+
+---
+
 ## 2026-07-23 — fix: restore macOS-playable video normalization
 
 `ensure_mac_playable_video()` in `lib/commands/video.sh` was regressed by the
