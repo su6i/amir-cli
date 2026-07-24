@@ -615,6 +615,23 @@ video_convert() {
         reencode=1
     fi
 
+    # macOS/QuickTime compatibility: vp9/av1 video or opus/vorbis audio survive
+    # a stream-copy unchanged and stay unplayable — force re-encode to h264/aac.
+    local mac_incompat_reason=""
+    if [[ $reencode -eq 0 ]]; then
+        case "$vcodec" in
+            vp9|av1|av01) mac_incompat_reason="video codec ${vcodec}" ;;
+        esac
+        if [[ -z "$mac_incompat_reason" ]]; then
+            case "$acodec" in
+                opus|vorbis) mac_incompat_reason="audio codec ${acodec}" ;;
+            esac
+        fi
+        if [[ -n "$mac_incompat_reason" ]]; then
+            reencode=1
+        fi
+    fi
+
     local video_args=() audio_args=() extra_args=()
     if [[ $reencode -eq 1 ]]; then
         case "$target_fmt" in
@@ -628,7 +645,11 @@ video_convert() {
                 ;;
         esac
         extra_args=(-movflags +faststart)
-        echo "🔄 Re-encoding: $input → $output"
+        if [[ -n "$mac_incompat_reason" ]]; then
+            echo "🔄 Re-encoding (source not macOS-playable: ${mac_incompat_reason}): $input → $output"
+        else
+            echo "🔄 Re-encoding: $input → $output"
+        fi
     else
         video_args=(-c:v copy)
         audio_args=(-c:a copy)
