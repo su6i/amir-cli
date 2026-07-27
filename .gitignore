@@ -33,6 +33,9 @@ temp/
 *.bak
 dummy_*
 test_*
+# ...but real suites living in a tests/ directory are tracked (the rule above is
+# only meant to ignore ad-hoc scratch scripts like ./test_scratch.py).
+!**/tests/test_*.py
 scratch/
 scratch_debug/
 scratch_staging/

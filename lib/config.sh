@@ -111,6 +111,22 @@ codec:
   crf: 20                     # x264 quality
   preset: medium              # x264 preset
   audio_bitrate: 160k
+
+# Private course-site downloader — for course content YOU have purchased, fetched
+# with YOUR OWN logged-in browser session. It never bypasses a login or paywall
+# and aborts outright on any DRM signal.
+# Site hostnames are deliberately NOT shipped in this repository. Fill them in
+# here (this file lives at ~/.amir/config.yaml, outside version control) or set
+# AMIR_COURSE_SITE_DOMAINS in .env. Empty = the whole path stays inert.
+course_site:
+  domains:                    # comma list, e.g. host1.tld,host2.tld
+  video_hosts: youtube.com,youtu.be,vimeo.com   # iframe hosts handed to yt-dlp
+  lesson_link_pattern: /lesson/|/course/|/topic/
+  # NOTE: /product/ is deliberately excluded. On the WooCommerce-based site this
+  # was validated against, /product/ is the course LANDING page scheme, not a
+  # lesson URL — including it matched the site's own nav/related-product links
+  # and misclassified a marketing page as a multi-lesson course. Add it back
+  # only if a real authenticated lesson page is confirmed to use /product/ URLs.
 EOF
     fi
 }

@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-07-27 — feat: `amir download` support for private course sites
+
+WO-amir-cli-0007. For course content the user has purchased. Auth works exclusively
+through the user's own logged-in browser session (cookies) — no paywall bypass, no
+credential guessing, no DRM key handling.
+
+**Site hostnames are deliberately not stored in this repository.** The path is enabled
+by listing hostnames in `AMIR_COURSE_SITE_DOMAINS` (`.env`, gitignored) or
+`course_site.domains` (`~/.amir/config.yaml`, outside the repo). While unset, the path
+is inert and every URL falls through to the normal yt-dlp flow.
+
+- **feat(download):** New module `lib/commands/download_course_site.sh`, routed from
+  `run_download()` in `download.sh` via `_url_is_course_site()`, which matches a URL
+  only against the locally configured host list. Classifies the fetched page as
+  `not_purchased` / `single` / `course` (fail-closed: purchase/login gating markers
+  and the absence of any lesson/video signal both default to `not_purchased`),
+  extracts video sources in priority order (`<video>`/`<source>` tags → known-host
+  `<iframe>` embeds → bare `.mp4`/`.m3u8` URLs in inline JS/JSON →
+  `data-src`/`data-video`/`data-url` attributes), and for course pages walks
+  same-origin lesson links **in document order** (Persian WordPress slugs are never
+  alphabetized) to build `NN - <title>.mp4` output.
+- **feat(config):** New `course_site:` section in `~/.amir/config.yaml`: `domains`
+  (empty by default), `video_hosts` (comma list of iframe hosts handed to yt-dlp) and
+  `lesson_link_pattern` (regex for same-origin lesson URLs).
+- **fix(download):** Extracted the instagram cookie-resolution block (`--cookies`
+  → `./cookies.txt` → `$HOME/su6i-yar/cookies.txt` → `--cookies-from-browser`)
+  into a shared `_resolve_cookie_args()` helper in `download.sh`, now used by
+  both the Instagram and course-site paths instead of being duplicated.
+- **safety:** If a fetched page OR an HLS manifest contains a DRM marker
+  (`widevine`, `playready`, `clearkey`, `EXT-X-KEY:METHOD=SAMPLE-AES`,
+  `com.apple.fps`), the entire run aborts immediately with an explicit error —
+  no key handling of any kind is implemented, and yt-dlp/ffmpeg are never
+  invoked for that item.
+- **flags:** `--force` (re-download existing files); inherits `--cookies`,
+  `--browser`, `--keep-codec`, `--normalize` from the rest of `amir download`.
+  Every successful download still runs through `ensure_mac_playable_video()`
+  (H.264/AAC/MP4 policy) unless `--keep-codec` is given.
+- **tests:** `lib/python/tests/test_download_course_site.py` (16 cases, mocked HTML/
+  m3u8 fixtures under `lib/python/tests/fixtures/course_site/` using the reserved
+  `.test` TLD, fake `yt-dlp`/`curl`/`ffmpeg` on `PATH` — no live network). Covers
+  URL-extraction priority, document-order preservation + naming, the DRM abort path
+  (asserts yt-dlp is never invoked), and Persian-filename sanitization.
+- **known unknown:** the authenticated lesson markup has never been observed —
+  only a public, logged-out page was reconnoitered. The `single`/`course`
+  extraction branches are written generically and config-driven, but which
+  branch actually fires against a real purchased lesson page is unconfirmed
+  pending a real authenticated run. A logged-out smoke run was used to validate
+  the fail-closed path and correctly returns exit 2 with "Not logged in, or this
+  course is not in your purchases." — that same live run is also what surfaced
+  and fixed a bad default (see below).
+- **fix(config):** `lesson_link_pattern`'s default excludes `/product/` — on the
+  WooCommerce-based site this was validated against it is the course-landing-page
+  URL scheme, not a lesson URL, and a live smoke test showed it matching the page's
+  own nav/related-product links, misclassifying a logged-out marketing page as a
+  multi-lesson course.
+
 ## 2026-07-27 — feat: codec policy — H.264/AAC/MP4 is the default for every download path
 
 Owner ruling (verbatim): "تصمیم نهایی من پیش‌فرض H.264 است." This overrides the

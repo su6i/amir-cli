@@ -5,6 +5,7 @@
 
 run_download() {
     source "$LIB_DIR/commands/video.sh"
+    source "$LIB_DIR/commands/download_course_site.sh"
 
     # Extract URL and --format flag before delegating
     local URL=""
@@ -36,8 +37,59 @@ run_download() {
 
     if [[ "$URL" =~ (instagram\.com|instagr\.am) ]]; then
         _download_instagram "$IMG_FORMAT" "$KEEP_SOURCE_CODEC" "${PASSTHROUGH[@]}"
+    elif _url_is_course_site "$URL"; then
+        _download_course_site "${PASSTHROUGH[@]}"
     else
         video_download "${PASSTHROUGH[@]}"
+    fi
+}
+
+# ── Private course-site routing ───────────────────────────────────────────────
+# The sites handled by the course-site path are NOT named in this repository.
+# Configure them locally, outside version control, in either:
+#   .env                  → AMIR_COURSE_SITE_DOMAINS="host1.tld,host2.tld"
+#   ~/.amir/config.yaml   → course_site: { domains: host1.tld,host2.tld }
+# Unset means the path stays inert and every URL goes to the normal yt-dlp flow.
+_url_is_course_site() {
+    local _url="$1"
+    local _domains _d
+    _domains="${AMIR_COURSE_SITE_DOMAINS:-$(get_config "course_site" "domains" "")}"
+    [[ -z "$_domains" ]] && return 1
+
+    local _oldifs="$IFS"
+    IFS=','
+    for _d in $_domains; do
+        _d=$(printf '%s' "$_d" | tr -d '[:space:]')
+        [[ -z "$_d" ]] && continue
+        # Escape dots so a configured host matches literally, not as a wildcard.
+        local _re
+        _re=$(printf '%s' "$_d" | sed 's/\./\\./g')
+        if [[ "$_url" =~ (^|https?://|\.)${_re}(/|$|:) ]]; then
+            IFS="$_oldifs"
+            return 0
+        fi
+    done
+    IFS="$_oldifs"
+    return 1
+}
+
+# ── Shared cookie resolution (yt-dlp-style) ────────────────────────────────────
+# Bash 3.2 has no namerefs, so the result is returned via the global array
+# RESOLVED_COOKIE_ARGS — read it immediately after calling this function.
+# Order: --cookies <file> → ./cookies.txt → $HOME/su6i-yar/cookies.txt →
+#        --cookies-from-browser $BROWSER (default: $AMIR_DEFAULT_BROWSER, else chrome).
+_resolve_cookie_args() {
+    local _cookies_file="$1"
+    local _browser="${2:-${AMIR_DEFAULT_BROWSER:-chrome}}"
+    RESOLVED_COOKIE_ARGS=()
+    if [[ -n "$_cookies_file" ]]; then
+        RESOLVED_COOKIE_ARGS=(--cookies "$_cookies_file")
+    elif [[ -f "cookies.txt" ]]; then
+        RESOLVED_COOKIE_ARGS=(--cookies "cookies.txt")
+    elif [[ -f "$HOME/su6i-yar/cookies.txt" ]]; then
+        RESOLVED_COOKIE_ARGS=(--cookies "$HOME/su6i-yar/cookies.txt")
+    elif [[ -n "$_browser" && "$_browser" != "none" ]]; then
+        RESOLVED_COOKIE_ARGS=(--cookies-from-browser "$_browser")
     fi
 }
 
@@ -64,16 +116,8 @@ _download_instagram() {
         esac
     done
 
-    local -a PROBE_COOKIE_ARGS=()
-    if [[ -n "$COOKIES_FILE" ]]; then
-        PROBE_COOKIE_ARGS=(--cookies "$COOKIES_FILE")
-    elif [[ -f "cookies.txt" ]]; then
-        PROBE_COOKIE_ARGS=(--cookies "cookies.txt")
-    elif [[ -f "$HOME/su6i-yar/cookies.txt" ]]; then
-        PROBE_COOKIE_ARGS=(--cookies "$HOME/su6i-yar/cookies.txt")
-    elif [[ -n "$BROWSER" && "$BROWSER" != "none" ]]; then
-        PROBE_COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
-    fi
+    _resolve_cookie_args "$COOKIES_FILE" "$BROWSER"
+    local -a PROBE_COOKIE_ARGS=("${RESOLVED_COOKIE_ARGS[@]}")
 
     log_info "🔍 Probing Instagram URL..." >&2
 
@@ -125,16 +169,8 @@ _gallery_dl_download() {
         log_info "✅ gallery-dl installed." >&2
     fi
 
-    local -a COOKIE_ARGS=()
-    if [[ -n "$COOKIES_FILE" ]]; then
-        COOKIE_ARGS=(--cookies "$COOKIES_FILE")
-    elif [[ -f "cookies.txt" ]]; then
-        COOKIE_ARGS=(--cookies "cookies.txt")
-    elif [[ -f "$HOME/su6i-yar/cookies.txt" ]]; then
-        COOKIE_ARGS=(--cookies "$HOME/su6i-yar/cookies.txt")
-    elif [[ -n "$BROWSER" && "$BROWSER" != "none" ]]; then
-        COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
-    fi
+    _resolve_cookie_args "$COOKIES_FILE" "$BROWSER"
+    local -a COOKIE_ARGS=("${RESOLVED_COOKIE_ARGS[@]}")
 
     # Resolve real path (handles macOS /tmp → /private/tmp symlink and Linux equivalents)
     local real_out_dir
@@ -232,6 +268,14 @@ TikTok, Twitter/X, Vimeo, and 1000+ other sites.
 
   Instagram photo/carousel options:
     --format <fmt>         Image format: jpg (default), png, webp
+
+  Private course sites (courses YOU purchased — needs your logged-in session):
+    Enable by listing your hostnames in AMIR_COURSE_SITE_DOMAINS (.env) or
+    course_site.domains (~/.amir/config.yaml). Unset = disabled.
+    Accepts a single lesson URL or a whole course page (all lessons, in order).
+    Never bypasses a login or paywall; aborts outright if DRM is detected.
+    --force                 Re-download lessons even if the target file already exists
+    (also honors --browser, --cookies, --keep-codec, --normalize above)
 
 Examples:
   amir download https://youtu.be/dQw4w9WgXcQ

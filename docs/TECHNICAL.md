@@ -326,6 +326,50 @@ amir video download <url> [options]
 | `--cookies <file>` | Path to a Netscape `cookies.txt` file (for paywalled or geo-restricted content). |
 | `--keep-thumb` | Keep downloaded thumbnail sidecar file (otherwise temporary thumbs may be cleaned). |
 
+#### `amir download` — private course sites (content you purchased)
+
+```bash
+amir download https://<your-course-site>/<course-page>/
+amir download https://<your-course-site>/<course-page>/ --cookies cookies.txt
+```
+
+> **Hostnames are deliberately not stored in this repository.** Enable the path by
+> listing your own hostnames in `AMIR_COURSE_SITE_DOMAINS` (`.env`, gitignored) or
+> `course_site.domains` (`~/.amir/config.yaml`, outside the repo). While unset, the
+> path is inert and every URL falls through to the normal yt-dlp flow.
+
+Routed from `run_download()` in `download.sh` (`lib/commands/download_course_site.sh`)
+via `_url_is_course_site()`, which matches the URL against the configured host list only.
+Auth is exclusively the owner's own logged-in browser session —
+same cookie resolution as every other download path (`--cookies` → `./cookies.txt` →
+`$HOME/su6i-yar/cookies.txt` → `--cookies-from-browser $BROWSER`, via the shared
+`_resolve_cookie_args()` helper). No paywall bypass, no credential guessing.
+
+| Flag | Behavior |
+|------|----------|
+| `--force` | Re-download a lesson even if its target file already exists (default: skip existing). |
+| `--cookies <file>` / `--browser <name>` | Same as the rest of `amir download`. |
+| `--keep-codec` / `--normalize` | Same codec-policy flags as every other download path — inherited, not reimplemented. |
+
+**Flow:** fetch the URL with cookies → abort if the page or any fetched manifest shows a
+DRM marker (`widevine`, `playready`, `clearkey`, `EXT-X-KEY:METHOD=SAMPLE-AES`,
+`com.apple.fps` — no key handling is ever attempted) → classify the page as
+`not_purchased` (login/purchase markers present, or no lesson/video found — this is the
+fail-closed default), `single`, or `course` → for `course`, walk same-origin lesson links
+matching `course_site.lesson_link_pattern` **in document order** (Persian slugs are never
+alphabetized) and download each via `yt-dlp` as `NN - <sanitized title>.mp4` (`NN`
+zero-padded to the width of the total count) into a directory named after the course →
+every successful download runs through `ensure_mac_playable_video()` unless
+`--keep-codec`. Video sources are resolved in priority order: `<video>`/`<source>` tags →
+known-host `<iframe>` embeds (`course_site.video_hosts`) → bare `.mp4`/`.m3u8` URLs in inline
+JS/JSON → `data-src`/`data-video`/`data-url` attributes.
+
+**Known unknown:** the authenticated lesson markup has never been observed (only the
+public, logged-out page was reconnoitered for WO-amir-cli-0007) — the extractor is
+generic/config-driven so it adapts, but which branch actually fires against a real
+purchased lesson has not been confirmed. A logged-out smoke run correctly returns exit 2
+with "Not logged in, or this course is not in your purchases." and downloads nothing.
+
 **Key design rules:**
 - `--translate` implies `DO_RENDER=true` — the translated subtitle is burned into the video automatically.
 - Use `--sub-only` (or `--no-render`) to get SRT-only output: `amir video download <url> --translate -t en fa --sub-only`.
@@ -740,6 +784,7 @@ local quality=$(get_config "compress" "quality" "60")
 - `todo`: `file`
 - `short`: `provider`
 - `codec`: `video`, `audio`, `container`, `keep_video`, `keep_audio`, `crf`, `preset`, `audio_bitrate` — output codec policy for every download path (owner ruling 2026-07-27: H.264/AAC/MP4 by default). `keep_video`/`keep_audio` accept comma-separated lists of source codecs to leave unnormalized. Read by `ensure_mac_playable_video()` in `lib/commands/video.sh`.
+- `course_site`: `domains` (comma list of hostnames enabling the private course-site path — empty by default; this repo ships no hostnames, set them here or via `AMIR_COURSE_SITE_DOMAINS` in `.env`), `video_hosts` (comma list of iframe hosts handed straight to yt-dlp, default `youtube.com,youtu.be,vimeo.com`), `lesson_link_pattern` (regex for same-origin lesson URLs on a course page, default `/lesson/|/course/|/topic/` — deliberately excludes `/product/`, which on the WooCommerce-based site this was validated against is the course-landing-page scheme and matched nav/related-product links in testing). Read by `lib/commands/download_course_site.sh`.
 
 ### Storage Location
 By default, Amir CLI stores all its data (logs, stats, config, temp files) in:
