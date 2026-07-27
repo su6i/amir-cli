@@ -2609,9 +2609,30 @@ embed_video_cover_art() {
     fi
 }
 
+# List membership check: case-insensitive, comma-separated, trims whitespace.
+# Usage: _codec_in_list "h264" "H264, hevc , prores"
+_codec_in_list() {
+    local _needle _haystack _item _old_ifs
+    _needle="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+    _haystack="$2"
+    _old_ifs="$IFS"
+    IFS=','
+    for _item in $_haystack; do
+        IFS="$_old_ifs"
+        _item="$(printf '%s' "$_item" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+        [[ "$_item" == "$_needle" ]] && return 0
+        IFS=','
+    done
+    IFS="$_old_ifs"
+    return 1
+}
+
 ensure_mac_playable_video() {
     local _video_file="$1"
     local _force="${2:-false}"
+    # Callers read this back: normalizing may change the extension to the policy
+    # container, so the path they started with is not necessarily the final one.
+    MAC_PLAYABLE_FILE="$_video_file"
     [[ -f "$_video_file" ]] || return 1
 
     local _vcodec _acodec
@@ -2620,38 +2641,65 @@ ensure_mac_playable_video() {
 
     [[ -z "$_vcodec" ]] && return 1
 
-    # QuickTime/macOS compatibility: vp9/av1 in mp4 is unreliable in many setups.
-    # Keep native file when already compatible, otherwise normalize to H.264/AAC.
+    # Codec policy is config-driven (owner ruling 2026-07-27: H.264/AAC/MP4 is the
+    # default for every download path). keep_video/keep_audio are the opt-in escape
+    # hatch for source codecs accepted as-is; anything not listed gets normalized.
+    local _keep_v _keep_a _target_v _target_a _target_container _crf _preset _abitrate
+    _keep_v=$(get_config "codec" "keep_video" "h264")
+    _keep_a=$(get_config "codec" "keep_audio" "aac")
+    _target_v=$(get_config "codec" "video" "h264")
+    _target_a=$(get_config "codec" "audio" "aac")
+    _target_container=$(get_config "codec" "container" "mp4")
+    _crf=$(get_config "codec" "crf" "20")
+    _preset=$(get_config "codec" "preset" "medium")
+    _abitrate=$(get_config "codec" "audio_bitrate" "160k")
+
     local _video_ok=false
-    case "$_vcodec" in
-        h264|hevc|h265|mpeg4|prores) _video_ok=true ;;
-    esac
+    _codec_in_list "$_vcodec" "$_keep_v" && _video_ok=true
 
     local _audio_ok=false
     if [[ -z "$_acodec" ]]; then
         _audio_ok=true  # no audio stream
     else
-        case "$_acodec" in
-            aac|alac|mp3|ac3|eac3) _audio_ok=true ;;
-        esac
+        _codec_in_list "$_acodec" "$_keep_a" && _audio_ok=true
     fi
 
     if [[ "$_force" != "true" ]] && $_video_ok && $_audio_ok; then
         return 0
     fi
 
-    local _tmp_out="${_video_file%.*}.mac_compat_tmp.mp4"
+    local _venc
+    case "$_target_v" in
+        h264) _venc="libx264" ;;
+        hevc|h265) _venc="libx265" ;;
+        *)
+            log_info "⚠️  Unknown codec.video '${_target_v}' in config — falling back to libx264." >&2
+            _venc="libx264"
+            ;;
+    esac
+
+    local _tmp_out="${_video_file%.*}.mac_compat_tmp.${_target_container}"
     log_info "🛠️  Normalizing for macOS playback (v=${_vcodec:-?}, a=${_acodec:-none})..." >&2
 
     if ffmpeg -hide_banner -loglevel error -y \
         -i "$_video_file" \
         -map "0:v:0" -map "0:a?" \
-        -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p \
-        -c:a aac -b:a 160k \
+        -c:v "$_venc" -preset "$_preset" -crf "$_crf" -pix_fmt yuv420p \
+        -c:a "$_target_a" -b:a "$_abitrate" \
         -movflags +faststart \
         "$_tmp_out"; then
-        mv -f "$_tmp_out" "$_video_file"
-        log_info "✅ macOS-compatible video generated: $(basename "$_video_file")" >&2
+        # The payload is now the target container. Keeping a stale source extension
+        # (e.g. an mp4 payload still named .webm) makes QuickTime/Finder refuse the
+        # file even though the codecs are fine — so the extension follows the policy.
+        local _src_ext="${_video_file##*.}"
+        local _final="$_video_file"
+        if [[ "$(printf '%s' "$_src_ext" | tr 'A-Z' 'a-z')" != "$(printf '%s' "$_target_container" | tr 'A-Z' 'a-z')" ]]; then
+            _final="${_video_file%.*}.${_target_container}"
+            rm -f "$_video_file"
+        fi
+        mv -f "$_tmp_out" "$_final"
+        MAC_PLAYABLE_FILE="$_final"
+        log_info "✅ macOS-compatible video generated: $(basename "$_final")" >&2
         return 0
     fi
 
@@ -2892,6 +2940,7 @@ video_download() {
     local YT_PO_TOKEN=""
     local -a EXTRA_YTDLP_ARGS=()
     local FORCE_NORMALIZE=false
+    local KEEP_SOURCE_CODEC=false
 
     # Ctrl+C abort flag: set by SIGINT trap so every pipeline step can check it
     local _DL_ABORTED=0
@@ -2930,6 +2979,7 @@ video_download() {
                 shift 2
                 ;;
             --normalize)     FORCE_NORMALIZE=true; shift ;;
+            --keep-codec)    KEEP_SOURCE_CODEC=true; shift ;;
             --resolution|-R)
                 DL_RESOLUTION="$2"
                 DL_RESOLUTION_EXPLICIT=true
@@ -2967,6 +3017,20 @@ video_download() {
                 ;;
         esac
     done
+
+    # --keep-codec and --normalize are mutually exclusive; --normalize wins.
+    if [[ "$FORCE_NORMALIZE" == true && "$KEEP_SOURCE_CODEC" == true ]]; then
+        log_info "⚠️  Both --keep-codec and --normalize given — --normalize wins (forcing transcode)." >&2
+        KEEP_SOURCE_CODEC=false
+    fi
+
+    # Ask yt-dlp to prefer an already-compliant stream (H.264/AAC) over AV1/Opus
+    # so we skip a full transcode afterward. Preference only — never a filter;
+    # ensure_mac_playable_video() remains the backstop either way.
+    local -a YTDLP_FORMAT_SORT_ARGS=()
+    if [[ "$(get_config "codec" "video" "h264")" == "h264" ]]; then
+        YTDLP_FORMAT_SORT_ARGS=(-S "vcodec:h264,acodec:aac,res,br")
+    fi
 
     # Support compact syntax with optional inline sizes:
     #   --subtitle fa
@@ -3070,6 +3134,8 @@ video_download() {
         echo "  --extreme             Fast defaults for subtitle pipeline: 360p + q30" >&2
         echo "  --po-token <token>    Pass GVS PO Token (e.g. mweb.gvs+XXX) for YouTube 720p+ streams" >&2
         echo "  --yt-dlp-args <args>  Pass extra arguments directly to yt-dlp" >&2
+        echo "  --normalize           Force transcode to H.264/AAC/MP4 even if already compliant" >&2
+        echo "  --keep-codec          Skip codec normalization; keep whatever the site served" >&2
         return 1
     fi
 
@@ -3332,6 +3398,7 @@ PY
             --convert-thumbnails jpg \
             -f "bestvideo[height<=${DL_RESOLUTION}][format_id!*=timeline]+bestaudio/best[height<=${DL_RESOLUTION}][format_id!*=timeline]/best[height<=${DL_RESOLUTION}][vcodec!=none]/best[vcodec!=none]/best" \
             --merge-output-format mp4 \
+            "${YTDLP_FORMAT_SORT_ARGS[@]}" \
             --print "before_dl:${_VID_TITLE:-%(title)s}" \
             --print "after_move:filepath" \
             -o "$OUT_TEMPLATE" \
@@ -3368,6 +3435,7 @@ PY
                 --convert-thumbnails jpg \
                 -f "bestvideo[height<=${DL_RESOLUTION}][format_id!*=timeline]+bestaudio/best[height<=${DL_RESOLUTION}][format_id!*=timeline]/best[height<=${DL_RESOLUTION}][vcodec!=none]/best[vcodec!=none]/best" \
                 --merge-output-format mp4 \
+                "${YTDLP_FORMAT_SORT_ARGS[@]}" \
                 --print "before_dl:${_VID_TITLE:-%(title)s}" \
                 --print "after_move:filepath" \
                 -o "$OUT_TEMPLATE" \
@@ -3520,7 +3588,14 @@ PY
     fi
 
     # Normalize codec/container profile for QuickTime/macOS if needed.
-    ensure_mac_playable_video "$VIDEO_FILE" "$FORCE_NORMALIZE"
+    if [[ "$KEEP_SOURCE_CODEC" == true ]]; then
+        log_info "⏭️  --keep-codec: skipping macOS-playback normalization." >&2
+    else
+        ensure_mac_playable_video "$VIDEO_FILE" "$FORCE_NORMALIZE"
+        # Normalization may have rewritten the file under the policy container
+        # extension; everything below (subtitles, cover art) must follow it.
+        [[ -n "$MAC_PLAYABLE_FILE" && -f "$MAC_PLAYABLE_FILE" ]] && VIDEO_FILE="$MAC_PLAYABLE_FILE"
+    fi
 
     if [[ "$ACTUAL_HEIGHT" =~ ^[0-9]+$ ]]; then
         log_success "Saved → $(basename "$VIDEO_FILE") (${ACTUAL_HEIGHT}p actual)" >&2

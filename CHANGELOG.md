@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-07-27 — feat: codec policy — H.264/AAC/MP4 is the default for every download path
+
+Owner ruling (verbatim): "تصمیم نهایی من پیش‌فرض H.264 است." This overrides the
+22-Jun assumption that VP9/AV1 video and Opus audio were "Mac-playable, skip
+transcode" — empirically wrong for QuickTime/AVFoundation.
+
+- **feat(config):** New `codec:` section in `~/.amir/config.yaml` (via
+  `init_config()` in `lib/config.sh`): `video`/`audio`/`container` (normalize
+  target, default `h264`/`aac`/`mp4`), `keep_video`/`keep_audio` (comma lists of
+  SOURCE codecs accepted as-is — the opt-in escape hatch), `crf`, `preset`,
+  `audio_bitrate`.
+- **fix(video):** `ensure_mac_playable_video()` (`lib/commands/video.sh`) no
+  longer hardcodes an allowlist (`h264|hevc|h265|mpeg4|prores` video,
+  `aac|alac|mp3|ac3|eac3` audio). It now reads the policy from config via
+  `get_config`, matches case-insensitively against the `keep_video`/`keep_audio`
+  lists, and drives the ffmpeg encode (`-c:v`, `-crf`, `-preset`, `-c:a`,
+  `-b:a`) entirely from config — no more literal `libx264`/`20`/`160k`.
+- **BEHAVIOR CHANGE:** With the strict `h264`/`aac` defaults, HEVC, ProRes,
+  MPEG-4, VP9, AV1, MP3, Opus and AC3 downloads now get transcoded that
+  previously would have been kept as-is (hevc/mpeg4/prores/mp3/ac3/eac3 were
+  previously allowlisted). This is intentional. Opt out per-run with
+  `--keep-codec`, or edit `codec.keep_video`/`codec.keep_audio` in
+  `~/.amir/config.yaml`.
+- **feat(download):** New `--keep-codec` flag on `amir download` / `amir video
+  download` — skips `ensure_mac_playable_video()` entirely and keeps whatever
+  the site served. Mutually exclusive with `--normalize` (which wins, with a
+  warning, if both are given). Threaded through both the yt-dlp path
+  (`video_download` in `video.sh`) and the gallery-dl/Instagram path
+  (`run_download` → `_download_instagram` → `_gallery_dl_download` in
+  `download.sh`).
+- **feat(download):** yt-dlp format selection now adds `-S
+  "vcodec:h264,acodec:aac,res,br"` (guarded behind `codec.video == h264`) so a
+  compliant stream is preferred at download time instead of paying for a full
+  transcode afterward. Preference only, not a filter — `ensure_mac_playable_video()`
+  remains the backstop.
+- **fix(video):** Normalization now renames the file to the policy container
+  extension. Previously an AV1/Opus `.webm` was transcoded to an MP4 payload but
+  kept its `.webm` name, so QuickTime and Finder still refused to open it —
+  codecs correct, file still unplayable. `ensure_mac_playable_video()` now
+  exposes the resulting path in `MAC_PLAYABLE_FILE`, and `video_download()`
+  re-points `VIDEO_FILE` at it so the subtitle and cover-art steps follow the
+  renamed file. Verified: `av1/opus` `.webm` → `h264/aac` `.mp4`.
+- Docs: `README.md` (download row + `--keep-codec` + config example),
+  `docs/TECHNICAL.md` (`--normalize`/`--keep-codec` flag table + `codec:`
+  config section) updated to match.
+
 ## 2026-07-24 — fix: dedupe cover-art stream in embed_video_cover_art()
 
 Follow-up to the 2026-07-23 mac-playback fixes: even with those fixed, a

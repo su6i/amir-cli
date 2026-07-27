@@ -318,7 +318,8 @@ amir video download <url> [options]
 | `--formats / -F` | List available resolutions and estimated sizes before downloading. |
 | `--resolution / -R <h>` | Explicit download max height (e.g. `240/360/480/720/1080`). For auto-min selection, use `--extreme`. |
 | `--extreme` | Auto-pick smallest practical available resolution (floor: 240p) for minimum size. |
-| `--normalize` | Forces FFmpeg transcoding to H.264/AAC. (By default, AV1/VP9 and Opus are preserved if supported natively). |
+| `--normalize` | Forces FFmpeg transcoding to H.264/AAC/MP4 even if the source is already policy-compliant. |
+| `--keep-codec` | Opt out of the default normalization entirely — keep whatever codec the site served, even AV1/VP9/Opus/HEVC/ProRes. Mutually exclusive with `--normalize` (which wins if both are given). |
 | `--po-token <token>` | Manually pass GVS PO Token for YouTube 720p+ (e.g. `mweb.gvs+XXX`). Overrides auto-generation. |
 | `--yt-dlp-args <args>` | Pass arbitrary arguments straight through to the underlying yt-dlp binary. |
 | `--browser <name>` | Browser for cookie extraction (default: `chrome`). |
@@ -738,6 +739,7 @@ local quality=$(get_config "compress" "quality" "60")
 - `weather`: `default_city`
 - `todo`: `file`
 - `short`: `provider`
+- `codec`: `video`, `audio`, `container`, `keep_video`, `keep_audio`, `crf`, `preset`, `audio_bitrate` — output codec policy for every download path (owner ruling 2026-07-27: H.264/AAC/MP4 by default). `keep_video`/`keep_audio` accept comma-separated lists of source codecs to leave unnormalized. Read by `ensure_mac_playable_video()` in `lib/commands/video.sh`.
 
 ### Storage Location
 By default, Amir CLI stores all its data (logs, stats, config, temp files) in:

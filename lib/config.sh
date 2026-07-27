@@ -98,6 +98,19 @@ todo:
 # URL Shortener Settings
 short:
   provider: is.gd     # Preferred provider (is.gd, tinyurl.com, da.gd)
+
+# Download output codec policy (owner ruling 2026-07-27)
+# Default target for EVERY download path is H.264 + AAC in MP4 so output plays in
+# QuickTime on macOS and on Windows/Linux without extra codecs.
+codec:
+  video: h264                 # target video codec when normalizing
+  audio: aac                  # target audio codec when normalizing
+  container: mp4              # target container
+  keep_video: h264            # comma list of SOURCE video codecs accepted as-is
+  keep_audio: aac             # comma list of SOURCE audio codecs accepted as-is
+  crf: 20                     # x264 quality
+  preset: medium              # x264 preset
+  audio_bitrate: 160k
 EOF
     fi
 }

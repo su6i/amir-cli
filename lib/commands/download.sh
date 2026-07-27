@@ -9,12 +9,20 @@ run_download() {
     # Extract URL and --format flag before delegating
     local URL=""
     local IMG_FORMAT="jpg"
+    local KEEP_SOURCE_CODEC=false
     local -a PASSTHROUGH=()
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --format|-f)
                 IMG_FORMAT="$2"; shift 2 ;;
+            --keep-codec)
+                # video_download() (yt-dlp path) parses --keep-codec itself from
+                # PASSTHROUGH, so it must stay in the array; we also capture it
+                # here to gate the gallery-dl (Instagram photo/carousel) path,
+                # which does not forward arbitrary args to the gallery-dl binary.
+                KEEP_SOURCE_CODEC=true
+                PASSTHROUGH+=("$1"); shift ;;
             *)
                 [[ "$1" =~ ^https?:// && -z "$URL" ]] && URL="$1"
                 PASSTHROUGH+=("$1"); shift ;;
@@ -27,7 +35,7 @@ run_download() {
     fi
 
     if [[ "$URL" =~ (instagram\.com|instagr\.am) ]]; then
-        _download_instagram "$IMG_FORMAT" "${PASSTHROUGH[@]}"
+        _download_instagram "$IMG_FORMAT" "$KEEP_SOURCE_CODEC" "${PASSTHROUGH[@]}"
     else
         video_download "${PASSTHROUGH[@]}"
     fi
@@ -37,6 +45,7 @@ run_download() {
 
 _download_instagram() {
     local IMG_FORMAT="$1"; shift
+    local KEEP_SOURCE_CODEC="$1"; shift
     local URL=""
     local -a ARGS=("$@")
 
@@ -89,7 +98,7 @@ except:
         video_download "$@"
     else
         log_info "📸 Photo/carousel post detected — using gallery-dl..." >&2
-        _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT"
+        _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC"
     fi
 }
 
@@ -101,6 +110,7 @@ _gallery_dl_download() {
     local BROWSER="${3:-chrome}"
     local COOKIES_FILE="${4:-}"
     local IMG_FORMAT="${5:-jpg}"   # jpg | png | webp (webp = no conversion)
+    local KEEP_SOURCE_CODEC="${6:-false}"
 
     # Normalise: jpg → jpeg for sips
     local SIPS_FORMAT="$IMG_FORMAT"
@@ -177,12 +187,16 @@ _gallery_dl_download() {
 
     # Normalize newly downloaded video items (carousel posts can mix photos + reels;
     # gallery-dl saves those raw — often vp9/av1 in mp4, unplayable in QuickTime).
-    local normalized=0
-    while IFS= read -r video_file; do
-        grep -qxF "$video_file" "$_video_snapshot" && continue  # skip pre-existing
-        ensure_mac_playable_video "$video_file" && normalized=$((normalized + 1))
-    done < <(find "$real_out_dir" -maxdepth 1 \( -name "*.mp4" -o -name "*.mov" -o -name "*.mkv" -o -name "*.webm" \) 2>/dev/null)
-    [[ $normalized -gt 0 ]] && log_info "✅ $normalized video(s) verified/normalized for macOS playback" >&2
+    if [[ "$KEEP_SOURCE_CODEC" == true ]]; then
+        log_info "⏭️  --keep-codec: skipping macOS-playback normalization for downloaded videos." >&2
+    else
+        local normalized=0
+        while IFS= read -r video_file; do
+            grep -qxF "$video_file" "$_video_snapshot" && continue  # skip pre-existing
+            ensure_mac_playable_video "$video_file" && normalized=$((normalized + 1))
+        done < <(find "$real_out_dir" -maxdepth 1 \( -name "*.mp4" -o -name "*.mov" -o -name "*.mkv" -o -name "*.webm" \) 2>/dev/null)
+        [[ $normalized -gt 0 ]] && log_info "✅ $normalized video(s) verified/normalized for macOS playback" >&2
+    fi
 
     rm -f "$_video_snapshot"
     log_info "✅ Download complete." >&2
@@ -207,9 +221,14 @@ TikTok, Twitter/X, Vimeo, and 1000+ other sites.
     --browser <name>       Browser for cookie auth (default: chrome)
     --cookies <file>       Netscape cookies.txt file
     --extreme              Fast mode: 360p, lower quality
-    --normalize            Force transcoding to H.264/AAC for older macOS compatibility
+    --normalize            Force transcoding to H.264/AAC/MP4 even if already compliant
+    --keep-codec           Skip codec normalization; keep whatever the site served
     --po-token <token>     Pass GVS PO Token (e.g. web+XXX) for YouTube 720p+
     --yt-dlp-args <args>   Pass extra arguments directly to yt-dlp
+
+  Output codec policy (default: H.264/AAC/MP4 for every download, owner ruling
+  2026-07-27): configurable via ~/.amir/config.yaml under the `codec:` section
+  (keep_video / keep_audio accept comma lists of source codecs to leave as-is).
 
   Instagram photo/carousel options:
     --format <fmt>         Image format: jpg (default), png, webp
