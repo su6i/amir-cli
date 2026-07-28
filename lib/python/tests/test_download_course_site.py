@@ -156,7 +156,7 @@ def test_course_site_classify_page_single():
         os.remove(temp_name)
 
 
-def test_course_site_classify_page_not_purchased_blocked():
+def test_course_site_classify_page_not_enrolled():
     with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
         f.write(
             '<html><body><button class="single_add_to_cart_button">Buy</button></body></html>'
@@ -168,12 +168,49 @@ def test_course_site_classify_page_not_purchased_blocked():
             "_course_site_classify_page", temp_name, "https://example-course-site.test"
         )
         assert res.returncode == 0
-        assert res.stdout.strip() == "not_purchased"
+        assert res.stdout.strip() == "not_enrolled"
     finally:
         os.remove(temp_name)
 
 
-def test_course_site_classify_page_not_purchased_empty():
+def test_course_site_classify_page_not_logged_in():
+    with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+        f.write(
+            '<html><body><form id="digits-login"></form></body></html>'
+        )
+        temp_name = f.name
+
+    try:
+        res = run_bash_function(
+            "_course_site_classify_page", temp_name, "https://example-course-site.test"
+        )
+        assert res.returncode == 0
+        assert res.stdout.strip() == "not_logged_in"
+    finally:
+        os.remove(temp_name)
+
+
+def test_course_site_classify_page_enrolled_with_cart():
+    with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+        f.write(
+            '<html><body>'
+            '<button class="single_add_to_cart_button">Buy Related</button>'
+            '<button class="red1">شما دانشجوی دوره هستید</button>'
+            '</body></html>'
+        )
+        temp_name = f.name
+
+    try:
+        res = run_bash_function(
+            "_course_site_classify_page", temp_name, "https://example-course-site.test"
+        )
+        assert res.returncode == 0
+        assert res.stdout.strip() == "course"
+    finally:
+        os.remove(temp_name)
+
+
+def test_course_site_classify_page_not_enrolled_empty():
     with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
         f.write("<html><body><p>Hello</p></body></html>")
         temp_name = f.name
@@ -183,7 +220,42 @@ def test_course_site_classify_page_not_purchased_empty():
             "_course_site_classify_page", temp_name, "https://example-course-site.test"
         )
         assert res.returncode == 0
-        assert res.stdout.strip() == "not_purchased"
+        assert res.stdout.strip() == "not_enrolled"
+    finally:
+        os.remove(temp_name)
+
+
+def test_course_site_extract_direct_media():
+    with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+        f.write('''
+        <div id="C">
+          <span>جلسه 2 </span>
+          <span>روانشناسی فردی</span>
+          <span><time>01:34</time></span>
+          <span><a href="https://media.example.com/c/02.mp4" download="">DL</a></span>
+        </div>
+        <div id="C">
+          <span>جلسه 3 </span>
+          <span>مبحث پیشرفته</span>
+          <span><time>02:00</time></span>
+          <span><a class="locked"><img></a></span>
+        </div>
+        <div id="C">
+          <span>جلسه 4 </span>
+          <span>نتیجه‌گیری</span>
+          <span><time>01:00</time></span>
+          <span><a href="https://media.example.com/c/04.mkv">DL</a></span>
+        </div>
+        ''')
+        temp_name = f.name
+
+    try:
+        res = run_bash_function("_course_site_extract_direct_media", temp_name)
+        assert res.returncode == 0
+        lines = res.stdout.strip().split("\n")
+        assert len(lines) == 2
+        assert lines[0] == "https://media.example.com/c/02.mp4\t2\tروانشناسی فردی"
+        assert lines[1] == "https://media.example.com/c/04.mkv\t4\tنتیجه‌گیری"
     finally:
         os.remove(temp_name)
 

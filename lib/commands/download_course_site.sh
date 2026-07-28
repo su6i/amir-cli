@@ -128,25 +128,68 @@ for match in re.finditer(r'<a\s+[^>]*href=[\'"]([^\'"]+)[\'"][^>]*>(.*?)</a>', c
 PY
 }
 
-# 4. _course_site_classify_page FILE BASE_URL
+# 4. _course_site_extract_direct_media FILE
+_course_site_extract_direct_media() {
+    local file="$1"
+    python3 - "$file" <<'PY'
+import sys, re, html
+
+file_path = sys.argv[1]
+try:
+    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        content = f.read()
+except Exception:
+    sys.exit(1)
+
+for match in re.finditer(r'<div\s+id=[\'"]C[\'"][^>]*>(.*?)</div>', content, re.IGNORECASE | re.DOTALL):
+    div_content = match.group(1)
+    spans = re.findall(r'<span[^>]*>(.*?)</span>', div_content, re.IGNORECASE | re.DOTALL)
+    if len(spans) >= 2:
+        idx_text = re.sub(r'<[^>]+>', '', spans[0]).strip()
+        idx_match = re.search(r'\d+', idx_text)
+        idx = idx_match.group(0) if idx_match else ""
+        
+        title_text = re.sub(r'<[^>]+>', '', spans[1])
+        title_text = html.unescape(title_text).strip()
+        title_text = re.sub(r'\s+', ' ', title_text)
+        
+        a_match = re.search(r'<a\s+[^>]*href=[\'"]([^\'"]+\.(?:mp4|m4v|mkv|webm)(?:\?[^\'"]*)?)[\'"]', div_content, re.IGNORECASE)
+        if a_match:
+            href = a_match.group(1)
+            print(f"{href}\t{idx}\t{title_text}")
+PY
+}
+
+# 4a. _course_site_is_enrolled FILE
+_course_site_is_enrolled() {
+    local file="$1"
+    grep -qiE 'شما دانشجوی دوره هستید' "$file"
+}
+
+# 4b. _course_site_classify_page FILE BASE_URL
 _course_site_classify_page() {
     local file="$1"
     local base_url="$2"
     
-    local blocked=0
-    if grep -qiE 'single_add_to_cart_button|add_to_cart|digits-login|digits_mobile_no' "$file" || grep -qiE '<form[^>]*login' "$file"; then
-        blocked=1
+    if _course_site_is_enrolled "$file"; then
+        echo "course"
+        return 0
+    fi
+    
+    if grep -qiE 'digits-login|digits_mobile_no|<form[^>]*login' "$file"; then
+        echo "not_logged_in"
+        return 0
+    fi
+    
+    if grep -qiE 'single_add_to_cart_button|add_to_cart' "$file"; then
+        echo "not_enrolled"
+        return 0
     fi
     
     local links
     links=$(_course_site_extract_lesson_links "$file" "$base_url")
     if [[ -n "$links" ]]; then
         echo "course"
-        return 0
-    fi
-    
-    if [[ $blocked -eq 1 ]]; then
-        echo "not_purchased"
         return 0
     fi
     
@@ -157,7 +200,7 @@ _course_site_classify_page() {
         return 0
     fi
     
-    echo "not_purchased"
+    echo "not_enrolled"
 }
 
 # 5. _course_site_sanitize_title TITLE
@@ -336,8 +379,13 @@ _download_course_site() {
 
     local kind
     kind=$(_course_site_classify_page "$main_page" "$URL")
-    if [[ "$kind" == "not_purchased" ]]; then
-        log_error "Not logged in, or this course is not in your purchases."
+    if [[ "$kind" == "not_logged_in" ]]; then
+        log_error "Not logged in — pass --cookies or --browser <name>."
+        rm -f "$main_page"
+        [[ "$COURSE_SITE_COOKIE_JAR_IS_TEMP" == true ]] && rm -f "$COURSE_SITE_COOKIE_JAR"
+        return 2
+    elif [[ "$kind" == "not_enrolled" ]]; then
+        log_error "You are logged in but this course is not in your purchases."
         rm -f "$main_page"
         [[ "$COURSE_SITE_COOKIE_JAR_IS_TEMP" == true ]] && rm -f "$COURSE_SITE_COOKIE_JAR"
         return 2
@@ -366,10 +414,20 @@ except Exception:
     
     local -a items=()
     local DEST_DIR=""
+    local is_direct_media=false
     if [[ "$kind" == "course" ]]; then
         while IFS= read -r line; do
             [[ -n "$line" ]] && items+=("$line")
-        done < <(_course_site_extract_lesson_links "$main_page" "$URL")
+        done < <(_course_site_extract_direct_media "$main_page")
+        
+        if [[ ${#items[@]} -gt 0 ]]; then
+            is_direct_media=true
+        else
+            while IFS= read -r line; do
+                [[ -n "$line" ]] && items+=("$line")
+            done < <(_course_site_extract_lesson_links "$main_page" "$URL")
+        fi
+        
         DEST_DIR="$OUT_DIR/$(_course_site_sanitize_title "$PAGE_TITLE")"
         mkdir -p "$DEST_DIR"
     elif [[ "$kind" == "single" ]]; then
@@ -385,13 +443,23 @@ except Exception:
     for (( i=1; i<=total; i++ )); do
         local item="${items[$((i-1))]}"
         local lesson_url="${item%%$'\t'*}"
-        local lesson_title="${item#*$'\t'}"
+        local remainder="${item#*$'\t'}"
+        
+        local lesson_title
+        local lesson_index="$i"
+        if [[ "$is_direct_media" == true && "$remainder" == *$'\t'* ]]; then
+            lesson_index="${remainder%%$'\t'*}"
+            [[ -z "$lesson_index" ]] && lesson_index="$i"
+            lesson_title="${remainder#*$'\t'}"
+        else
+            lesson_title="$remainder"
+        fi
         
         local sanitized_title
         sanitized_title=$(_course_site_sanitize_title "$lesson_title")
         
         local stem
-        stem="$DEST_DIR/$(_course_site_zero_pad_name "$i" "$total" "$sanitized_title")"
+        stem="$DEST_DIR/$(_course_site_zero_pad_name "$lesson_index" "$total" "$sanitized_title")"
         
         local existing_file=false
         if [[ "$FORCE" != true ]]; then
@@ -410,7 +478,9 @@ except Exception:
         fi
         
         local video_url=""
-        if [[ "$kind" == "course" ]]; then
+        if [[ "$is_direct_media" == true ]]; then
+            video_url="$lesson_url"
+        elif [[ "$kind" == "course" ]]; then
             local tmp_lesson
             tmp_lesson=$(mktemp)
             _course_site_fetch_page "$lesson_url" "$COURSE_SITE_COOKIE_JAR" "$tmp_lesson" >/dev/null
@@ -456,6 +526,9 @@ except Exception:
     if [[ $ok -eq $total && $total -gt 0 ]]; then
         log_info "✅ $ok/$total videos downloaded"
         return 0
+    elif [[ $total -eq 0 && "$kind" == "course" ]]; then
+        log_error "You own this course but no downloadable media was found on the page."
+        return 2
     else
         log_error "$ok/$total videos downloaded (${failed:-0} failed)"
         return 1

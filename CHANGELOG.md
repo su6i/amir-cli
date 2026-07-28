@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-07-28 — fix: course sites wrongly reported "not logged in" for enrolled users
+
+Enrolled users were told `Not logged in, or this course is not in your purchases.`
+(exit 2) on courses they actually own.
+
+**Root cause (two independent defects):**
+
+1. `_course_site_classify_page()` set `blocked=1` on *any* `add_to_cart` match. On a
+   WooCommerce course page the cross-sell/related-products widget renders that markup
+   even when the viewer is enrolled, so ownership was misread as "not purchased".
+2. Lesson discovery only looked for *same-origin* lesson pages matching
+   `course_site.lesson_link_pattern`. Some sites instead place **cross-origin direct
+   media links** on the course page itself, so link extraction returned nothing and the
+   flow fell through to the `not_purchased` branch.
+
+**Changes:**
+
+- **fix(download):** New `_course_site_is_enrolled()`; the enrolment marker is now
+  authoritative — `add_to_cart` can no longer override it.
+- **fix(download):** The single ambiguous error is split into three distinct outcomes:
+  `not_logged_in`, `not_enrolled`, and enrolled-but-no-media. The tool no longer blames
+  authentication for a parsing failure.
+- **feat(download):** New `_course_site_extract_direct_media()` parses lesson rows in
+  document order (index, title, media href), skipping locked rows whose anchor carries
+  no `href`. Media is matched by file extension on any host — **no hostname is
+  hardcoded**; hosts stay in `.env` / `~/.amir/config.yaml`. The same-origin lesson-page
+  path remains as a fallback.
+- **fix(tests):** Added `[tool.pytest.ini_options] testpaths` to `pyproject.toml`. A bare
+  `pytest` from the repo root previously aborted collection entirely, because
+  `lib/python/test_4_claude.py` (imports `cv2`) and `lib/python/test_pro_engine.py`
+  (imports a module that no longer exists) are loose dev scratch files. Collection now
+  scopes to the real suites. *Note:* this makes 8 pre-existing failures in
+  `subtitle/tests/test_workflow_rendering.py` visible; they are unrelated to this change
+  and are tracked separately.
+- Course-site suite: 16 → 19 tests.
+
 ## 2026-07-27 — feat: `amir download` support for private course sites
 
 WO-amir-cli-0007. For course content the user has purchased. Auth works exclusively

@@ -52,3 +52,13 @@ build-backend = "hatchling.build"
 dev = [
     "pytest>=9.0.2",
 ]
+
+[tool.pytest.ini_options]
+# Collect only the real suites. `lib/python/test_4_claude.py` and
+# `lib/python/test_pro_engine.py` are loose dev scratch files that import
+# optional deps (cv2) and a module that no longer exists, so a bare `pytest`
+# from the repo root aborted collection for the whole repo.
+testpaths = [
+    "lib/python/tests",
+    "lib/python/subtitle/tests",
+]
