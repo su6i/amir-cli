@@ -341,8 +341,8 @@ amir download https://<your-course-site>/<course-page>/ --cookies cookies.txt
 Routed from `run_download()` in `download.sh` (`lib/commands/download_course_site.sh`)
 via `_url_is_course_site()`, which matches the URL against the configured host list only.
 Auth is exclusively the owner's own logged-in browser session —
-same cookie resolution as every other download path (`--cookies` → `./cookies.txt` →
-`$HOME/su6i-yar/cookies.txt` → `--cookies-from-browser $BROWSER`, via the shared
+same cookie resolution as every other download path (explicit `--cookies` / `--browser` → `./cookies.txt` →
+global config cookies → `--cookies-from-browser $BROWSER`, via the shared
 `_resolve_cookie_args()` helper). No paywall bypass, no credential guessing.
 
 | Flag | Behavior |

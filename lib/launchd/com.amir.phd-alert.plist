@@ -1,6 +1,26 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  TEMPLATE — not usable as-is.
+
+  launchd does NOT expand ~, $HOME, or any environment variable inside this file:
+  every path must be a literal absolute path. Replace all three placeholders below
+  before installing, otherwise the job loads and silently does nothing.
+
+    /Users/username     -> your home directory        (echo $HOME)
+    /path/to/amir-cli   -> this repository's checkout (pwd, from the repo root)
+    /path/to/apply_dir  -> the directory holding your applications
+
+  Install:
+
+    cp lib/launchd/com.amir.phd-alert.plist ~/Library/LaunchAgents/com.amir.phd-alert.plist
+    launchctl load ~/Library/LaunchAgents/com.amir.phd-alert.plist
+
+  Confirm it registered, then check the log paths named at the bottom of this file:
+
+    launchctl list | grep com.amir.phd-alert
+-->
 <plist version="1.0">
 <dict>
     <key>Label</key>
@@ -8,23 +28,23 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/su6i/.local/bin/uv</string>
+        <string>/Users/username/.local/bin/uv</string>
         <string>run</string>
         <string>--directory</string>
-        <string>/Users/su6i/@-github/amir-cli</string>
+        <string>/path/to/amir-cli</string>
         <string>python</string>
-        <string>/Users/su6i/@-github/amir-cli/lib/python/apply_tracker/daily_alert.py</string>
-        <string>/Users/su6i/@-Amir/Apply/2026-2027</string>
+        <string>/path/to/amir-cli/lib/python/apply_tracker/daily_alert.py</string>
+        <string>/path/to/apply_dir</string>
     </array>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/Users/su6i/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>/Users/username/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
         <key>HOME</key>
-        <string>/Users/su6i</string>
+        <string>/Users/username</string>
         <key>PYTHONPATH</key>
-        <string>/Users/su6i/@-github/amir-cli/lib/python</string>
+        <string>/path/to/amir-cli/lib/python</string>
     </dict>
 
     <!-- Every day at 9:00 AM local time -->

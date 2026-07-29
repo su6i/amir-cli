@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-07-29 — fix: no hardcoded personal paths, and explicit cookie precedence
+
+### Changed
+
+- **Cookie resolution is now explicit-first, everywhere.** `download.sh`,
+  `video.sh` and `download_course_site.sh` shared a search order in which a
+  *discovered* cookie file silently outranked a flag the user had actually
+  typed — passing `--browser chrome` could still hand yt-dlp a stale jar from an
+  unrelated project, with nothing printed to say so. The order is now:
+  explicit `--cookies` → explicit `--browser` → `./cookies.txt` → configured
+  `cookies.file` → default browser.
+- **The personal path in that search order is gone.** The third rung was a
+  hardcoded personal project directory; it is now `AMIR_COOKIES_FILE` or
+  `cookies.file` in `~/.amir/config.yaml`, and the rung is skipped entirely when
+  unset.
+- **PDF Persian font is configurable** — `AMIR_PDF_FONT_FA` or `pdf.font_fa`,
+  falling back to `/Library/Fonts` then `$HOME/Library/Fonts` as before. The
+  previous fallback was one specific user's absolute home path.
+- **`lib/config/scripts.txt`** no longer embeds an absolute home path.
+- **`lib/launchd/com.amir.phd-alert.plist`** is now a documented template with
+  placeholders instead of one machine's real paths. Because launchd expands
+  neither `~` nor environment variables, the header spells out which placeholders
+  must be replaced and gives the install commands — a plist with the wrong paths
+  loads successfully and then does nothing, which is the worst failure mode.
+
+### Added
+
+- `lib/python/tests/test_cookie_precedence.py` — covers the new precedence order,
+  including the case where an explicit flag must beat a discovered file.
+
+---
+
 ## 2026-07-28 — fix: course sites wrongly reported "not logged in" for enrolled users
 
 Enrolled users were told `Not logged in, or this course is not in your purchases.`
@@ -67,10 +99,9 @@ is inert and every URL falls through to the normal yt-dlp flow.
 - **feat(config):** New `course_site:` section in `~/.amir/config.yaml`: `domains`
   (empty by default), `video_hosts` (comma list of iframe hosts handed to yt-dlp) and
   `lesson_link_pattern` (regex for same-origin lesson URLs).
-- **fix(download):** Extracted the instagram cookie-resolution block (`--cookies`
-  → `./cookies.txt` → `$HOME/su6i-yar/cookies.txt` → `--cookies-from-browser`)
-  into a shared `_resolve_cookie_args()` helper in `download.sh`, now used by
-  both the Instagram and course-site paths instead of being duplicated.
+- **fix(download):** Extracted the instagram cookie-resolution block into a shared
+  `_resolve_cookie_args()` helper in `download.sh`, now used by both the Instagram
+  and course-site paths instead of being duplicated.
 - **safety:** If a fetched page OR an HLS manifest contains a DRM marker
   (`widevine`, `playready`, `clearkey`, `EXT-X-KEY:METHOD=SAMPLE-AES`,
   `com.apple.fps`), the entire run aborts immediately with an explicit error —

@@ -1,6 +1,6 @@
 # amir scripts registry
 # format: id|description|command
-mcp-map|Reconcile MCP server enable/disable map across projects|python3 /Users/su6i/.claude/scripts/apply-mcp-map.py
+mcp-map|Reconcile MCP server enable/disable map across projects|python3 ~/.claude/scripts/apply-mcp-map.py
 
 # --- low-traffic amir subcommands, moved off the top-level menu 2026-07-13 ---
 # still runnable directly too (amir <cmd>) — dispatcher entries kept, just

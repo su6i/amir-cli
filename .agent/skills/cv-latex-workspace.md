@@ -1,3 +1,9 @@
+---
+description: CV/LaTeX workspace layout, altacv theming, and Persian typesetting rules for the application pipeline.
+version: 1.0.1
+updated: 2026-07-29
+---
+
 # CV Workspace — Agent Knowledge Base
 
 ## 1. Repo Layout (post-reorganization)
@@ -118,7 +124,7 @@ between all section boundaries → no big white gap at the bottom.
 
 ### Active Projects (2025)
 - **Multi-Agent Financial Markets Analyser:** AutoML + DL + RL portfolio optimization · BGE-M3 embeddings + ChromaDB RAG
-- **Su6i-Yar Telegram Bot:** Hetzner VPS · 8-layer LLM fallback (Gemini/DeepSeek/Grok) · fal.ai Flux Schnell · MiniMax 2.5 · Faster-Whisper · Fish Speech · GPT-SoVITS · amir-cli
+- **Personal Assistant Bot:** Hetzner VPS · 8-layer LLM fallback (Gemini/DeepSeek/Grok) · fal.ai Flux Schnell · MiniMax 2.5 · Faster-Whisper · Fish Speech · GPT-SoVITS · amir-cli
 - **Cisco Switch & IP Phone Manager:** v1 NIOC (70 switches, SNMP, -70% site visits) → v2 full-stack (FastAPI, Next.js, PostgreSQL/PostGIS, Docker, Telegram alerts)
 
 ### Certifications (2025)

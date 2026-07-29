@@ -225,35 +225,49 @@ _course_site_zero_pad_name() {
     echo "$padded - $title"
 }
 
-# 7. _course_site_resolve_cookie_jar COOKIES_FILE BROWSER
+# 7. _course_site_resolve_cookie_jar COOKIES_FILE BROWSER [BROWSER_EXPLICIT]
+# Precedence, highest first:
+#   1. --cookies <file>      explicit, always wins
+#   2. --browser <name>      explicit, beats any discovered file
+#   3. ./cookies.txt         discovered in the current directory
+#   4. cookies.file config   AMIR_COOKIES_FILE or ~/.amir/config.yaml; inert when unset
+#   5. default browser       AMIR_DEFAULT_BROWSER, else chrome
+# Rungs 1 and 2 come first because a discovered jar silently overriding an
+# explicit flag is how a user ends up with stale cookies and no way to tell.
 _course_site_resolve_cookie_jar() {
     local COOKIES_FILE="$1"
     local BROWSER="$2"
-    
+    local BROWSER_EXPLICIT="${3:-false}"
+
+    local CONFIG_COOKIES
+    CONFIG_COOKIES="${AMIR_COOKIES_FILE:-$(get_config "cookies" "file" "")}"
+
     if [[ -n "$COOKIES_FILE" && -f "$COOKIES_FILE" ]]; then
         COURSE_SITE_COOKIE_JAR="$COOKIES_FILE"
         COURSE_SITE_COOKIE_JAR_IS_TEMP=false
         return 0
+    elif [[ "$BROWSER_EXPLICIT" == "true" ]]; then
+        : # fall through to the browser export below
     elif [[ -f "./cookies.txt" ]]; then
         COURSE_SITE_COOKIE_JAR="./cookies.txt"
         COURSE_SITE_COOKIE_JAR_IS_TEMP=false
         return 0
-    elif [[ -f "$HOME/su6i-yar/cookies.txt" ]]; then
-        COURSE_SITE_COOKIE_JAR="$HOME/su6i-yar/cookies.txt"
+    elif [[ -n "$CONFIG_COOKIES" && -f "$CONFIG_COOKIES" ]]; then
+        COURSE_SITE_COOKIE_JAR="$CONFIG_COOKIES"
         COURSE_SITE_COOKIE_JAR_IS_TEMP=false
         return 0
+    fi
+
+    local tmpjar
+    tmpjar=$(mktemp)
+    if _course_site_export_cookie_jar "$BROWSER" "$tmpjar"; then
+        COURSE_SITE_COOKIE_JAR="$tmpjar"
+        COURSE_SITE_COOKIE_JAR_IS_TEMP=true
+        return 0
     else
-        local tmpjar
-        tmpjar=$(mktemp)
-        if _course_site_export_cookie_jar "$BROWSER" "$tmpjar"; then
-            COURSE_SITE_COOKIE_JAR="$tmpjar"
-            COURSE_SITE_COOKIE_JAR_IS_TEMP=true
-            return 0
-        else
-            log_error "Could not read browser cookies — pass --cookies cookies.txt"
-            rm -f "$tmpjar"
-            return 1
-        fi
+        log_error "Could not read browser cookies — pass --cookies cookies.txt"
+        rm -f "$tmpjar"
+        return 1
     fi
 }
 
@@ -328,6 +342,7 @@ _download_course_site() {
     local URL=""
     local COOKIES_FILE=""
     local BROWSER="${AMIR_DEFAULT_BROWSER:-chrome}"
+    local BROWSER_EXPLICIT=false
     local FORCE=false
     local KEEP_CODEC=false
     local FORCE_NORMALIZE=false
@@ -335,7 +350,7 @@ _download_course_site() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --cookies) COOKIES_FILE="$2"; shift 2 ;;
-            --browser) BROWSER="$2"; shift 2 ;;
+            --browser) BROWSER="$2"; BROWSER_EXPLICIT=true; shift 2 ;;
             --force) FORCE=true; shift ;;
             --keep-codec) KEEP_CODEC=true; shift ;;
             --normalize) FORCE_NORMALIZE=true; shift ;;
@@ -357,7 +372,7 @@ _download_course_site() {
     OUT_DIR="$(pwd)"
     
     _resolve_cookie_args "$COOKIES_FILE" "$BROWSER"
-    _course_site_resolve_cookie_jar "$COOKIES_FILE" "$BROWSER" || return 1
+    _course_site_resolve_cookie_jar "$COOKIES_FILE" "$BROWSER" "$BROWSER_EXPLICIT" || return 1
     
     local main_page
     main_page=$(mktemp)

@@ -127,7 +127,7 @@ class TestSrtDurationStr(unittest.TestCase):
     def test_ki_srt_file_duration_fa(self):
         """Integration: parse real KI SRT → Persian duration for FA post."""
         srt_path = (
-            '/Users/su6i/Downloads/subtitle/'
+            '/tmp/subtitle/'
             'KI-Entwickler-Peter_Steinberger_wechselt-zu-Open_AI-ZIB2_vom_16.02.2026_fa.srt'
         )
         if not os.path.exists(srt_path):
@@ -142,7 +142,7 @@ class TestSrtDurationStr(unittest.TestCase):
     def test_ki_srt_file_duration_de(self):
         """Integration: parse real KI SRT → Latin duration for DE post."""
         srt_path = (
-            '/Users/su6i/Downloads/subtitle/'
+            '/tmp/subtitle/'
             'KI-Entwickler-Peter_Steinberger_wechselt-zu-Open_AI-ZIB2_vom_16.02.2026_de.srt'
         )
         if not os.path.exists(srt_path):
@@ -246,7 +246,7 @@ class TestTelegramSectionsComplete(unittest.TestCase):
     def test_current_ki_post_validation(self):
         """The KI-Entwickler post on disk must pass validation (regenerated post is complete)."""
         post_path = (
-            '/Users/su6i/Downloads/subtitle/'
+            '/tmp/subtitle/'
             'KI-Entwickler-Peter_Steinberger_wechselt-zu-Open_AI-ZIB2_vom_16.02.2026_fa_telegram.txt'
         )
         if not os.path.exists(post_path):
@@ -666,11 +666,11 @@ class TestGeneratePostsMockLLM(unittest.TestCase):
 # ─────────────────────────────────────────────────────────────────────────────
 class TestRealSrtIntegration(unittest.TestCase):
     SRT_FA = (
-        '/Users/su6i/Downloads/subtitle/'
+        '/tmp/subtitle/'
         'KI-Entwickler-Peter_Steinberger_wechselt-zu-Open_AI-ZIB2_vom_16.02.2026_fa.srt'
     )
     SRT_DE = (
-        '/Users/su6i/Downloads/subtitle/'
+        '/tmp/subtitle/'
         'KI-Entwickler-Peter_Steinberger_wechselt-zu-Open_AI-ZIB2_vom_16.02.2026_de.srt'
     )
 

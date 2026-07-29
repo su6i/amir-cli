@@ -76,18 +76,25 @@ _url_is_course_site() {
 # ── Shared cookie resolution (yt-dlp-style) ────────────────────────────────────
 # Bash 3.2 has no namerefs, so the result is returned via the global array
 # RESOLVED_COOKIE_ARGS — read it immediately after calling this function.
-# Order: --cookies <file> → ./cookies.txt → $HOME/su6i-yar/cookies.txt →
-#        --cookies-from-browser $BROWSER (default: $AMIR_DEFAULT_BROWSER, else chrome).
+# Order: explicit --cookies <file> → explicit --browser <name> → ./cookies.txt →
+#        global config cookies.file → --cookies-from-browser $BROWSER (default).
 _resolve_cookie_args() {
     local _cookies_file="$1"
     local _browser="${2:-${AMIR_DEFAULT_BROWSER:-chrome}}"
+    local _browser_explicit="${3:-false}"
+    
+    local _global_cookies
+    _global_cookies="${AMIR_COOKIES_FILE:-$(get_config "cookies" "file" "")}"
+
     RESOLVED_COOKIE_ARGS=()
     if [[ -n "$_cookies_file" ]]; then
         RESOLVED_COOKIE_ARGS=(--cookies "$_cookies_file")
+    elif [[ "$_browser_explicit" == "true" && -n "$_browser" && "$_browser" != "none" ]]; then
+        RESOLVED_COOKIE_ARGS=(--cookies-from-browser "$_browser")
     elif [[ -f "cookies.txt" ]]; then
         RESOLVED_COOKIE_ARGS=(--cookies "cookies.txt")
-    elif [[ -f "$HOME/su6i-yar/cookies.txt" ]]; then
-        RESOLVED_COOKIE_ARGS=(--cookies "$HOME/su6i-yar/cookies.txt")
+    elif [[ -n "$_global_cookies" && -f "$_global_cookies" ]]; then
+        RESOLVED_COOKIE_ARGS=(--cookies "$_global_cookies")
     elif [[ -n "$_browser" && "$_browser" != "none" ]]; then
         RESOLVED_COOKIE_ARGS=(--cookies-from-browser "$_browser")
     fi
@@ -107,16 +114,17 @@ _download_instagram() {
 
     local BROWSER="${AMIR_DEFAULT_BROWSER:-chrome}"
     local COOKIES_FILE=""
+    local BROWSER_EXPLICIT="false"
     local i=0
     while [[ $i -lt ${#ARGS[@]} ]]; do
         case "${ARGS[$i]}" in
-            --browser|-b) BROWSER="${ARGS[$((i+1))]}"; i=$((i+2)) ;;
+            --browser|-b) BROWSER="${ARGS[$((i+1))]}"; BROWSER_EXPLICIT="true"; i=$((i+2)) ;;
             --cookies)    COOKIES_FILE="${ARGS[$((i+1))]}"; i=$((i+2)) ;;
             *) i=$((i+1)) ;;
         esac
     done
 
-    _resolve_cookie_args "$COOKIES_FILE" "$BROWSER"
+    _resolve_cookie_args "$COOKIES_FILE" "$BROWSER" "$BROWSER_EXPLICIT"
     local -a PROBE_COOKIE_ARGS=("${RESOLVED_COOKIE_ARGS[@]}")
 
     log_info "🔍 Probing Instagram URL..." >&2

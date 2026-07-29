@@ -1,6 +1,7 @@
 ---
 description: Claude Code CLI configuration, subagent patterns, hooks, MCP, and settings for amir-cli development workflow.
-updated: 2026-05-20
+version: 1.0.1
+updated: 2026-07-29
 ---
 
 # Claude Code Integration
@@ -85,7 +86,7 @@ Use Plan Mode for any task that touches multiple files or has unclear scope:
 
 ## Memory System
 
-Auto-memory stored at: `/Users/su6i/.claude/projects/*/memory/`
+Auto-memory stored at: `~/.claude/projects/*/memory/`
 
 Types:
 - `user_*.md` — user profile, preferences

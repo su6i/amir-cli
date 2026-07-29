@@ -192,8 +192,11 @@ run_pdf() {
             echo "📝 Rendering $display_name [$engine]..."
             local tmp_out="$tmp_dir/render_$(printf "%03d" $i).pdf"
             local tmp_img="$tmp_dir/render_$(printf "%03d" $i).png"
-            local font_fa="/Library/Fonts/B-NAZANIN.TTF"
-            [[ ! -f "$font_fa" ]] && font_fa="/Users/su6i/Library/Fonts/B-NAZANIN.TTF"
+            local font_fa="${AMIR_PDF_FONT_FA:-$(get_config "pdf" "font_fa" "")}"
+            if [[ -z "$font_fa" ]]; then
+                font_fa="/Library/Fonts/B-NAZANIN.TTF"
+                [[ ! -f "$font_fa" ]] && font_fa="$HOME/Library/Fonts/B-NAZANIN.TTF"
+            fi
             
             # Use local venv python directly to bypass uv locking issues on exFAT
             local python_cmd="python3"

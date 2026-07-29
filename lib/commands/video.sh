@@ -3150,13 +3150,18 @@ video_download() {
 
     # Build cookie arguments
     local -a COOKIE_ARGS=()
+    
+    local _global_cookies
+    _global_cookies="${AMIR_COOKIES_FILE:-$(get_config "cookies" "file" "")}"
 
     if [[ -n "$COOKIES_FILE" ]]; then
         COOKIE_ARGS=(--cookies "$COOKIES_FILE")
+    elif [[ "$BROWSER_EXPLICIT" == "true" && -n "$BROWSER" && "$BROWSER" != "none" ]]; then
+        COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
     elif [[ -f "cookies.txt" ]]; then
         COOKIE_ARGS=(--cookies "cookies.txt")
-    elif [[ -f "$HOME/su6i-yar/cookies.txt" ]]; then
-        COOKIE_ARGS=(--cookies "$HOME/su6i-yar/cookies.txt")
+    elif [[ -n "$_global_cookies" && -f "$_global_cookies" ]]; then
+        COOKIE_ARGS=(--cookies "$_global_cookies")
     elif [[ -n "$BROWSER" && "$BROWSER" != "none" ]]; then
         COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
     fi
