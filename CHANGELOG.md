@@ -444,6 +444,14 @@ closes that gap:
   completion pitfall in `docs/TECHNICAL.md` (§3) — it affected multiple
   commands and will resurface when adding new flag-style subcommands.
 
+## 2026-07-06 — apply completion: add missing flags
+
+- `completions/_amir`'s `_apply_arguments` (used for `amir apply <url>` tab-completion)
+  was missing two flags that `ApplyForge/main.py apply` has supported for a while:
+  `--licence` (include the Bachelor's/Electronics degree in the CV) and
+  `--no-fallback` (disable the offline dictionary fallback if LLM tailoring fails).
+  Found while reviewing the apply pipeline during a job-search session.
+
 ## 2026-07-06 — gitignore node_modules (wo-applyforge-0011)
 
 - `lib/nodejs/node_modules/` was tracked in git (4177 files, never gitignored) —

@@ -1484,7 +1484,9 @@ _apply_arguments() {
         '--lang[Output language for CV/cover letter]:lang:_amir_cv_langs' \
         '--no-localize-preview[Preview only: skip profile text localization for faster generation]' \
         '--color[Sidebar background color highlight]:color:(blue green orange red purple gray)' \
-        '--stack[Render tech/stack lists as bold boxed tags instead of plain text (altacv, lato)]'
+        '--stack[Render tech/stack lists as bold boxed tags instead of plain text (altacv, lato)]' \
+        '--licence[Include the Bachelor'"'"'s (Electronics) degree in the CV]' \
+        '--no-fallback[Disable offline dictionary fallback if LLM tailoring fails]'
 }
 
 # ── trend / research ──────────────────────────────────────────────────────────
