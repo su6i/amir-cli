@@ -102,6 +102,41 @@ _resolve_cookie_args() {
 
 # ── Instagram: probe for video formats, fall back to gallery-dl for photos ────
 
+_classify_instagram_url() {
+    local url="$1"; shift
+    local -a cookie_args=("$@")
+
+    local url_lower
+    url_lower=$(printf '%s' "$url" | tr '[:upper:]' '[:lower:]')
+
+    if [[ "$url_lower" =~ /(reel|reels|tv)(/|\?|$) ]]; then
+        echo "video"
+        return 0
+    fi
+
+    local probe_json
+    probe_json=$(yt-dlp --no-playlist "${cookie_args[@]}" -J "$url" 2>/dev/null)
+
+    local has_video="no"
+    if [[ -n "$probe_json" ]]; then
+        has_video=$(echo "$probe_json" | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    fmts=d.get('formats',[])
+    print('yes' if any(f.get('vcodec','none') not in ('none','') and f.get('height') for f in fmts) else 'no')
+except:
+    print('unknown')
+" 2>/dev/null)
+    fi
+
+    if [[ "$has_video" == "yes" ]]; then
+        echo "video"
+    else
+        echo "photo"
+    fi
+}
+
 _download_instagram() {
     local IMG_FORMAT="$1"; shift
     local KEEP_SOURCE_CODEC="$1"; shift
@@ -129,28 +164,23 @@ _download_instagram() {
 
     log_info "🔍 Probing Instagram URL..." >&2
 
-    local probe_json
-    probe_json=$(yt-dlp --no-playlist "${PROBE_COOKIE_ARGS[@]}" -J "$URL" 2>/dev/null)
+    local target_type
+    target_type=$(_classify_instagram_url "$URL" "${PROBE_COOKIE_ARGS[@]}")
 
-    local has_video="no"
-    if [[ -n "$probe_json" ]]; then
-        has_video=$(echo "$probe_json" | python3 -c "
-import json,sys
-try:
-    d=json.load(sys.stdin)
-    fmts=d.get('formats',[])
-    print('yes' if any(f.get('vcodec','none') not in ('none','') and f.get('height') for f in fmts) else 'no')
-except:
-    print('unknown')
-" 2>/dev/null)
-    fi
-
-    if [[ "$has_video" == "yes" ]]; then
+    if [[ "$target_type" == "video" ]]; then
         log_info "🎬 Reel/video detected — using yt-dlp..." >&2
-        video_download "$@"
+        if video_download "${ARGS[@]}"; then
+            return 0
+        fi
+        log_warning "yt-dlp failed — falling back to gallery-dl..." >&2
+        _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC"
     else
         log_info "📸 Photo/carousel post detected — using gallery-dl..." >&2
-        _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC"
+        if _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC"; then
+            return 0
+        fi
+        log_warning "gallery-dl failed — falling back to yt-dlp..." >&2
+        video_download "${ARGS[@]}"
     fi
 }
 

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-08-06 — fix: Instagram reels download as video, and either downloader can fall back
+
+### Fixed
+
+- **A `/reel/` URL is no longer misread as a photo post.** `amir download` announced
+  "Photo/carousel post detected" for reels and sent them to gallery-dl, which answered
+  `400 Bad Request` on the media-info endpoint and aborted with exit 4. Reels, `/reels/`
+  and `/tv/` URLs are recognised as video from the URL alone and go straight to yt-dlp,
+  with no network probe needed to classify them.
+- **A failed downloader now falls back to the other one instead of aborting.** Either
+  path — yt-dlp for video, gallery-dl for photos — retries with its counterpart on
+  failure, so a misclassified URL costs an extra attempt rather than failing the command.
+  Video output still goes through the macOS-playable normalisation step.
+
+---
+
 ## 2026-07-29 — fix: no hardcoded personal paths, and explicit cookie precedence
 
 ### Changed
