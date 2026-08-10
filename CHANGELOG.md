@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-08-11 — chore: migrate agent-constitution to symlink
+
+### Changed
+
+- **amir-cli's own `.agent/constitution` is now a symlink.** Migrated from a git submodule (SSH-only, pinned SHA that drifted silently) to a symlink into the single central clone at `~/@-github/agent-constitution` — exactly the same pattern every other project managed by this tool already uses.
+- **`amir sync-constitution` natively supports symlink updates.** The script (`lib/commands/sync-constitution.sh`) gained a symlink-aware update path, refreshing the central clone directly via `git pull --ff-only` instead of only knowing how to update a submodule.
+
 ## 2026-08-10 — fix: `amir apply --help` prints help instead of scraping "--help" as a URL
 
 ### Fixed

@@ -62,3 +62,6 @@ completions/*.zwc
 
 # Project-specific agent notes — symlink to vault, never commit (rule 035)
 CLAUDE.local.md
+
+# Constitution is symlinked by install.sh (single source of truth, never a submodule)
+.agent/constitution
