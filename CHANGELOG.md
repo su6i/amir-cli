@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-08-10 — fix: `amir apply --help` prints help instead of scraping "--help" as a URL
+
+### Fixed
+
+- **`amir apply --help` now answers immediately with the usage block.** `run_apply`
+  recognised only the no-argument case; every other first argument fell through to the
+  CV-generator forward at the bottom of the function. `--help` was therefore handed to
+  the job scraper as if it were a posting URL, which failed twice over — `requests`
+  rejected it (`No scheme supplied`) and the Playwright fallback then died on a missing
+  Chromium binary. Help is the first thing anyone types against an unfamiliar command,
+  so it is now the first branch in the function: no urgent-deadline check, no Gmail
+  sync, no network, no subprocess. `-h` and `help` are accepted as aliases.
+- **An unrecognised option no longer reaches the scraper.** Anything starting with `-`
+  that is not a genuine generator flag (`--color`, `--role`, `--lang`) is refused with
+  `Unknown option: <flag>` and the usage block on stderr, exit 2, instead of being
+  fetched as a URL.
+
+### Known gap
+
+- Only 6 of 34 command modules under `lib/commands/` handle `--help` at all; the rest
+  share the shape of this bug. Tracked for a sweep as T-070.
+
+---
+
 ## 2026-08-06 — fix: Instagram reels download as video, and either downloader can fall back
 
 ### Fixed

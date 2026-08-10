@@ -9,7 +9,32 @@ _tracker_py() {
     (cd "$applyforge_dir" && uv run python -m "src.apply_tracker.${script%.py}" "$@")
 }
 
+_apply_usage() {
+    echo "Usage:"
+    echo "  amir apply               → sync + help"
+    echo "  amir apply --help        → همین راهنما (بدون sync، بدون شبکه)"
+    echo "  amir apply sync          → sync از Gmail"
+    echo "  amir apply phd [flags]   → pending PhD  (--sort fit|deadline|country  --country France  --min-fit 8)"
+    echo "  amir apply job [flags]   → pending Job"
+    echo "  amir apply tui [phd|job] → TUI ترمینال گرافیکی (کلیدهای جهت‌دار)"
+    echo "  amir apply web [port]    → Web interface روی localhost:8765"
+    echo "  amir apply stats         → آمار کلی"
+    echo "  amir apply alert         → ارسال ایمیل هشدار (همان ایمیلی که launchd روزانه می‌فرستد)"
+    echo "  amir apply preview       → پیش‌نمایش CV"
+    echo "  amir apply <url>         → تولید CV/CL برای آگهی"
+}
+
 run_apply() {
+    # ── help must answer before anything else ─────────────────────────────────
+    # `--help` is the first thing anyone types against an unknown command, so it
+    # must never touch the network, Gmail, or the CV generator. Without this
+    # branch an unrecognised first arg fell through to the ApplyForge forward at
+    # the bottom, which scraped "--help" as if it were a job-posting URL.
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _apply_usage
+        return 0
+    fi
+
     # ── PhD/Job urgent alert (shown on every apply invocation) ────────────────
     _apply_urgent_check
 
@@ -19,17 +44,7 @@ run_apply() {
         _apply_sync_both
         local rc=$?
         echo ""
-        echo "Usage:"
-        echo "  amir apply               → sync + help"
-        echo "  amir apply sync          → sync از Gmail"
-        echo "  amir apply phd [flags]   → pending PhD  (--sort fit|deadline|country  --country France  --min-fit 8)"
-        echo "  amir apply job [flags]   → pending Job"
-        echo "  amir apply tui [phd|job] → TUI ترمینال گرافیکی (کلیدهای جهت‌دار)"
-        echo "  amir apply web [port]    → Web interface روی localhost:8765"
-        echo "  amir apply stats         → آمار کلی"
-        echo "  amir apply alert         → ارسال ایمیل هشدار (همان ایمیلی که launchd روزانه می‌فرستد)"
-        echo "  amir apply preview       → پیش‌نمایش CV"
-        echo "  amir apply <url>         → تولید CV/CL برای آگهی"
+        _apply_usage
         return $rc
     fi
 
@@ -110,6 +125,20 @@ run_apply() {
         echo "❌ job.sh not found" >&2
         return 1
     fi
+
+    # ── unknown flag guard ────────────────────────────────────────────────────
+    # Everything below forwards $1 to the CV generator as a job-posting URL. A
+    # leading dash is a flag the user mistyped, never a URL — fail loudly here
+    # instead of letting the scraper try to fetch it.
+    case "$1" in
+        --color|--role|--lang) ;;   # genuine generator flags, pass through
+        -*)
+            echo "❌ Unknown option: $1" >&2
+            echo "" >&2
+            _apply_usage >&2
+            return 2
+            ;;
+    esac
 
     # ── ApplyForge CV generator ───────────────────────────────────────────────
     if [[ ! -d "$CV_DIR" ]]; then

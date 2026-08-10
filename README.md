@@ -257,6 +257,7 @@ Full PhD and job application tracker with SQLite backend, web UI, and Gmail sync
 | Command | Description |
 | :--- | :--- |
 | `amir apply` | Urgent deadline alerts + help |
+| `amir apply --help` | Usage only — no Gmail sync, no network, no CV generator |
 | `amir apply phd` | Pending PhD positions sorted by urgency |
 | `amir apply phd sent` | List sent PhD applications |
 | `amir apply phd reject <id>` | Mark a position as rejected |
