@@ -1,6 +1,14 @@
 #!/bin/bash
 
+_init_project_usage() {
+    echo "Usage: amir init-project [target_dir]"
+}
+
 run_init_project() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _init_project_usage
+        return 0
+    fi
 
     # Constitution central-source config (rule 045 / bootstrap-installer skill).
     # ".agent/constitution" is a symlink to ONE clone shared by every project —

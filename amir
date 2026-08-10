@@ -168,7 +168,8 @@ case "$COMMAND" in
         if [[ -f "$LIB_DIR/commands/lock.sh" ]]; then source "$LIB_DIR/commands/lock.sh"; run_unlock "$@"; exit $?; fi
         ;;
     clean)
-        if [[ -f "$LIB_DIR/commands/clean.sh" ]]; then source "$LIB_DIR/commands/clean.sh"; run_clean; exit $?; fi
+        shift
+        if [[ -f "$LIB_DIR/commands/clean.sh" ]]; then source "$LIB_DIR/commands/clean.sh"; run_clean "$@"; exit $?; fi
         ;;
     qr)
         shift
@@ -187,7 +188,8 @@ case "$COMMAND" in
         if [[ -f "$LIB_DIR/commands/pass.sh" ]]; then source "$LIB_DIR/commands/pass.sh"; run_pass "$@"; exit $?; fi
         ;;
     speed)
-        if [[ -f "$LIB_DIR/commands/speed.sh" ]]; then source "$LIB_DIR/commands/speed.sh"; run_speed; exit $?; fi
+        shift
+        if [[ -f "$LIB_DIR/commands/speed.sh" ]]; then source "$LIB_DIR/commands/speed.sh"; run_speed "$@"; exit $?; fi
         ;;
     todo)
         shift
@@ -202,7 +204,8 @@ case "$COMMAND" in
         if [[ -f "$LIB_DIR/commands/router.sh" ]]; then source "$LIB_DIR/commands/router.sh"; run_router "$@"; exit $?; fi
         ;;
     dashboard)
-        if [[ -f "$LIB_DIR/commands/dashboard.sh" ]]; then source "$LIB_DIR/commands/dashboard.sh"; run_dashboard; exit $?; fi
+        shift
+        if [[ -f "$LIB_DIR/commands/dashboard.sh" ]]; then source "$LIB_DIR/commands/dashboard.sh"; run_dashboard "$@"; exit $?; fi
         ;;
     watermark)
         shift

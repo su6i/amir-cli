@@ -1,6 +1,12 @@
 #!/bin/bash
 
+_sync_constitution_usage() { echo "Usage: amir sync-constitution [target_dir]"; }
+
 run_sync_constitution() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _sync_constitution_usage
+        return 0
+    fi
 
     local CONSTITUTION_PATH=".agent/constitution"
 

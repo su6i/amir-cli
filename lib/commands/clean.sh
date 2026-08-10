@@ -1,6 +1,11 @@
 #!/bin/bash
 
+_clean_usage() { echo "Usage: amir clean"; }
 run_clean() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _clean_usage
+        return 0
+    fi
     if [[ "$(uname -s)" != "Darwin" ]]; then
         echo "🪟 Windows: Please use PowerShell for system cleaning."
         return

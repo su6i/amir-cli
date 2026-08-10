@@ -338,7 +338,16 @@ _course_site_download_one() {
 }
 
 # 11. _download_course_site
+_download_course_site_usage() {
+    echo "Usage: amir download_course_site <url> [options]"
+}
+
 _download_course_site() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _download_course_site_usage
+        return 0
+    fi
+
     local URL=""
     local COOKIES_FILE=""
     local BROWSER="${AMIR_DEFAULT_BROWSER:-chrome}"

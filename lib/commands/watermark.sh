@@ -1,6 +1,13 @@
 #!/bin/bash
 
+_watermark_usage() { echo "Usage: amir watermark <args...>"; }
+
 run_watermark() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _watermark_usage
+        return 0
+    fi
+
     print_header "🌊 Universal Watermarker"
     
     # Check dependencies (Pillow)

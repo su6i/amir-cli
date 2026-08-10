@@ -12,7 +12,17 @@ if [[ -f "$LIB_DIR/media_lib.sh" ]]; then
     source "$LIB_DIR/media_lib.sh"
 fi
 
+_audio_usage() {
+    echo "Usage: amir audio {extract|convert|cut|normalize|fade|trim-silence|split|concat|to-video|youtube|transcribe} [options]"
+    echo "       amir audio <directory>  (Smart folder-to-video flow)"
+}
+
 run_audio() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _audio_usage
+        return 0
+    fi
+
     local SUBCOMMAND="$1"
 
     # Smart Mode Detection: If first arg is a directory
