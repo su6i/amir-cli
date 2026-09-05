@@ -371,7 +371,13 @@ _download_course_site() {
     local OUT_DIR
     OUT_DIR="$(pwd)"
     
-    _resolve_cookie_args "$COOKIES_FILE" "$BROWSER"
+    # Course sites are login-gated by definition, so they opt out of the
+    # anonymous-first policy in _resolve_cookie_args(): an anonymous attempt is
+    # guaranteed to fail here. Fold the implicitly discovered jar back in.
+    _resolve_cookie_args "$COOKIES_FILE" "$BROWSER" "$BROWSER_EXPLICIT"
+    if [[ ${#RESOLVED_COOKIE_ARGS[@]} -eq 0 && ${#FALLBACK_COOKIE_ARGS[@]} -gt 0 ]]; then
+        RESOLVED_COOKIE_ARGS=("${FALLBACK_COOKIE_ARGS[@]}")
+    fi
     _course_site_resolve_cookie_jar "$COOKIES_FILE" "$BROWSER" "$BROWSER_EXPLICIT" || return 1
     
     local main_page

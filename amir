@@ -46,6 +46,73 @@ if [[ $NO_VENV -eq 0 ]]; then
             fi
         fi
         unset _amir_lock _amir_marker _amir_cur _amir_prev
+
+        # yt-dlp: always run the NEWEST copy installed, not whichever one PATH
+        # happens to expose first.
+        #
+        # Three copies can coexist, each upgraded by a different command:
+        # .venv/bin (uv.lock), ~/.local/bin (uv tool — what install.sh
+        # provisions, with the rustypipe PO-token plugin), and Homebrew's.
+        # Activation puts .venv/bin ahead of everything, so `uv tool upgrade
+        # yt-dlp` — the documented maintenance step — was upgrading a binary
+        # that never ran, and the lock-pinned 2026.06 build silently failed
+        # every Instagram URL. Comparing versions rather than hardcoding a
+        # winner keeps this from inverting the next time the other copy is the
+        # fresh one. Versions are dates read from the dist-info directory name,
+        # so choosing costs no interpreter start-up, and the sort is numeric
+        # per component because they are not zero-padded (2026.10.5 > 2026.8.19
+        # numerically, but not as text).
+        #
+        # Only yt-dlp is overlaid: prepending all of ~/.local/bin would also
+        # shadow the venv's mlx_whisper / static_ffmpeg, which the subtitle
+        # pipeline pins. The venv's yt_dlp *library* stays importable, so
+        # download_course_site.sh's `from yt_dlp.cookies import ...` is
+        # unaffected.
+        _amir_ytdlp_ver() {
+            local _d
+            for _d in "$1"/lib/python*/site-packages/yt_dlp-*.dist-info; do
+                [[ -d "$_d" ]] || continue
+                _d="${_d##*/yt_dlp-}"
+                printf '%s' "${_d%.dist-info}"
+                return 0
+            done
+            return 1
+        }
+        _amir_venv_ver=$(_amir_ytdlp_ver "$SCRIPT_DIR/.venv" 2>/dev/null)
+        _amir_tool_ver=$(_amir_ytdlp_ver "$HOME/.local/share/uv/tools/yt-dlp" 2>/dev/null)
+        _amir_best_ver="$_amir_venv_ver"
+        if [[ -n "$_amir_tool_ver" && -x "$HOME/.local/bin/yt-dlp" ]] && {
+               [[ -z "$_amir_venv_ver" ]] ||
+               [[ "$(printf '%s\n%s\n' "$_amir_venv_ver" "$_amir_tool_ver" |
+                     sort -t. -k1,1n -k2,2n -k3,3n | tail -n1)" == "$_amir_tool_ver" ]]; }; then
+            _amir_overlay="$SCRIPT_DIR/.venv/.bin-overlay"
+            if [[ ! -L "$_amir_overlay/yt-dlp" ]]; then
+                mkdir -p "$_amir_overlay"
+                ln -sf "$HOME/.local/bin/yt-dlp" "$_amir_overlay/yt-dlp"
+            fi
+            export PATH="$_amir_overlay:$PATH"
+            _amir_best_ver="$_amir_tool_ver"
+        fi
+
+        # Extractors rot within weeks, so a silently ageing yt-dlp is the same
+        # outage in slow motion. Warn once a day when even the newest copy is
+        # old, and name the command that actually upgrades the one we run.
+        # `date -j -f` is BSD-only; elsewhere the parse fails and we stay quiet.
+        if [[ -n "$_amir_best_ver" ]]; then
+            _amir_rel_epoch=$(date -j -f "%Y.%m.%d" "$_amir_best_ver" +%s 2>/dev/null) || _amir_rel_epoch=""
+            if [[ -n "$_amir_rel_epoch" ]]; then
+                _amir_age=$(( ($(date +%s) - _amir_rel_epoch) / 86400 ))
+                _amir_warned="$SCRIPT_DIR/.venv/.ytdlp_age_warned"
+                if [[ $_amir_age -gt 45 ]] && [[ "$(cat "$_amir_warned" 2>/dev/null)" != "$(date +%F)" ]]; then
+                    echo "⚠️  yt-dlp ${_amir_best_ver} is ${_amir_age} days old — site extractors rot fast." >&2
+                    echo "   Upgrade the copy amir runs:  uv tool upgrade yt-dlp" >&2
+                    date +%F > "$_amir_warned" 2>/dev/null
+                fi
+            fi
+        fi
+        unset -f _amir_ytdlp_ver
+        unset _amir_venv_ver _amir_tool_ver _amir_best_ver _amir_overlay \
+              _amir_rel_epoch _amir_age _amir_warned
     else
         # Prompt user to create/install venv on first run
         echo "⚠️  Virtual environment not found at $SCRIPT_DIR/.venv"

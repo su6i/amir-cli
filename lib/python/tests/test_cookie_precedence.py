@@ -7,8 +7,8 @@ SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__f
 BASH_SCRIPT = os.path.join(SCRIPT_DIR, "commands", "download.sh")
 COURSE_SITE_SCRIPT = os.path.join(SCRIPT_DIR, "commands", "download_course_site.sh")
 
-def run_resolve(cookies_arg, browser_arg, explicit_browser, cwd, env=None):
-    cmd = f'source "{BASH_SCRIPT}" && _resolve_cookie_args "{cookies_arg}" "{browser_arg}" "{explicit_browser}" && echo "${{RESOLVED_COOKIE_ARGS[@]}}"'
+def run_resolve(cookies_arg, browser_arg, explicit_browser, cwd, env=None, array="RESOLVED_COOKIE_ARGS"):
+    cmd = f'source "{BASH_SCRIPT}" && _resolve_cookie_args "{cookies_arg}" "{browser_arg}" "{explicit_browser}" && echo "${{{array}[@]}}"'
     if env is None:
         env = os.environ.copy()
     res = subprocess.run(
@@ -50,27 +50,52 @@ def test_explicit_browser_wins_over_local(tmp_path):
     out = run_resolve("", "safari", "true", cwd=str(tmp_path))
     assert out == "--cookies-from-browser safari"
 
-def test_local_cookies_wins_over_global(tmp_path):
+# ── Anonymous-first policy ────────────────────────────────────────────────────
+# Implicitly discovered cookies (./cookies.txt, config cookies.file, default
+# browser) must NOT be spent on the first attempt: a session-less jar hands the
+# site a device id with no login behind it, which earns a login wall and a
+# rate-limit on that id. They land in FALLBACK_COOKIE_ARGS for the retry instead.
+
+def test_local_cookies_held_back_for_retry(tmp_path):
     (tmp_path / "cookies.txt").write_text("local")
     env = os.environ.copy()
     env["AMIR_COOKIES_FILE"] = "/global/cookies.txt"
-    out = run_resolve("", "chrome", "false", cwd=str(tmp_path), env=env)
-    assert out == "--cookies cookies.txt"
+    assert run_resolve("", "chrome", "false", cwd=str(tmp_path), env=env) == ""
+    fallback = run_resolve("", "chrome", "false", cwd=str(tmp_path), env=env,
+                           array="FALLBACK_COOKIE_ARGS")
+    assert fallback == "--cookies cookies.txt"
 
-def test_global_cookies_wins_over_default_browser(tmp_path):
-    env = os.environ.copy()
-    env["AMIR_COOKIES_FILE"] = "/global/cookies.txt"
+def test_global_cookies_held_back_and_beat_default_browser(tmp_path):
     # Create the global file so the check `-f "$_global_cookies"` passes
     global_file = tmp_path / "global_cookies.txt"
     global_file.write_text("global")
+    env = os.environ.copy()
     env["AMIR_COOKIES_FILE"] = str(global_file)
-    
-    out = run_resolve("", "chrome", "false", cwd=str(tmp_path), env=env)
-    assert out == f"--cookies {str(global_file)}"
 
-def test_default_browser_fallback(tmp_path):
-    out = run_resolve("", "firefox", "false", cwd=str(tmp_path))
-    assert out == "--cookies-from-browser firefox"
+    assert run_resolve("", "chrome", "false", cwd=str(tmp_path), env=env) == ""
+    fallback = run_resolve("", "chrome", "false", cwd=str(tmp_path), env=env,
+                           array="FALLBACK_COOKIE_ARGS")
+    assert fallback == f"--cookies {str(global_file)}"
+
+def test_default_browser_held_back_for_retry(tmp_path):
+    assert run_resolve("", "firefox", "false", cwd=str(tmp_path)) == ""
+    fallback = run_resolve("", "firefox", "false", cwd=str(tmp_path),
+                           array="FALLBACK_COOKIE_ARGS")
+    assert fallback == "--cookies-from-browser firefox"
+
+def test_explicit_browser_none_disables_cookies_entirely(tmp_path):
+    # A discovered ./cookies.txt must not sneak back in past an explicit opt-out.
+    (tmp_path / "cookies.txt").write_text("local")
+    assert run_resolve("", "none", "true", cwd=str(tmp_path)) == ""
+    assert run_resolve("", "none", "true", cwd=str(tmp_path),
+                       array="FALLBACK_COOKIE_ARGS") == ""
+
+def test_amir_no_cookies_beats_explicit_flags(tmp_path):
+    env = os.environ.copy()
+    env["AMIR_NO_COOKIES"] = "1"
+    assert run_resolve("/explicit/cookies.txt", "chrome", "true", cwd=str(tmp_path), env=env) == ""
+    assert run_resolve("/explicit/cookies.txt", "chrome", "true", cwd=str(tmp_path), env=env,
+                       array="FALLBACK_COOKIE_ARGS") == ""
 
 def test_course_site_explicit_cookies_wins(tmp_path):
     explicit_file = tmp_path / "explicit_cookies.txt"

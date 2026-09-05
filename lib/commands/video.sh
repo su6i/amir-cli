@@ -3148,22 +3148,36 @@ video_download() {
     local IS_YOUTUBE_URL=false
     [[ "$URL" =~ (youtube\.com|youtu\.be) ]] && IS_YOUTUBE_URL=true
 
-    # Build cookie arguments
+    # Build cookie arguments — anonymous-first policy.
+    #
+    # A download that needs no login is always preferred: a cookie jar without a
+    # valid session (e.g. Instagram mid/datr with no sessionid) still hands the
+    # site a device id, which triggers the login wall and rate-limits that id —
+    # strictly worse than sending nothing. So cookies discovered *implicitly*
+    # (./cookies.txt, config cookies.file, default browser) are held back in
+    # FALLBACK_COOKIE_ARGS and only used to retry after an anonymous attempt
+    # fails. Cookies requested *explicitly* (--cookies / --browser) are honoured
+    # on the first attempt: the user asked for them.
     local -a COOKIE_ARGS=()
-    
+    local -a FALLBACK_COOKIE_ARGS=()
+
     local _global_cookies
     _global_cookies="${AMIR_COOKIES_FILE:-$(get_config "cookies" "file" "")}"
 
-    if [[ -n "$COOKIES_FILE" ]]; then
+    if [[ "${AMIR_NO_COOKIES:-}" == "1" ]]; then
+        :   # hard anonymous — no first attempt with cookies, no retry either
+    elif [[ -n "$COOKIES_FILE" ]]; then
         COOKIE_ARGS=(--cookies "$COOKIES_FILE")
-    elif [[ "$BROWSER_EXPLICIT" == "true" && -n "$BROWSER" && "$BROWSER" != "none" ]]; then
+    elif [[ "$BROWSER_EXPLICIT" == "true" && "$BROWSER" == "none" ]]; then
+        :   # explicit opt-out (used by the TikTok path)
+    elif [[ "$BROWSER_EXPLICIT" == "true" && -n "$BROWSER" ]]; then
         COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
     elif [[ -f "cookies.txt" ]]; then
-        COOKIE_ARGS=(--cookies "cookies.txt")
+        FALLBACK_COOKIE_ARGS=(--cookies "cookies.txt")
     elif [[ -n "$_global_cookies" && -f "$_global_cookies" ]]; then
-        COOKIE_ARGS=(--cookies "$_global_cookies")
+        FALLBACK_COOKIE_ARGS=(--cookies "$_global_cookies")
     elif [[ -n "$BROWSER" && "$BROWSER" != "none" ]]; then
-        COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
+        FALLBACK_COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
     fi
 
     # Cloudflare / anti-bot compatibility:
@@ -3247,9 +3261,19 @@ video_download() {
             --no-playlist \
             -j \
             "$URL" > "$_fmt_json" 2>/dev/null; then
-            rm -f "$_fmt_json"
-            log_error "Could not fetch format list from source (URL blocked/invalid/cookie required)." >&2
-            return 1
+            # Anonymous-first: only now spend the implicit cookie jar.
+            if [[ ${#FALLBACK_COOKIE_ARGS[@]} -eq 0 ]] || ! yt-dlp \
+                "${FALLBACK_COOKIE_ARGS[@]}" \
+                "${IMPERSONATE_ARGS[@]}" \
+                "${YT_CLIENT_ARGS[@]}" \
+                "${EXTRA_YTDLP_ARGS[@]}" \
+                --no-playlist \
+                -j \
+                "$URL" > "$_fmt_json" 2>/dev/null; then
+                rm -f "$_fmt_json"
+                log_error "Could not fetch format list from source (URL blocked/invalid/cookie required)." >&2
+                return 1
+            fi
         fi
 
         if [[ ! -s "$_fmt_json" ]]; then
@@ -3316,7 +3340,11 @@ PY
     # ── Get-link mode ──────────────────────────────────────────────────────
     if $GET_LINK; then
         log_info "🔗 Fetching direct download URL(s) from: $URL" >&2
-        log_info "   Auth via: ${COOKIES_FILE:-browser:$BROWSER}" >&2
+        if [[ ${#COOKIE_ARGS[@]} -eq 0 ]]; then
+            log_info "   Auth via: anonymous (no cookies)" >&2
+        else
+            log_info "   Auth via: ${COOKIES_FILE:-browser:$BROWSER}" >&2
+        fi
         yt-dlp \
             "${COOKIE_ARGS[@]}" \
             "${IMPERSONATE_ARGS[@]}" \
@@ -3419,13 +3447,15 @@ PY
             return 130
         fi
 
-        # Resilient YouTube fallback:
-        # In some environments, auth/browser/session flags can trigger transient 403.
-        # If user did not explicitly request cookies/browser, retry once with bare yt-dlp args.
-        if [[ $_DL_EXIT -ne 0 && "$IS_YOUTUBE_URL" == true && "$BROWSER_EXPLICIT" == false && "$COOKIES_EXPLICIT" == false ]]; then
-            log_info "↻ Retry without browser auth/session hints for YouTube..." >&2
+        # Anonymous-first fallback (see the cookie block above):
+        # the attempt so far ran without cookies. Only if it failed do we spend
+        # the implicitly discovered cookie jar on a second, authenticated try.
+        if [[ $_DL_EXIT -ne 0 && ${#FALLBACK_COOKIE_ARGS[@]} -gt 0 ]]; then
+            log_info "↻ Anonymous attempt failed — retrying with cookies (${FALLBACK_COOKIE_ARGS[1]})..." >&2
             : > "$_PATHFILE"
             yt-dlp \
+                "${FALLBACK_COOKIE_ARGS[@]}" \
+                "${IMPERSONATE_ARGS[@]}" \
                 "${YT_CLIENT_ARGS[@]}" \
                 --remote-components "ejs:github" \
                 --newline \

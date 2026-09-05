@@ -74,29 +74,43 @@ _url_is_course_site() {
 }
 
 # ── Shared cookie resolution (yt-dlp-style) ────────────────────────────────────
-# Bash 3.2 has no namerefs, so the result is returned via the global array
-# RESOLVED_COOKIE_ARGS — read it immediately after calling this function.
-# Order: explicit --cookies <file> → explicit --browser <name> → ./cookies.txt →
-#        global config cookies.file → --cookies-from-browser $BROWSER (default).
+# Bash 3.2 has no namerefs, so the result is returned via two global arrays —
+# read them immediately after calling this function:
+#   RESOLVED_COOKIE_ARGS  — cookies to use on the FIRST attempt (explicit only)
+#   FALLBACK_COOKIE_ARGS  — cookies to retry with if the anonymous attempt fails
+#
+# Anonymous-first policy: a download that needs no login always wins. A cookie
+# jar without a valid session (e.g. Instagram mid/datr with no sessionid) still
+# identifies the device to the site, which earns a login wall and a rate-limit
+# on that device id — strictly worse than sending nothing. So only cookies the
+# user asked for explicitly (--cookies / --browser) go on the first attempt;
+# implicitly discovered ones (./cookies.txt, config cookies.file, default
+# browser) are held back as the retry.
 _resolve_cookie_args() {
     local _cookies_file="$1"
     local _browser="${2:-${AMIR_DEFAULT_BROWSER:-chrome}}"
     local _browser_explicit="${3:-false}"
-    
+
     local _global_cookies
     _global_cookies="${AMIR_COOKIES_FILE:-$(get_config "cookies" "file" "")}"
 
     RESOLVED_COOKIE_ARGS=()
-    if [[ -n "$_cookies_file" ]]; then
+    FALLBACK_COOKIE_ARGS=()
+
+    if [[ "${AMIR_NO_COOKIES:-}" == "1" ]]; then
+        return 0   # hard anonymous — no first attempt with cookies, no retry
+    elif [[ -n "$_cookies_file" ]]; then
         RESOLVED_COOKIE_ARGS=(--cookies "$_cookies_file")
-    elif [[ "$_browser_explicit" == "true" && -n "$_browser" && "$_browser" != "none" ]]; then
+    elif [[ "$_browser_explicit" == "true" && "$_browser" == "none" ]]; then
+        return 0   # explicit opt-out
+    elif [[ "$_browser_explicit" == "true" && -n "$_browser" ]]; then
         RESOLVED_COOKIE_ARGS=(--cookies-from-browser "$_browser")
     elif [[ -f "cookies.txt" ]]; then
-        RESOLVED_COOKIE_ARGS=(--cookies "cookies.txt")
+        FALLBACK_COOKIE_ARGS=(--cookies "cookies.txt")
     elif [[ -n "$_global_cookies" && -f "$_global_cookies" ]]; then
-        RESOLVED_COOKIE_ARGS=(--cookies "$_global_cookies")
+        FALLBACK_COOKIE_ARGS=(--cookies "$_global_cookies")
     elif [[ -n "$_browser" && "$_browser" != "none" ]]; then
-        RESOLVED_COOKIE_ARGS=(--cookies-from-browser "$_browser")
+        FALLBACK_COOKIE_ARGS=(--cookies-from-browser "$_browser")
     fi
 }
 
@@ -159,6 +173,10 @@ _download_instagram() {
         esac
     done
 
+    # Anonymous-first: the probe classifies a public post fine without cookies,
+    # and sending a session-less Instagram jar here is what triggers the login
+    # wall in the first place. video_download() and _gallery_dl_download() each
+    # retry with the implicit cookie jar on their own if the anonymous try fails.
     _resolve_cookie_args "$COOKIES_FILE" "$BROWSER" "$BROWSER_EXPLICIT"
     local -a PROBE_COOKIE_ARGS=("${RESOLVED_COOKIE_ARGS[@]}")
 
@@ -173,10 +191,10 @@ _download_instagram() {
             return 0
         fi
         log_warning "yt-dlp failed — falling back to gallery-dl..." >&2
-        _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC"
+        _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC" "$BROWSER_EXPLICIT"
     else
         log_info "📸 Photo/carousel post detected — using gallery-dl..." >&2
-        if _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC"; then
+        if _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC" "$BROWSER_EXPLICIT"; then
             return 0
         fi
         log_warning "gallery-dl failed — falling back to yt-dlp..." >&2
@@ -193,6 +211,7 @@ _gallery_dl_download() {
     local COOKIES_FILE="${4:-}"
     local IMG_FORMAT="${5:-jpg}"   # jpg | png | webp (webp = no conversion)
     local KEEP_SOURCE_CODEC="${6:-false}"
+    local BROWSER_EXPLICIT="${7:-false}"
 
     # Normalise: jpg → jpeg for sips
     local SIPS_FORMAT="$IMG_FORMAT"
@@ -207,8 +226,9 @@ _gallery_dl_download() {
         log_info "✅ gallery-dl installed." >&2
     fi
 
-    _resolve_cookie_args "$COOKIES_FILE" "$BROWSER"
+    _resolve_cookie_args "$COOKIES_FILE" "$BROWSER" "$BROWSER_EXPLICIT"
     local -a COOKIE_ARGS=("${RESOLVED_COOKIE_ARGS[@]}")
+    local -a RETRY_COOKIE_ARGS=("${FALLBACK_COOKIE_ARGS[@]}")
 
     # Resolve real path (handles macOS /tmp → /private/tmp symlink and Linux equivalents)
     local real_out_dir
@@ -231,9 +251,22 @@ _gallery_dl_download() {
         "$URL"
     local rc=$?
 
+    # Anonymous-first: the attempt above ran without cookies unless the user
+    # asked for them. Only on failure do we spend the implicit cookie jar.
+    if [[ $rc -ne 0 && ${#RETRY_COOKIE_ARGS[@]} -gt 0 ]]; then
+        log_info "↻ Anonymous attempt failed — retrying with cookies (${RETRY_COOKIE_ARGS[1]})..." >&2
+        gallery-dl \
+            "${RETRY_COOKIE_ARGS[@]}" \
+            --directory "$real_out_dir" \
+            --filename "{filename}.{extension}" \
+            -o 'postprocessors=[{"name":"metadata","mode":"custom","content-format":"{description}"}]' \
+            "$URL"
+        rc=$?
+    fi
+
     if [[ $rc -ne 0 ]]; then
         log_error "gallery-dl failed (exit $rc)." >&2
-        log_error "If you get auth errors, make sure Chrome is open and try again, or use --cookies cookies.txt" >&2
+        log_error "Auth errors: this post likely needs a real login. Pass --cookies cookies.txt (exported while logged in), or --browser chrome with an Instagram session in that profile." >&2
         return $rc
     fi
 
@@ -292,13 +325,22 @@ TikTok, Twitter/X, Vimeo, and 1000+ other sites.
     -l, --get-link         Print direct stream URL (for download managers)
     --subtitle, -s         Generate subtitles with Whisper after download
     --yt-subs              Download YouTube's built-in subtitles
-    --browser <name>       Browser for cookie auth (default: chrome)
+    --browser <name>       Browser for cookie auth ('none' = never use cookies)
     --cookies <file>       Netscape cookies.txt file
     --extreme              Fast mode: 360p, lower quality
     --normalize            Force transcoding to H.264/AAC/MP4 even if already compliant
     --keep-codec           Skip codec normalization; keep whatever the site served
     --po-token <token>     Pass GVS PO Token (e.g. web+XXX) for YouTube 720p+
     --yt-dlp-args <args>   Pass extra arguments directly to yt-dlp
+
+  Auth policy — anonymous first (owner ruling 2026-09-05): a download that needs
+  no login always wins, so cookies found implicitly (./cookies.txt, config
+  cookies.file, default browser) are NOT sent on the first attempt; they are only
+  used to retry after it fails. A session-less jar (e.g. Instagram mid/datr with
+  no sessionid) still identifies the device to the site, which earns the login
+  wall and a rate-limit on that id — strictly worse than sending nothing.
+  Cookies you ask for explicitly (--cookies / --browser <name>) are used on the
+  first attempt. --browser none, or AMIR_NO_COOKIES=1, forces full anonymity.
 
   Output codec policy (default: H.264/AAC/MP4 for every download, owner ruling
   2026-07-27): configurable via ~/.amir/config.yaml under the `codec:` section
