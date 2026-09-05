@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-09-06 — fix: `uv sync` no longer fails on Intel Macs
+
+### Fixed
+
+- **Dependencies now resolve on macOS x86_64.** Every `amir` run on an Intel Mac ended
+  in `error: Distribution onnxruntime==1.24.2 ... doesn't have a source distribution or
+  wheel for the current platform`, so the dependency sync never completed and `amir
+  update` reported a failure each time. The cause is upstream: `onnxruntime` published
+  its last macOS x86_64 wheel in 1.23.2 and `torch` in 2.2.2. `onnxruntime` is therefore
+  pinned to `>=1.23.2,<1.24` on that platform, and `torch`, `accelerate` and
+  `pyannote-audio` are skipped there.
+- **Subtitles keep working on Intel Macs.** `faster-whisper` stays a hard dependency
+  everywhere: it runs on CTranslate2, which does ship macOS x86_64 wheels, and every
+  `import torch` in `processor.py` already sits inside `try/except`. An Intel Mac
+  installs 28 additional packages including `ctranslate2` and `onnxruntime==1.23.2`, and
+  transcribes on CPU. Only the optional torch-backed extras (BERT phrase scoring, CUDA
+  paths, diarization) drop out. Apple Silicon and Linux resolve unchanged — 190
+  packages, same versions.
+
+---
+
 ## 2026-09-06 — feat: browser cookies are cached instead of re-read on every download
 
 ### Added
