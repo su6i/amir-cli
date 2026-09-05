@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-09-06 — feat: browser cookies are cached instead of re-read on every download
+
+### Added
+
+- **A per-site cookie cache (`lib/cookie_cache.sh`).** Reading cookies with
+  `--cookies-from-browser` decrypts the entire browser profile through the system
+  keychain, and every download that needed auth paid that cost again — dozens of times
+  over a course site downloaded lesson by lesson, and a GUI keychain prompt in front of
+  a command that was meant to run unattended. The jar for the site being downloaded is
+  now kept in `~/.amir/cookies/<browser>__<site>.txt` and reused; the browser is read
+  again only when that jar is missing, older than the TTL, or holds nothing but expired
+  cookies (a session cookie, expiry `0`, never goes stale on disk).
+- **Knobs:** `--refresh-cookies` re-reads the browser once, `AMIR_COOKIE_CACHE_TTL`
+  sets the lifetime in seconds (default 43200 = 12h, `0` disables),
+  `AMIR_COOKIE_CACHE_DIR` moves the store, `AMIR_NO_COOKIE_CACHE=1` turns it off.
+
+### Security
+
+- **Only the site's own cookies reach the disk.** Caching the full jar would have put
+  plaintext session cookies for every logged-in site — mail, banking, everything — into
+  a file, undoing the encryption the browser provides. The cached jar holds the site's
+  domain with its subdomains plus sibling domains matched *exactly*, so a YouTube
+  download stores `.youtube.com` and the `.google.com` account cookie and leaves
+  `mail.google.com` behind (44 cookies instead of 125 in the first live run). Files are
+  written `0600` inside a `0700` directory.
+
+### Unchanged
+
+- **The anonymous-first policy still holds.** The implicitly discovered retry jar
+  resolves in `cached-only` mode, so no extraction is paid for a retry that never
+  happens; the browser is read at the moment the retry actually runs.
+- A cached jar behaves exactly as a browser read: verified against YouTube, where both
+  paths produced the same result.
+
+### Chore
+
+- **`lib/nodejs/package-lock.json`:** npm drops the now-redundant `"peer"` marker on
+  `devtools-protocol` whenever the lockfile is rewritten, so `amir update` left the same
+  one-line diff in the working tree after every run. Committed once so it stops coming
+  back.
+
+---
+
 ## 2026-08-10 — fix: `amir apply --help` prints help instead of scraping "--help" as a URL
 
 ### Fixed
