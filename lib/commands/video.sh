@@ -17,6 +17,22 @@ if [[ -f "$LIB_DIR/media_lib.sh" ]]; then
     source "$LIB_DIR/media_lib.sh"
 fi
 
+# Browser cookies are served from an on-disk cache (lib/cookie_cache.sh) so a
+# second download of the same site does not unlock the keychain and decrypt the
+# whole browser profile again.
+if [[ -z "${_AMIR_COOKIE_CACHE_LOADED:-}" && -f "$LIB_DIR/cookie_cache.sh" ]]; then
+    source "$LIB_DIR/cookie_cache.sh"
+fi
+
+# The cache is an optimisation: without it, fall back to reading the browser.
+_video_cookie_args_from_browser() {
+    if type _browser_cookie_args &>/dev/null; then
+        _browser_cookie_args "$1" "${2:-}" "${3:-refresh}"
+    else
+        BROWSER_COOKIE_ARGS=(--cookies-from-browser "$1")
+    fi
+}
+
 stats() {
     local config_dir="${AMIR_CONFIG_DIR:-$HOME/.amir-cli}"
     mkdir -p "$config_dir"
@@ -2965,6 +2981,7 @@ video_download() {
                 fi ;;
             --browser|-b)    BROWSER="$2"; BROWSER_EXPLICIT=true; shift 2 ;;
             --cookies)       COOKIES_FILE="$2"; COOKIES_EXPLICIT=true; shift 2 ;;
+            --refresh-cookies) export AMIR_REFRESH_COOKIES=1; shift ;;
             --keep-thumb)    KEEP_THUMB_FILE=true; shift ;;
             -y|--yes)        AUTO_YES=true; shift ;;
             --get-link|-l)   GET_LINK=true; shift ;;
@@ -3126,6 +3143,7 @@ video_download() {
         echo "  -l, --get-link        Print direct stream URL(s) — for use in a download manager" >&2
         echo "  --browser <name>      Browser for cookies (default: chrome)" >&2
         echo "  --cookies <file>      Path to Netscape cookies.txt file" >&2
+        echo "  --refresh-cookies     Re-read the browser instead of the cached cookie jar" >&2
         echo "  --keep-thumb          Keep the downloaded thumbnail sidecar file" >&2
         echo "  --formats, -F, --list-formats, --list-format  Show available resolutions and sizes before downloading" >&2
         echo "  --lists-format        Compatibility alias (same as --list-formats)" >&2
@@ -3171,13 +3189,17 @@ video_download() {
     elif [[ "$BROWSER_EXPLICIT" == "true" && "$BROWSER" == "none" ]]; then
         :   # explicit opt-out (used by the TikTok path)
     elif [[ "$BROWSER_EXPLICIT" == "true" && -n "$BROWSER" ]]; then
-        COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
+        _video_cookie_args_from_browser "$BROWSER" "$URL"
+        COOKIE_ARGS=("${BROWSER_COOKIE_ARGS[@]}")
     elif [[ -f "cookies.txt" ]]; then
         FALLBACK_COOKIE_ARGS=(--cookies "cookies.txt")
     elif [[ -n "$_global_cookies" && -f "$_global_cookies" ]]; then
         FALLBACK_COOKIE_ARGS=(--cookies "$_global_cookies")
     elif [[ -n "$BROWSER" && "$BROWSER" != "none" ]]; then
-        FALLBACK_COOKIE_ARGS=(--cookies-from-browser "$BROWSER")
+        # cached-only: this jar is for a retry that may never happen, and an
+        # unused extraction is a keychain unlock spent on nothing.
+        _video_cookie_args_from_browser "$BROWSER" "$URL" cached-only
+        FALLBACK_COOKIE_ARGS=("${BROWSER_COOKIE_ARGS[@]}")
     fi
 
     # Cloudflare / anti-bot compatibility:
@@ -3450,6 +3472,12 @@ PY
         # Anonymous-first fallback (see the cookie block above):
         # the attempt so far ran without cookies. Only if it failed do we spend
         # the implicitly discovered cookie jar on a second, authenticated try.
+        if [[ $_DL_EXIT -ne 0 && "${FALLBACK_COOKIE_ARGS[0]:-}" == "--cookies-from-browser" ]]; then
+            # The retry is actually happening, so reading the browser now pays
+            # for itself: cache the jar for the next download of this site.
+            _video_cookie_args_from_browser "$BROWSER" "$URL"
+            FALLBACK_COOKIE_ARGS=("${BROWSER_COOKIE_ARGS[@]}")
+        fi
         if [[ $_DL_EXIT -ne 0 && ${#FALLBACK_COOKIE_ARGS[@]} -gt 0 ]]; then
             log_info "↻ Anonymous attempt failed — retrying with cookies (${FALLBACK_COOKIE_ARGS[1]})..." >&2
             : > "$_PATHFILE"

@@ -3,6 +3,15 @@
 # Videos (YouTube, TikTok, Twitter/X, Vimeo, 1000+ sites): yt-dlp
 # Instagram photo/carousel posts: gallery-dl (auto-installed if missing)
 
+# Browser cookies are served from a small on-disk cache; see lib/cookie_cache.sh.
+# Located via BASH_SOURCE rather than LIB_DIR so this file also works when it is
+# sourced on its own (tests do exactly that).
+if [[ -z "${_AMIR_COOKIE_CACHE_LOADED:-}" ]]; then
+    _amir_cookie_cache_sh="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)/cookie_cache.sh"
+    [[ -f "$_amir_cookie_cache_sh" ]] && source "$_amir_cookie_cache_sh"
+    unset _amir_cookie_cache_sh
+fi
+
 run_download() {
     source "$LIB_DIR/commands/video.sh"
     source "$LIB_DIR/commands/download_course_site.sh"
@@ -86,10 +95,16 @@ _url_is_course_site() {
 # user asked for explicitly (--cookies / --browser) go on the first attempt;
 # implicitly discovered ones (./cookies.txt, config cookies.file, default
 # browser) are held back as the retry.
+#
+# Cookies read from a browser go through the cache in lib/cookie_cache.sh, so a
+# repeat download of the same site reuses the jar on disk instead of unlocking
+# the keychain and decrypting the profile again. Pass the URL to enable it; with
+# no URL there is no site to scope the cache to and the browser is read directly.
 _resolve_cookie_args() {
     local _cookies_file="$1"
     local _browser="${2:-${AMIR_DEFAULT_BROWSER:-chrome}}"
     local _browser_explicit="${3:-false}"
+    local _url="${4:-}"
 
     local _global_cookies
     _global_cookies="${AMIR_COOKIES_FILE:-$(get_config "cookies" "file" "")}"
@@ -104,13 +119,26 @@ _resolve_cookie_args() {
     elif [[ "$_browser_explicit" == "true" && "$_browser" == "none" ]]; then
         return 0   # explicit opt-out
     elif [[ "$_browser_explicit" == "true" && -n "$_browser" ]]; then
-        RESOLVED_COOKIE_ARGS=(--cookies-from-browser "$_browser")
+        _cookie_args_from_browser "$_browser" "$_url"
+        RESOLVED_COOKIE_ARGS=("${BROWSER_COOKIE_ARGS[@]}")
     elif [[ -f "cookies.txt" ]]; then
         FALLBACK_COOKIE_ARGS=(--cookies "cookies.txt")
     elif [[ -n "$_global_cookies" && -f "$_global_cookies" ]]; then
         FALLBACK_COOKIE_ARGS=(--cookies "$_global_cookies")
     elif [[ -n "$_browser" && "$_browser" != "none" ]]; then
-        FALLBACK_COOKIE_ARGS=(--cookies-from-browser "$_browser")
+        # cached-only: this jar is for a retry that may never happen.
+        _cookie_args_from_browser "$_browser" "$_url" cached-only
+        FALLBACK_COOKIE_ARGS=("${BROWSER_COOKIE_ARGS[@]}")
+    fi
+}
+
+# Thin wrapper so this file keeps working when cookie_cache.sh is absent: the
+# cache is an optimisation, never a requirement.
+_cookie_args_from_browser() {
+    if type _browser_cookie_args &>/dev/null; then
+        _browser_cookie_args "$1" "${2:-}" "${3:-refresh}"
+    else
+        BROWSER_COOKIE_ARGS=(--cookies-from-browser "$1")
     fi
 }
 
@@ -177,7 +205,7 @@ _download_instagram() {
     # and sending a session-less Instagram jar here is what triggers the login
     # wall in the first place. video_download() and _gallery_dl_download() each
     # retry with the implicit cookie jar on their own if the anonymous try fails.
-    _resolve_cookie_args "$COOKIES_FILE" "$BROWSER" "$BROWSER_EXPLICIT"
+    _resolve_cookie_args "$COOKIES_FILE" "$BROWSER" "$BROWSER_EXPLICIT" "$URL"
     local -a PROBE_COOKIE_ARGS=("${RESOLVED_COOKIE_ARGS[@]}")
 
     log_info "🔍 Probing Instagram URL..." >&2
@@ -226,7 +254,7 @@ _gallery_dl_download() {
         log_info "✅ gallery-dl installed." >&2
     fi
 
-    _resolve_cookie_args "$COOKIES_FILE" "$BROWSER" "$BROWSER_EXPLICIT"
+    _resolve_cookie_args "$COOKIES_FILE" "$BROWSER" "$BROWSER_EXPLICIT" "$URL"
     local -a COOKIE_ARGS=("${RESOLVED_COOKIE_ARGS[@]}")
     local -a RETRY_COOKIE_ARGS=("${FALLBACK_COOKIE_ARGS[@]}")
 
@@ -253,6 +281,12 @@ _gallery_dl_download() {
 
     # Anonymous-first: the attempt above ran without cookies unless the user
     # asked for them. Only on failure do we spend the implicit cookie jar.
+    if [[ $rc -ne 0 && "${RETRY_COOKIE_ARGS[0]:-}" == "--cookies-from-browser" ]]; then
+        # The retry is actually happening, so reading the browser now pays for
+        # itself: cache the jar and reuse it on the next download of this site.
+        _cookie_args_from_browser "$BROWSER" "$URL"
+        RETRY_COOKIE_ARGS=("${BROWSER_COOKIE_ARGS[@]}")
+    fi
     if [[ $rc -ne 0 && ${#RETRY_COOKIE_ARGS[@]} -gt 0 ]]; then
         log_info "↻ Anonymous attempt failed — retrying with cookies (${RETRY_COOKIE_ARGS[1]})..." >&2
         gallery-dl \
@@ -327,6 +361,7 @@ TikTok, Twitter/X, Vimeo, and 1000+ other sites.
     --yt-subs              Download YouTube's built-in subtitles
     --browser <name>       Browser for cookie auth ('none' = never use cookies)
     --cookies <file>       Netscape cookies.txt file
+    --refresh-cookies      Re-read the browser instead of the cached cookie jar
     --extreme              Fast mode: 360p, lower quality
     --normalize            Force transcoding to H.264/AAC/MP4 even if already compliant
     --keep-codec           Skip codec normalization; keep whatever the site served
@@ -341,6 +376,15 @@ TikTok, Twitter/X, Vimeo, and 1000+ other sites.
   wall and a rate-limit on that id — strictly worse than sending nothing.
   Cookies you ask for explicitly (--cookies / --browser <name>) are used on the
   first attempt. --browser none, or AMIR_NO_COOKIES=1, forces full anonymity.
+
+  Cookie cache: reading cookies out of a browser decrypts the whole profile
+  through the system keychain, so the jar for the site being downloaded is kept
+  in ~/.amir/cookies (0600, one file per browser+site) and reused until it goes
+  stale. The browser is opened again only when that jar is missing, older than
+  the TTL, or holds nothing but expired cookies. Only the site's own cookies are
+  cached, never the whole browser jar. Knobs: --refresh-cookies (re-read now),
+  AMIR_COOKIE_CACHE_TTL (seconds, default 43200), AMIR_NO_COOKIE_CACHE=1 (off),
+  AMIR_COOKIE_CACHE_DIR (elsewhere).
 
   Output codec policy (default: H.264/AAC/MP4 for every download, owner ruling
   2026-07-27): configurable via ~/.amir/config.yaml under the `codec:` section

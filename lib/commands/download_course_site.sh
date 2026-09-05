@@ -11,6 +11,12 @@ if ! type get_config &>/dev/null; then
     if [[ -f "$LIB_DIR/config.sh" ]]; then source "$LIB_DIR/config.sh"; else get_config() { echo "$3"; }; fi
 fi
 if ! type sanitize_terminal_filename_stem &>/dev/null && [[ -f "$LIB_DIR/commands/video.sh" ]]; then source "$LIB_DIR/commands/video.sh"; fi
+# Browser cookies come from the shared cache (lib/cookie_cache.sh): a course
+# runs to dozens of lessons, and each one re-reading the browser profile means
+# dozens of keychain unlocks for a jar that has not changed.
+if [[ -z "${_AMIR_COOKIE_CACHE_LOADED:-}" && -f "$LIB_DIR/cookie_cache.sh" ]]; then
+    source "$LIB_DIR/cookie_cache.sh"
+fi
 
 # 1. _course_site_check_drm_in_file FILE
 _course_site_check_drm_in_file() {
@@ -238,6 +244,7 @@ _course_site_resolve_cookie_jar() {
     local COOKIES_FILE="$1"
     local BROWSER="$2"
     local BROWSER_EXPLICIT="${3:-false}"
+    local URL="${4:-}"
 
     local CONFIG_COOKIES
     CONFIG_COOKIES="${AMIR_COOKIES_FILE:-$(get_config "cookies" "file" "")}"
@@ -258,6 +265,17 @@ _course_site_resolve_cookie_jar() {
         return 0
     fi
 
+    # Cached jar for this site, if one is still valid — this is the common case
+    # on a course that takes several runs to finish downloading.
+    if [[ -n "$URL" ]] && type _browser_cookie_args &>/dev/null; then
+        _browser_cookie_args "$BROWSER" "$URL"
+        if [[ "${BROWSER_COOKIE_ARGS[0]:-}" == "--cookies" ]]; then
+            COURSE_SITE_COOKIE_JAR="${BROWSER_COOKIE_ARGS[1]}"
+            COURSE_SITE_COOKIE_JAR_IS_TEMP=false
+            return 0
+        fi
+    fi
+
     local tmpjar
     tmpjar=$(mktemp)
     if _course_site_export_cookie_jar "$BROWSER" "$tmpjar"; then
@@ -275,6 +293,10 @@ _course_site_resolve_cookie_jar() {
 _course_site_export_cookie_jar() {
     local BROWSER="$1"
     local OUT_JAR="$2"
+    if type _amir_export_browser_cookie_jar &>/dev/null; then
+        _amir_export_browser_cookie_jar "$BROWSER" "$OUT_JAR"
+        return $?
+    fi
     python3 - "$BROWSER" "$OUT_JAR" <<'PY'
 import sys, http.cookiejar
 try:
@@ -374,11 +396,16 @@ _download_course_site() {
     # Course sites are login-gated by definition, so they opt out of the
     # anonymous-first policy in _resolve_cookie_args(): an anonymous attempt is
     # guaranteed to fail here. Fold the implicitly discovered jar back in.
-    _resolve_cookie_args "$COOKIES_FILE" "$BROWSER" "$BROWSER_EXPLICIT"
+    _resolve_cookie_args "$COOKIES_FILE" "$BROWSER" "$BROWSER_EXPLICIT" "$URL"
     if [[ ${#RESOLVED_COOKIE_ARGS[@]} -eq 0 && ${#FALLBACK_COOKIE_ARGS[@]} -gt 0 ]]; then
         RESOLVED_COOKIE_ARGS=("${FALLBACK_COOKIE_ARGS[@]}")
     fi
-    _course_site_resolve_cookie_jar "$COOKIES_FILE" "$BROWSER" "$BROWSER_EXPLICIT" || return 1
+    _course_site_resolve_cookie_jar "$COOKIES_FILE" "$BROWSER" "$BROWSER_EXPLICIT" "$URL" || return 1
+    # One jar for the whole course: every lesson goes through the file resolved
+    # above instead of asking yt-dlp to open the browser profile again.
+    if [[ "${RESOLVED_COOKIE_ARGS[0]:-}" == "--cookies-from-browser" ]]; then
+        RESOLVED_COOKIE_ARGS=(--cookies "$COURSE_SITE_COOKIE_JAR")
+    fi
     
     local main_page
     main_page=$(mktemp)
