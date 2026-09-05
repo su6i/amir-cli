@@ -12,6 +12,7 @@ _amir() {
             'init-project:Scaffold Agent Constitution in directory'
             'sync-constitution:Sync .agent/ rules+skills from agent-constitution repo'
             'update-projects:Update constitution + install pre-commit hook across all projects'
+            'update:Update the CLI repo, Python/Node deps, and uv-tool copies (yt-dlp, gallery-dl, etc)'
             'video:Advanced video processing (compress, cut, batch)'
             'audio:Audio tools (convert, extract, concat, to-video)'
             'img:Resize images (logo and custom sizes)'
@@ -41,6 +42,14 @@ _amir() {
 
         sync-constitution)
             _arguments '*:target directory:_directories'
+            ;;
+
+        update)
+            _arguments \
+                '--check[Report only; change nothing]' \
+                '--no-git[Skip the repo git pull step]' \
+                '--brew[Also upgrade Homebrew formulae amir uses]' \
+                '--all-tools[Upgrade every uv tool, not just amirs own list]'
             ;;
 
         update-projects)
@@ -1321,7 +1330,7 @@ _amir() {
                 _values 'command' \
                     video download audio pdf img info watermark subtitle clip \
                     clean todo router apply keyboard trend research skill \
-                    split init-project sync-constitution update-projects scripts
+                    split init-project sync-constitution update update-projects scripts
             fi
             ;;
     esac

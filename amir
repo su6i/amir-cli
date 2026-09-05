@@ -105,7 +105,7 @@ if [[ $NO_VENV -eq 0 ]]; then
                 _amir_warned="$SCRIPT_DIR/.venv/.ytdlp_age_warned"
                 if [[ $_amir_age -gt 45 ]] && [[ "$(cat "$_amir_warned" 2>/dev/null)" != "$(date +%F)" ]]; then
                     echo "⚠️  yt-dlp ${_amir_best_ver} is ${_amir_age} days old — site extractors rot fast." >&2
-                    echo "   Upgrade the copy amir runs:  uv tool upgrade yt-dlp" >&2
+                    echo "   Upgrade everything:  amir update" >&2
                     date +%F > "$_amir_warned" 2>/dev/null
                 fi
             fi
@@ -205,6 +205,10 @@ case "$COMMAND" in
     sync-constitution)
         shift
         if [[ -f "$LIB_DIR/commands/sync-constitution.sh" ]]; then source "$LIB_DIR/commands/sync-constitution.sh"; run_sync_constitution "$@"; exit $?; fi
+        ;;
+    update)
+        shift
+        if [[ -f "$LIB_DIR/commands/update.sh" ]]; then source "$LIB_DIR/commands/update.sh"; run_update "$@"; exit $?; fi
         ;;
     update-projects)
         shift

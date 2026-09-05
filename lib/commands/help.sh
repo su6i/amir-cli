@@ -43,5 +43,6 @@ run_help() {
     echo ""
     echo -e "${BOLD}System:${NC}"
     echo "  help                         Show this help"
+    echo "  update [opts]                Update repo, Python/Node deps, and uv-tool copies (yt-dlp etc); see --check/--brew"
     echo ""
 }
