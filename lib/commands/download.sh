@@ -12,6 +12,13 @@ if [[ -z "${_AMIR_COOKIE_CACHE_LOADED:-}" ]]; then
     unset _amir_cookie_cache_sh
 fi
 
+# Sentinel exit code from _gallery_dl_download(): the Instagram cookie jar has
+# no sessionid, so any further retry (with cookies, or falling back to
+# yt-dlp) would hit the exact same login wall. _download_instagram() checks
+# for this specific code to stop after the one explicit message instead of
+# also trying yt-dlp and adding more noise.
+_AMIR_IG_AUTH_REQUIRED=2
+
 run_download() {
     source "$LIB_DIR/commands/video.sh"
     source "$LIB_DIR/commands/download_course_site.sh"
@@ -230,8 +237,15 @@ _download_instagram() {
         _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC" "$BROWSER_EXPLICIT"
     else
         log_info "📸 Photo/carousel post detected — using gallery-dl..." >&2
-        if _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC" "$BROWSER_EXPLICIT"; then
+        _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC" "$BROWSER_EXPLICIT"
+        local _gdl_rc=$?
+        if [[ $_gdl_rc -eq 0 ]]; then
             return 0
+        fi
+        if [[ $_gdl_rc -eq $_AMIR_IG_AUTH_REQUIRED ]]; then
+            # Already printed the one explicit "not logged in" message — a
+            # yt-dlp fallback hits the same login wall and would only add noise.
+            return 1
         fi
         log_warning "gallery-dl failed — falling back to yt-dlp..." >&2
         video_download "${ARGS[@]}"
@@ -295,7 +309,29 @@ _gallery_dl_download() {
         _cookie_args_from_browser "$BROWSER" "$URL"
         RETRY_COOKIE_ARGS=("${BROWSER_COOKIE_ARGS[@]}")
     fi
+
     if [[ $rc -ne 0 && ${#RETRY_COOKIE_ARGS[@]} -gt 0 ]]; then
+        # A retry with a cookie jar that carries no `sessionid` is not really a
+        # retry: it identifies the same anonymous device and fails the exact
+        # same way, just louder (gallery-dl's own multi-line error output on
+        # top of ours). Skip it and say the one thing that actually helps.
+        local _retry_jar="" _has_session=true
+        if [[ "${RETRY_COOKIE_ARGS[0]:-}" == "--cookies" ]]; then
+            _retry_jar="${RETRY_COOKIE_ARGS[1]:-}"
+            _cookie_jar_has_cookie "$_retry_jar" sessionid || _has_session=false
+        elif [[ "${RETRY_COOKIE_ARGS[0]:-}" == "--cookies-from-browser" ]]; then
+            # Extraction above found no usable jar at all — no cookies means
+            # no session either.
+            _has_session=false
+        fi
+
+        if [[ "$_has_session" == false ]]; then
+            log_error "❌ Instagram: not logged in — sign into Chrome (Default profile), then:" >&2
+            log_error "   amir download --refresh-cookies '$URL'" >&2
+            rm -f "$_snapshot" "$_video_snapshot"
+            return "$_AMIR_IG_AUTH_REQUIRED"
+        fi
+
         log_info "↻ Anonymous attempt failed — retrying with cookies (${RETRY_COOKIE_ARGS[1]})..." >&2
         gallery-dl \
             "${RETRY_COOKIE_ARGS[@]}" \
@@ -384,6 +420,9 @@ TikTok, Twitter/X, Vimeo, and 1000+ other sites.
   wall and a rate-limit on that id — strictly worse than sending nothing.
   Cookies you ask for explicitly (--cookies / --browser <name>) are used on the
   first attempt. --browser none, or AMIR_NO_COOKIES=1, forces full anonymity.
+  For Instagram specifically: if the cached jar has no `sessionid`, amir prints
+  one explicit "not logged in" message and stops — it will not retry with the
+  same useless cookies or fall back to yt-dlp and add more noise.
 
   Cookie cache: reading cookies out of a browser decrypts the whole profile
   through the system keychain, so the jar for the site being downloaded is kept

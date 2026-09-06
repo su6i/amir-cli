@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Instagram downloads with no logged-in session print one explicit message and stop.**
+  When an Instagram post requires authentication and the cached cookie jar has
+  no `sessionid`, `gallery-dl` skips retrying with useless device-only cookies and
+  stops immediately with one clear error, skipping the yt-dlp fallback rather than
+  dumping noisy technical errors.
 - **`amir download --refresh-cookies` works for Instagram/gallery-dl downloads.**
   `run_download()` now parses `--refresh-cookies` directly and exports
   `AMIR_REFRESH_COOKIES=1`, so Instagram photo/carousel downloads force a cookie

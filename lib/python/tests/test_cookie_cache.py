@@ -306,3 +306,57 @@ def test_without_refresh_cookies_flag_env_stays_unset(tmp_path):
         env=env,
     )
     assert out == "REFRESH=unset"
+
+
+def test_gallery_dl_skips_useless_retry_without_sessionid(tmp_path):
+    """A cookie jar with no sessionid identifies the device but not a logged-in
+    account; retrying gallery-dl with it fails the same way, just louder.
+    _gallery_dl_download must skip that retry, print one explicit message, and
+    return the AUTH_REQUIRED sentinel (2) instead of falling through to the
+    generic multi-line error."""
+    env = cache_env(tmp_path)
+    cache_dir = tmp_path / "cookies"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    jar = cache_dir / "chrome__instagram.com.txt"
+    jar.write_text(
+        "# Netscape HTTP Cookie File\n"
+        ".instagram.com\tTRUE\t/\tTRUE\t0\tmid\tX\n"
+    )
+    calls_file = tmp_path / "gallery_dl_calls"
+    out = run_bash(
+        f'source "{DOWNLOAD_SCRIPT}" && '
+        f'gallery-dl() {{ echo call >> "{calls_file}"; return 1; }}; '
+        'log_info() { :; }; log_warning() { :; }; log_error() { echo "$1"; }; '
+        f'_gallery_dl_download "https://www.instagram.com/p/ABC/" "{tmp_path}" chrome "" jpg false false 2>&1; '
+        'echo "rc=$?"',
+        env=env,
+    )
+    assert "not logged in" in out
+    assert "rc=2" in out
+    assert calls_file.read_text().count("call") == 1
+
+
+def test_gallery_dl_retries_with_cookies_when_jar_has_sessionid(tmp_path):
+    """Unchanged behavior: a jar that DOES carry a live sessionid still gets
+    the normal anonymous -> cookies retry."""
+    env = cache_env(tmp_path)
+    cache_dir = tmp_path / "cookies"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    jar = cache_dir / "chrome__instagram.com.txt"
+    jar.write_text(
+        "# Netscape HTTP Cookie File\n"
+        ".instagram.com\tTRUE\t/\tTRUE\t0\tmid\tX\n"
+        ".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\tY\n"
+    )
+    calls_file = tmp_path / "gallery_dl_calls"
+    out = run_bash(
+        f'source "{DOWNLOAD_SCRIPT}" && '
+        f'gallery-dl() {{ echo call >> "{calls_file}"; return 1; }}; '
+        'log_info() { echo "$1"; }; log_warning() { :; }; log_error() { echo "$1"; }; '
+        f'_gallery_dl_download "https://www.instagram.com/p/ABC/" "{tmp_path}" chrome "" jpg false false 2>&1; '
+        'echo "rc=$?"',
+        env=env,
+    )
+    assert calls_file.read_text().count("call") == 2
+    assert "retrying with cookies" in out
+    assert "rc=2" not in out
