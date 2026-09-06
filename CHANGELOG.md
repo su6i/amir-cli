@@ -99,6 +99,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-08-11 — chore: migrate agent-constitution to symlink
+
+### Changed
+
+- **amir-cli's own `.agent/constitution` is now a symlink.** Migrated from a git submodule (SSH-only, pinned SHA that drifted silently) to a symlink into the single central clone at `~/@-github/agent-constitution` — exactly the same pattern every other project managed by this tool already uses.
+- **`amir sync-constitution` natively supports symlink updates.** The script (`lib/commands/sync-constitution.sh`) gained a symlink-aware update path, refreshing the central clone directly via `git pull --ff-only` instead of only knowing how to update a submodule.
+## 2026-08-11 — fix: `--help` sweep across `lib/commands/` modules
+
+### Fixed
+
+- **28 of the 34 `lib/commands/` modules gained a real `--help`/`-h`/`help` branch**,
+  following the pattern shipped for `amir apply` on 2026-08-10: the branch is the
+  first statement of the entry function, before any network call, subprocess, or
+  side effect, and it always returns exit `0`. Covers `audio`, `clean`, `clip`,
+  `dashboard`, `download`, `img`, `info`, `init-project`, `apply job`, `keyboard`,
+  `router models`, `lock`/`unlock`, `pass`, `pdf` (and its `linkedin-post`/`split`
+  modes), `apply phd`, `qr`, `scripts`, `short`, `skill`, `speed`, `subtitle`,
+  `sync-constitution`, `todo`, `transfer`, `watermark`, `weather`, and the
+  internal `download_course_site` handler.
+- **`amir clean`, `amir speed`, `amir dashboard` now actually receive their
+  arguments.** The top-level dispatcher (`amir`) called `run_clean`, `run_speed`,
+  and `run_dashboard` with no `"$@"` at all, so `--help` (or any flag) could never
+  reach them — `amir clean --help` would have silently launched the interactive
+  cleanup TUI instead of printing help. All three cases now `shift` and forward
+  `"$@"`, matching every other command in the dispatcher.
+
+### Known gaps (out of scope for this sweep, left untouched)
+
+- `amir video --help` and `amir img extend --help` were believed to already work
+  (an earlier audit found a `--help`/`-h` match in both files) but do not:
+  `video.sh`'s `run_video` has no help branch at all (`--help` falls through to
+  the compressor and fails with "No valid input files"), and `extend.sh` prints
+  its usage but exits `1` instead of `0`. Both need their own follow-up fix.
+
 ## 2026-08-10 — fix: `amir apply --help` prints help instead of scraping "--help" as a URL
 
 ### Fixed

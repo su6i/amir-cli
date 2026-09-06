@@ -1,6 +1,15 @@
 #!/bin/bash
 
+_img_usage() {
+    echo "Usage: amir img <resize|crop|upscale|lab|scan|round|rotate|pad|convert|stack|extend|compress|burst> <file> [opts]"
+}
+
 run_img() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _img_usage
+        return 0
+    fi
+
     # Source Config
     local SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     local LIB_DIR="$(dirname "$SCRIPT_DIR")"

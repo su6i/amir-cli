@@ -1,6 +1,13 @@
 #!/bin/bash
 
+_todo_usage() { echo "Usage: amir todo [task|list|done <number>]"; }
+
 run_todo() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _todo_usage
+        return 0
+    fi
+
     todo() {
         # Source Config
         local SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

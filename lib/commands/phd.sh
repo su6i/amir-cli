@@ -4,6 +4,10 @@
 _PHD_SEARCH_DIR="${PHD_SEARCH_DIR:-$HOME/@-Amir/Apply/2026-2027/PhD-Search}"
 
 run_phd() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _phd_usage
+        return 0
+    fi
     # If no args or first arg is a flag, default to pending view
     if [[ -z "$1" || "$1" == --* ]]; then
         _phd_python status.py --pending-only "$@"

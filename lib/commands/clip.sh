@@ -1,6 +1,14 @@
 #!/bin/bash
 
+_clip_usage() {
+    echo "Usage: amir clip <existing-file>  OR  amir clip <new-filename>  OR  amir clip <word1 word2 ...>  OR  echo 'hi' | amir clip"
+}
+
 run_clip() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _clip_usage
+        return 0
+    fi
     # OSC 52: copy text to the LOCAL machine's clipboard through SSH tunnel.
     # Works on iTerm2, WezTerm, Kitty, Windows Terminal, tmux (set-clipboard on).
     # No X11, no display, no xclip needed.

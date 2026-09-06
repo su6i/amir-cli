@@ -9,7 +9,15 @@
 # Providers: gemini, openai, deepseek, grok, anthropic
 # Export formats: pdf, md, jpg (optional)
 
+_llm_lists_usage() {
+    echo "Usage: amir llm-lists [gemini|openai|deepseek|grok|anthropic] [-e|--export pdf|md|jpg]"
+}
+
 llm_lists() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _llm_lists_usage
+        return 0
+    fi
     # 1. AMIR_ROOT is now exported by the 'amir' entry point
     [[ -z "$AMIR_ROOT" ]] && export AMIR_ROOT="$PWD"
     

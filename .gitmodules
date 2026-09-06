@@ -1,3 +1,0 @@
-[submodule ".agent/constitution"]
-	path = .agent/constitution
-	url = git@github.com:su6i/agent-constitution.git

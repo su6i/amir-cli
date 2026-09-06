@@ -1,6 +1,15 @@
 #!/bin/bash
 
+_info_usage() {
+    echo "Usage: amir info <file>"
+}
+
 run_info() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _info_usage
+        return 0
+    fi
+
     info() {
         local target="$1"
         local full_path=$(realpath "$target" 2>/dev/null || echo "$target")
