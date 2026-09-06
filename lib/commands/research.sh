@@ -26,11 +26,7 @@ _research_check_env() {
     toolkit_dir="$(_research_toolkit_dir)"
     python_bin="$(_research_python)"
 
-    if [[ ! -d "$toolkit_dir" ]]; then
-        echo "❌ research_toolkit not found at: $toolkit_dir"
-        echo "   Set RESEARCH_TOOLKIT_DIR or clone: github.com/your/research_toolkit"
-        return 1
-    fi
+    _require_external_repo "amir research" "research_toolkit" "$toolkit_dir" "RESEARCH_TOOLKIT_DIR" "git@github.com:su6i/research-toolkit.git" || return 1
     if [[ ! -x "$python_bin" ]]; then
         echo "❌ research_toolkit venv not found. Run: cd $toolkit_dir && bash install.sh"
         return 1

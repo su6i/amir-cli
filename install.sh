@@ -439,6 +439,17 @@ ln -sfn "$CONSTITUTION_CENTRAL" .agent/constitution
 echo "  ✅ .agent/constitution → $CONSTITUTION_CENTRAL (symlink)"
 
 echo "-------------------------------------"
+echo "🩺 Dependency check (amir doctor)..."
+# Never auto-clones a personal repo here — the SSH key has a passphrase no
+# agent/script can enter. `amir doctor` only reports; fix commands are printed
+# for the owner to run by hand.
+if [[ -f "$PROJECT_DIR/lib/commands/doctor.sh" ]]; then
+    AMIR_ROOT="$PROJECT_DIR" LIB_DIR="$PROJECT_DIR/lib" bash -c \
+        "source '$PROJECT_DIR/lib/amir_lib.sh'; source '$PROJECT_DIR/lib/commands/doctor.sh'; run_doctor" \
+        || echo "  ⚠️  Some optional/required dependencies are missing — see above. Run 'amir doctor' any time to re-check."
+fi
+
+echo "-------------------------------------"
 echo "🎉 Installation Complete! Run 'amir help' to start."
 if [[ $INSTALL_ML -eq 0 ]]; then
     echo "💡 Note: ML requirements (transformers, torch, whisper) were skipped."

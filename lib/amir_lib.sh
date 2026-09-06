@@ -50,6 +50,27 @@ print_header() {
 
 # --- Shared Utilities ---
 
+# _require_external_repo CMD_LABEL DEP_LABEL RESOLVED_PATH ENV_VAR CLONE_URL
+# Prints an actionable error and returns 1 when RESOLVED_PATH is not a directory;
+# returns 0 silently when it is. Single source of truth for the "external repo
+# missing" message so no command re-implements it (DRY).
+_require_external_repo() {
+    local cmd_label="$1"
+    local dep_label="$2"
+    local resolved_path="$3"
+    local env_var="$4"
+    local clone_url="$5"
+
+    if [[ -d "$resolved_path" ]]; then
+        return 0
+    fi
+
+    echo "❌ $cmd_label needs $dep_label, not found at: $resolved_path" >&2
+    echo "   Install it:   git clone $clone_url $resolved_path" >&2
+    echo "   Or point at an existing clone:  export $env_var=/path/to/$dep_label" >&2
+    return 1
+}
+
 copy_to_clipboard() {
     local response="$1"
     

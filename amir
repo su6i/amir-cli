@@ -321,6 +321,11 @@ case "$COMMAND" in
         if [[ -f "$LIB_DIR/commands/scripts.sh" ]]; then source "$LIB_DIR/commands/scripts.sh"; run_scripts "$@"; exit $?; fi
         ;;
 
+    doctor)
+        shift
+        if [[ -f "$LIB_DIR/commands/doctor.sh" ]]; then source "$LIB_DIR/commands/doctor.sh"; run_doctor "$@"; exit $?; fi
+        ;;
+
     split)
         shift
         local INPUT_FILE="$1"

@@ -18,6 +18,7 @@ _amir() {
             'img:Resize images (logo and custom sizes)'
             'pdf:Convert images to PDF with custom sizing'
             'info:Show file technical properties'
+            'doctor:Check external tools/repos/venv and print fix commands for each ❌'
             'clean:Clean system caches and trash'
             'keyboard:Show keyboard layout (FR/EN/FA) with key combos'
             'todo:Manage quick task list'
@@ -1326,12 +1327,16 @@ _amir() {
             _message 'no arguments — launches the dashboard'
             ;;
 
+        doctor)
+            _message 'no arguments — runs the dependency check'
+            ;;
+
         help|--help|-h)
             if (( CURRENT == 3 )); then
                 _values 'command' \
                     video download audio pdf img info watermark subtitle clip \
                     clean todo router apply keyboard trend research skill \
-                    split init-project sync-constitution update update-projects scripts
+                    split init-project sync-constitution update update-projects scripts doctor
             fi
             ;;
     esac
