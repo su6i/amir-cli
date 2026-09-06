@@ -248,8 +248,14 @@ _download_instagram() {
     # what actually landed on disk, not by any single tool's own exit code —
     # yt-dlp fetches only the video item(s) of a multi-item carousel and still
     # reports success, silently dropping the rest.
+    # Resolve the destination once, the same way _gallery_dl_download() does
+    # (cd + pwd -P), and reuse this single value for the before/after
+    # snapshots AND as the OUT_DIR handed to _gallery_dl_download(). Two
+    # independent `pwd`-based resolutions (one here, one inside the callee)
+    # is what let a stale/differently-resolved cwd snapshot the wrong
+    # directory and make a fully successful download look like "0 of N".
     local _ig_out_dir _ig_before
-    _ig_out_dir=$(pwd -P 2>/dev/null || pwd)
+    _ig_out_dir=$(cd "$(pwd)" 2>/dev/null && pwd -P 2>/dev/null || pwd)
     _ig_before=$(mktemp)
     find "$_ig_out_dir" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" -o -iname "*.mp4" -o -iname "*.mov" -o -iname "*.mkv" -o -iname "*.webm" \) 2>/dev/null > "$_ig_before"
 
@@ -260,13 +266,13 @@ _download_instagram() {
         log_info "🎬 Reel/video detected — using yt-dlp..." >&2
         if ! video_download "${ARGS[@]}"; then
             log_warning "yt-dlp failed — falling back to gallery-dl..." >&2
-            _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC" "$BROWSER_EXPLICIT"
+            _gallery_dl_download "$URL" "$_ig_out_dir" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC" "$BROWSER_EXPLICIT"
             _ig_rc=$?
             [[ $_ig_rc -eq $_AMIR_IG_AUTH_REQUIRED ]] && _ig_auth_only=true
         fi
     else
         log_info "📸 Photo/carousel post detected — using gallery-dl..." >&2
-        _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC" "$BROWSER_EXPLICIT"
+        _gallery_dl_download "$URL" "$_ig_out_dir" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC" "$BROWSER_EXPLICIT"
         _ig_rc=$?
         if [[ $_ig_rc -eq $_AMIR_IG_AUTH_REQUIRED ]]; then
             _ig_auth_only=true
@@ -288,9 +294,22 @@ _download_instagram() {
         return 1
     fi
 
-    local _ig_new_count
-    _ig_new_count=$(find "$_ig_out_dir" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" -o -iname "*.mp4" -o -iname "*.mov" -o -iname "*.mkv" -o -iname "*.webm" \) 2>/dev/null | grep -vxFf "$_ig_before" | wc -l | tr -d ' ')
-    rm -f "$_ig_before"
+    # `grep -vxFf` is not reliable across grep implementations when the
+    # pattern file ($_ig_before) is empty (a fresh/empty destination dir,
+    # i.e. nothing existed before this download): BSD grep (macOS) treats an
+    # empty -f file as matching every line, which -v then excludes entirely
+    # — a fully successful download into an empty directory would count as
+    # 0 new files. `comm -13` on two sorted lists has no such edge case: an
+    # empty "before" list simply means every "after" entry is new.
+    local _ig_after _ig_before_sorted _ig_after_sorted _ig_new_count
+    _ig_after=$(mktemp)
+    find "$_ig_out_dir" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" -o -iname "*.mp4" -o -iname "*.mov" -o -iname "*.mkv" -o -iname "*.webm" \) 2>/dev/null > "$_ig_after"
+    _ig_before_sorted=$(mktemp)
+    _ig_after_sorted=$(mktemp)
+    sort "$_ig_before" > "$_ig_before_sorted"
+    sort "$_ig_after" > "$_ig_after_sorted"
+    _ig_new_count=$(comm -13 "$_ig_before_sorted" "$_ig_after_sorted" | wc -l | tr -d ' ')
+    rm -f "$_ig_before" "$_ig_after" "$_ig_before_sorted" "$_ig_after_sorted"
 
     if [[ "$item_count" -gt 1 && "$_ig_new_count" -lt "$item_count" ]]; then
         log_error "⚠️  $_ig_new_count of $item_count items downloaded — the rest need a logged-in session (try --refresh-cookies)." >&2
@@ -344,7 +363,7 @@ _gallery_dl_download() {
     gallery-dl \
         "${COOKIE_ARGS[@]}" \
         --directory "$real_out_dir" \
-        --filename "{filename}.{extension}" \
+        --filename "{username}_{post_shortcode}_{num}.{extension}" \
         -o 'postprocessors=[{"name":"metadata","mode":"custom","content-format":"{description}"}]' \
         "$URL"
     local rc=$?
@@ -384,7 +403,7 @@ _gallery_dl_download() {
         gallery-dl \
             "${RETRY_COOKIE_ARGS[@]}" \
             --directory "$real_out_dir" \
-            --filename "{filename}.{extension}" \
+            --filename "{username}_{post_shortcode}_{num}.{extension}" \
             -o 'postprocessors=[{"name":"metadata","mode":"custom","content-format":"{description}"}]' \
             "$URL"
         rc=$?

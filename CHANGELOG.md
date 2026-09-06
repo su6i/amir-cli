@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-09-06 — fix: Instagram completion count and gallery-dl filenames
+
+### Fixed
+
+- **Instagram carousel completion no longer reports a false "0 of N downloaded".**
+  `_download_instagram()` resolved its before/after snapshot directory with its own
+  `pwd`-based lookup while the gallery-dl step resolved the actual destination
+  independently, so a run from a different working directory could snapshot the
+  wrong folder and undercount every file that actually landed. The destination is
+  now resolved exactly once and reused for both snapshots and for the download
+  call itself. The before/after diff also no longer uses `grep -vxFf` (unreliable
+  across grep implementations when the "before" list is empty); it now sorts both
+  snapshots and diffs them with `comm -13`, which handles an empty "before" list
+  (e.g. a fresh destination directory) correctly.
+- **gallery-dl downloads now produce readable filenames.** Instagram photo/carousel
+  downloads via `gallery-dl` were named after the CDN's internal media id
+  (`AQNfld...59rc5V1.mp4`), unlike the yt-dlp path which already produces clean,
+  searchable names. The `--filename` template is now
+  `{username}_{post_shortcode}_{num}.{extension}`, using metadata fields gallery-dl's
+  Instagram extractor populates for every downloaded file (verified against the
+  installed extractor source, `gallery_dl/extractor/instagram.py`).
+
+---
+
 ## 2026-09-06 — fix: the subtitle test suite is green again
 
 ### Fixed
