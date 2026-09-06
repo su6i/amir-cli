@@ -147,6 +147,7 @@ from subtitle.rendering import (
     compute_ass_layout,
 )
 from subtitle.text import clean_bidi, fix_persian_text, strip_english_echo
+from subtitle.quality import jaccard_similarity, NEAR_DUP_JACCARD_THRESHOLD
 from subtitle.models import (
     ProcessingCheckpoint,
     ProcessingStage,
@@ -249,6 +250,44 @@ except ImportError:
     def get_default_crf(): return 23
     def get_default_quality(): return 65
     def detect_best_hw_encoder(): return {'encoder': 'libx264', 'codec': 'h264', 'platform': 'cpu'}
+
+# ==================== PHRASE-LEVEL HALLUCINATION-LOOP DEDUP ====================
+# When a Whisper segment is language-locked (e.g. language='en') but the
+# speaker briefly switches language, the model does not fall silent — it
+# repeats its last confident phrase dozens of times ("It's not a good
+# thing" x15, Tucker Carlson interview ~08:00). The per-word loop guard
+# inside the chunk loop only catches a single word repeating; it does not
+# catch a multi-word PHRASE repeating, because each repeat is composed of
+# several distinct word tokens. These constants tune that phrase-level
+# filter (see SubtitleProcessor._collapse_phrase_loops below).
+
+# Phrase window sizes (in words) considered as a candidate repeating unit.
+# Below MIN: single/double word loops are already handled by the per-chunk
+# word-level guard. Above MAX: a "phrase" this long is essentially a full
+# sentence, and it becomes vanishingly unlikely for two independent sentences
+# to hit the Jaccard threshold below by coincidence, so extending further only
+# costs time without buying safety.
+PHRASE_LOOP_MIN_WORDS = 2
+PHRASE_LOOP_MAX_WORDS = 12
+
+# A phrase must repeat at least this many times BACK-TO-BACK (no other words
+# in between) before it is collapsed to a single occurrence. Legitimate
+# immediate repetition in real speech (a song chorus sung twice, "no, no,
+# no", a countdown) tops out at 2-3 consecutive repeats; the Tucker Carlson
+# hallucination repeated the same clause ~15 times in a row. 4 sits strictly
+# above the legitimate range and strictly below the observed hallucination
+# range, so it collapses runaway loops while letting a 2-3x legitimate
+# repeat through untouched (see the two dedicated tests in
+# tests/test_phrase_loop_dedup.py).
+PHRASE_LOOP_MIN_REPEATS = 4
+
+# Reuse quality.py's near-duplicate threshold rather than inventing a second
+# one — a phrase repeat is rarely byte-identical (Whisper adds/drops a
+# trailing comma, capitalizes differently, etc.) so exact-match would miss
+# most real hallucination loops; Jaccard on the word sets is the same metric
+# assess_subtitle_quality() already uses to flag near-duplicate SRT lines.
+PHRASE_LOOP_JACCARD_THRESHOLD = NEAR_DUP_JACCARD_THRESHOLD
+
 
 # ==================== MAIN PROCESSOR ====================
 
@@ -1112,6 +1151,7 @@ class SubtitleProcessor:
                 )
                 if server_words:
                     self.logger.info(f"✅ Shared-server transcription complete: {len(server_words)} words")
+                    server_words = self._collapse_phrase_loops(server_words)
                     return server_words, (server_lang or '')
             except Exception as e:
                 self.logger.warning(f"⚠️ Shared whisper server failed, using local model: {e}")
@@ -1268,6 +1308,14 @@ class SubtitleProcessor:
                 try: os.remove(tmp_wav)
                 except: pass
             return [], ''
+
+        pre_dedup_count = len(all_words)
+        all_words = self._collapse_phrase_loops(all_words)
+        if len(all_words) < pre_dedup_count:
+            self.logger.warning(
+                f"⚠️ Collapsed a repeated-phrase hallucination loop: "
+                f"{pre_dedup_count} → {len(all_words)} words"
+            )
 
         self.logger.info(f"✅ Full-video VAD transcription complete: {len(all_words)} words, lang={detected_lang or 'auto'}")
 
@@ -1719,6 +1767,70 @@ class SubtitleProcessor:
             if len(unique) == 1:
                 cleaned = [cleaned[0]]
         return ' '.join(cleaned)
+
+    @staticmethod
+    def _collapse_phrase_loops(words: List[WordObj]) -> List[WordObj]:
+        """Collapse a short PHRASE repeated back-to-back into a single occurrence.
+
+        Complements `_dedup_word_loops` / the per-chunk single-word guard in
+        `_run_faster_whisper_full`, neither of which catches a *multi-word*
+        phrase repeating (each repeat is made of several distinct word
+        tokens, so a same-word check never fires). Typical trigger: a
+        segment language-locked to 'en' where the speaker briefly switches
+        language — Whisper does not fall silent, it repeats its last
+        confident phrase dozens of times.
+
+        Detects the smallest repeating word-window (period) starting at
+        each position via Jaccard similarity (same metric and threshold as
+        `assess_subtitle_quality`'s near-duplicate check) and, when a
+        period repeats PHRASE_LOOP_MIN_REPEATS+ times back-to-back with
+        nothing else in between, keeps only the first occurrence.
+
+        Absolute timestamps of kept words are never modified — only the
+        redundant WordObj entries are dropped from the list.
+        """
+        n = len(words)
+        if n < PHRASE_LOOP_MIN_WORDS * 2:
+            return words
+
+        tokens = [w.word.strip().lower() for w in words]
+        keep = [True] * n
+        i = 0
+        while i < n:
+            collapsed = False
+            max_p = min(PHRASE_LOOP_MAX_WORDS, (n - i) // 2)
+            # Ascending: the SMALLEST period that explains the repetition is
+            # the actual phrase length. A larger period (e.g. a multiple of
+            # the true one) can also look like a near-duplicate window once
+            # the vocabulary is small and repetitive, but collapsing on it
+            # would keep a "first occurrence" that is itself several stray
+            # repeats stitched together — trying small-to-large avoids that.
+            for p in range(PHRASE_LOOP_MIN_WORDS, max_p + 1):
+                first = tokens[i:i + p]
+                second = tokens[i + p:i + 2 * p]
+                if jaccard_similarity(first, second) <= PHRASE_LOOP_JACCARD_THRESHOLD:
+                    continue
+
+                repeat_count = 1
+                pos = i + p
+                while pos + p <= n:
+                    candidate = tokens[pos:pos + p]
+                    if jaccard_similarity(first, candidate) <= PHRASE_LOOP_JACCARD_THRESHOLD:
+                        break
+                    repeat_count += 1
+                    pos += p
+
+                if repeat_count >= PHRASE_LOOP_MIN_REPEATS:
+                    for j in range(i + p, pos):
+                        keep[j] = False
+                    i = pos
+                    collapsed = True
+                    break
+
+            if not collapsed:
+                i += 1
+
+        return [w for w, k in zip(words, keep) if k]
 
     def suppress_hallucinations(self, entries: List[Dict]) -> List[Dict]:
         """DeepSeek/Whisper hallucination suppressor.

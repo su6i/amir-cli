@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-09-06 — fix: collapse Whisper phrase-loop hallucinations
+
+### Fixed
+
+- **A short phrase repeated back-to-back is now collapsed to one occurrence
+  inside `_run_faster_whisper_full`.** When a transcription segment is
+  language-locked (e.g. `language='en'`) but the speaker briefly switches
+  language, Whisper does not fall silent — it repeats its last confident
+  phrase dozens of times (observed: a ~5-word English clause repeated ~15
+  times in a row in a segment where the interviewer briefly asked a
+  question in Hebrew). The existing per-chunk word-level loop guard only
+  catches a single WORD repeating; it never fired here because each repeat
+  is composed of several distinct word tokens. The new
+  `SubtitleProcessor._collapse_phrase_loops` static method detects the
+  smallest repeating word-window (2-12 words) via Jaccard similarity —
+  reusing `subtitle.quality.jaccard_similarity` /
+  `NEAR_DUP_JACCARD_THRESHOLD` rather than a second, separate metric — and
+  keeps only the first occurrence once a phrase repeats
+  `PHRASE_LOOP_MIN_REPEATS` (4) or more times consecutively with nothing
+  else in between. 4 was chosen because legitimate immediate repetition in
+  real speech (a chorus sung twice, "no, no, no", a countdown) tops out at
+  2-3 consecutive repeats, while the observed hallucination repeated ~15
+  times — 4 sits strictly above the legitimate range and strictly below the
+  observed failure range. The filter is applied at both points inside
+  `_run_faster_whisper_full` that can return a non-empty word list (the
+  shared-server path and the local chunked-model path), so every caller of
+  the function is covered without needing call-site changes. Absolute word
+  timestamps are never shifted — only the redundant `WordObj` entries are
+  dropped from the list.
+- **`quality.py`'s near-duplicate-entry check now shares one Jaccard helper**
+  (`jaccard_similarity` + the `NEAR_DUP_JACCARD_THRESHOLD` constant) instead
+  of an inline, ad-hoc computation — `_run_faster_whisper_full`'s new
+  phrase-loop filter reuses the exact same function and threshold rather
+  than reimplementing the metric a second time.
+
 ## 2026-09-06 — fix: the subtitle test suite is green again
 
 ### Fixed

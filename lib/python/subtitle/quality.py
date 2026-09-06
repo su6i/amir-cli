@@ -5,7 +5,30 @@ import re
 from dataclasses import dataclass
 from itertools import groupby
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional
+
+
+# ---------------------------------------------------------------------------
+# Shared thresholds (named, not magic numbers — rule 000)
+# ---------------------------------------------------------------------------
+
+# Jaccard similarity (intersection / union of word sets) above which two texts
+# are considered near-duplicates of each other. Shared by the post-hoc quality
+# scorer below and by processor.py's phrase-loop dedup filter, which reuses
+# this exact constant/function rather than reimplementing the metric.
+NEAR_DUP_JACCARD_THRESHOLD = 0.60
+
+
+def jaccard_similarity(a: Iterable[str], b: Iterable[str]) -> float:
+    """Jaccard similarity of two token collections: |a ∩ b| / |a ∪ b|.
+
+    Returns 0.0 for two empty inputs (no shared vocabulary to compare).
+    """
+    set_a, set_b = set(a), set(b)
+    union = len(set_a | set_b)
+    if union == 0:
+        return 0.0
+    return len(set_a & set_b) / union
 
 
 # ---------------------------------------------------------------------------
@@ -132,10 +155,9 @@ def assess_subtitle_quality(srt_path: str, video_duration: float) -> QualityResu
     # of the same phrase ("על קריטיקה, ...") across many consecutive entries.
     near_dup_pairs = 0
     for i in range(n - 1):
-        t1 = set(texts[i].split())
-        t2 = set(texts[i + 1].split())
-        union = len(t1 | t2)
-        if union > 0 and len(t1 & t2) / union > 0.60:
+        t1 = texts[i].split()
+        t2 = texts[i + 1].split()
+        if jaccard_similarity(t1, t2) > NEAR_DUP_JACCARD_THRESHOLD:
             near_dup_pairs += 1
     near_dup_ratio = near_dup_pairs / max(1, n - 1)  # fraction of pairs that are near-dups
 
