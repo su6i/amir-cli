@@ -90,7 +90,7 @@ run_doctor() {
     echo "Agent constitution symlink (optional):"
     local constitution_link="$amir_root/.agent/constitution"
     if [[ -L "$constitution_link" && -d "$constitution_link" ]]; then
-        echo "  ✅ .agent/constitution → $(cd "$constitution_link" && pwd)"
+        echo "  ✅ .agent/constitution → $(cd "$constitution_link" && pwd -P)"
     else
         local constitution_dir="${AGENT_CONSTITUTION_DIR:-$HOME/@-github/agent-constitution}"
         echo "  ❌ .agent/constitution — missing or broken symlink"

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-09-06 — fix: `amir doctor` prints the constitution symlink's real target
+
+### Fixed
+
+- `amir doctor` reported `.agent/constitution → <the link itself>` instead of the
+  directory the link points at, because `cd "$link" && pwd` returns the logical
+  path bash followed rather than the resolved one. It now uses `pwd -P`.
+
 ## 2026-09-06 — fix: collapse Whisper phrase-loop hallucinations
 
 ### Fixed
