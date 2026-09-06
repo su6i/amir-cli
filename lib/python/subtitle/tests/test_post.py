@@ -222,11 +222,13 @@ class TestTelegramSectionsComplete(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(any('✨' in m for m in missing))
 
-    def test_missing_pushpin(self):
+    def test_pushpin_is_no_longer_required(self):
+        """The prompt never asks for a 📌 audience line (owner ruling: the
+        prompt is the source of truth, not the validator) — its absence must
+        not fail validation."""
         post = SAMPLE_ELON_POST.replace('📌', '')
         ok, missing = self._check(post)
-        self.assertFalse(ok)
-        self.assertTrue(any('📌' in m for m in missing))
+        self.assertTrue(ok, f"Post without 📌 should pass: {missing}")
 
     def test_missing_timer(self):
         post = SAMPLE_ELON_POST.replace('⏱️', '').replace('⏱', '')
@@ -234,12 +236,25 @@ class TestTelegramSectionsComplete(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(any('⏱️' in m for m in missing))
 
-    def test_only_4_bullets_fails(self):
-        # Remove one 🔹
-        post = SAMPLE_ELON_POST.replace('🔹', '', 1)   # removes first occurrence
+    def test_four_bullets_passes(self):
+        """The prompt asks for exactly 4 bullets — 4 must be enough."""
+        post = SAMPLE_ELON_POST.replace('🔹', '', 1)   # removes first occurrence, leaves 4
+        ok, missing = self._check(post)
+        self.assertTrue(ok, f"4-bullet post should pass: {missing}")
+
+    def test_only_3_bullets_fails(self):
+        # Remove two 🔹 occurrences, leaving 3 — below the new minimum of 4.
+        post = SAMPLE_ELON_POST.replace('🔹', '', 2)
         ok, missing = self._check(post)
         self.assertFalse(ok)
         self.assertTrue(any('bullet' in m for m in missing))
+
+    def test_four_bullets_without_pushpin_passes(self):
+        """Owner ruling: prompt is the source of truth. A post with exactly 4
+        bullets and no 📌 audience line must be considered complete."""
+        post = SAMPLE_ELON_POST.replace('🔹', '', 1).replace('📌', '')
+        ok, missing = self._check(post)
+        self.assertTrue(ok, f"4-bullet post without 📌 should pass: {missing}")
 
     def test_missing_hashtags(self):
         post = '\n'.join(
