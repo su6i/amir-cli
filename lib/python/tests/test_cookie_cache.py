@@ -360,3 +360,73 @@ def test_gallery_dl_retries_with_cookies_when_jar_has_sessionid(tmp_path):
     assert calls_file.read_text().count("call") == 2
     assert "retrying with cookies" in out
     assert "rc=2" not in out
+
+
+_IG_CAROUSEL_JSON = (
+    '{"_type": "playlist", "id": "Dc6MT41mcAe", '
+    '"entries": [{"id": "A"}, {"id": "B"}, {"id": "C"}]}'
+)
+
+
+def test_classify_instagram_url_counts_carousel_entries_in_one_probe():
+    """The real yt-dlp -J shape for an Instagram carousel is a playlist dict
+    with an 'entries' array and NO top-level 'formats' key — classification
+    must count len(entries) from that same JSON, never probe a second time."""
+    out = run_bash(
+        f'source "{DOWNLOAD_SCRIPT}" && '
+        f"yt-dlp() {{ printf '%s' '{_IG_CAROUSEL_JSON}'; }}; "
+        '_classify_instagram_url "https://www.instagram.com/p/Dc6MT41mcAe/?img_index=3"'
+    )
+    assert out == "photo 3"
+
+
+def test_classify_instagram_url_reel_shortcut_skips_the_probe():
+    out = run_bash(
+        f'source "{DOWNLOAD_SCRIPT}" && '
+        'yt-dlp() { echo SHOULD_NOT_BE_CALLED >&2; exit 1; }; '
+        '_classify_instagram_url "https://www.instagram.com/reel/XYZ456/"'
+    )
+    assert out == "video 1"
+
+
+def test_download_instagram_reports_incomplete_carousel_and_skips_yt_dlp_fallback(tmp_path):
+    """gallery-dl reports success (rc=0) after fetching only 1 of a 3-item
+    carousel. The completeness check must catch this, print an explicit
+    item-count message, exit nonzero, and never fall back to yt-dlp (which
+    cannot fetch photos anyway)."""
+    env = os.environ.copy()
+    env["AMIR_COOKIE_CACHE_DIR"] = str(tmp_path / "cookies")
+    calls_file = tmp_path / "video_download_calls"
+    out = run_bash(
+        f'source "{DOWNLOAD_SCRIPT}" && '
+        f"yt-dlp() {{ printf '%s' '{_IG_CAROUSEL_JSON}'; }}; "
+        f'gallery-dl() {{ touch "{tmp_path}/item1.jpg"; return 0; }}; '
+        f'video_download() {{ echo call >> "{calls_file}"; return 1; }}; '
+        'ensure_mac_playable_video() { return 0; }; '
+        'log_info() { :; }; log_warning() { :; }; log_error() { echo "$1"; }; '
+        f'cd "{tmp_path}" && '
+        '_download_instagram jpg false "https://www.instagram.com/p/Dc6MT41mcAe/?img_index=3" 2>&1; '
+        'echo "rc=$?"',
+        env=env,
+    )
+    assert "1 of 3 items downloaded" in out
+    assert "rc=1" in out
+    assert not calls_file.exists()
+
+
+def test_download_instagram_returns_success_when_carousel_is_complete(tmp_path):
+    env = os.environ.copy()
+    env["AMIR_COOKIE_CACHE_DIR"] = str(tmp_path / "cookies")
+    out = run_bash(
+        f'source "{DOWNLOAD_SCRIPT}" && '
+        f"yt-dlp() {{ printf '%s' '{_IG_CAROUSEL_JSON}'; }}; "
+        f'gallery-dl() {{ touch "{tmp_path}/a.jpg" "{tmp_path}/b.jpg" "{tmp_path}/c.mp4"; return 0; }}; '
+        'ensure_mac_playable_video() { return 0; }; '
+        'log_info() { :; }; log_warning() { :; }; log_error() { echo "$1"; }; '
+        f'cd "{tmp_path}" && '
+        '_download_instagram jpg false "https://www.instagram.com/p/Dc6MT41mcAe/?img_index=3" 2>&1; '
+        'echo "rc=$?"',
+        env=env,
+    )
+    assert "items downloaded" not in out
+    assert "rc=0" in out

@@ -167,7 +167,7 @@ _classify_instagram_url() {
     url_lower=$(printf '%s' "$url" | tr '[:upper:]' '[:lower:]')
 
     if [[ "$url_lower" =~ /(reel|reels|tv)(/|\?|$) ]]; then
-        echo "video"
+        echo "video 1"
         return 0
     fi
 
@@ -175,22 +175,32 @@ _classify_instagram_url() {
     probe_json=$(yt-dlp --no-playlist "${cookie_args[@]}" -J "$url" 2>/dev/null)
 
     local has_video="no"
+    local item_count=1
     if [[ -n "$probe_json" ]]; then
-        has_video=$(echo "$probe_json" | python3 -c "
+        local probe_result
+        probe_result=$(echo "$probe_json" | python3 -c "
 import json,sys
 try:
     d=json.load(sys.stdin)
+    entries=d.get('entries')
+    count=len(entries) if isinstance(entries, list) else 1
     fmts=d.get('formats',[])
-    print('yes' if any(f.get('vcodec','none') not in ('none','') and f.get('height') for f in fmts) else 'no')
-except:
-    print('unknown')
+    has_video='yes' if any(f.get('vcodec','none') not in ('none','') and f.get('height') for f in fmts) else 'no'
+    print(f'{has_video} {count}')
+except Exception:
+    print('unknown 1')
 " 2>/dev/null)
+        if [[ -n "$probe_result" ]]; then
+            has_video="${probe_result%% *}"
+            item_count="${probe_result##* }"
+        fi
     fi
+    [[ "$item_count" =~ ^[0-9]+$ ]] || item_count=1
 
     if [[ "$has_video" == "yes" ]]; then
-        echo "video"
+        echo "video $item_count"
     else
-        echo "photo"
+        echo "photo $item_count"
     fi
 }
 
@@ -225,31 +235,64 @@ _download_instagram() {
 
     log_info "🔍 Probing Instagram URL..." >&2
 
-    local target_type
-    target_type=$(_classify_instagram_url "$URL" "${PROBE_COOKIE_ARGS[@]}")
+    local target_type item_count
+    read -r target_type item_count <<< "$(_classify_instagram_url "$URL" "${PROBE_COOKIE_ARGS[@]}")"
+    [[ "$item_count" =~ ^[0-9]+$ ]] || item_count=1
+
+    # Snapshot the output directory so a post's completeness can be judged by
+    # what actually landed on disk, not by any single tool's own exit code —
+    # yt-dlp fetches only the video item(s) of a multi-item carousel and still
+    # reports success, silently dropping the rest.
+    local _ig_out_dir _ig_before
+    _ig_out_dir=$(pwd -P 2>/dev/null || pwd)
+    _ig_before=$(mktemp)
+    find "$_ig_out_dir" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" -o -iname "*.mp4" -o -iname "*.mov" -o -iname "*.mkv" -o -iname "*.webm" \) 2>/dev/null > "$_ig_before"
+
+    local _ig_rc=0
+    local _ig_auth_only=false
 
     if [[ "$target_type" == "video" ]]; then
         log_info "🎬 Reel/video detected — using yt-dlp..." >&2
-        if video_download "${ARGS[@]}"; then
-            return 0
+        if ! video_download "${ARGS[@]}"; then
+            log_warning "yt-dlp failed — falling back to gallery-dl..." >&2
+            _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC" "$BROWSER_EXPLICIT"
+            _ig_rc=$?
+            [[ $_ig_rc -eq $_AMIR_IG_AUTH_REQUIRED ]] && _ig_auth_only=true
         fi
-        log_warning "yt-dlp failed — falling back to gallery-dl..." >&2
-        _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC" "$BROWSER_EXPLICIT"
     else
         log_info "📸 Photo/carousel post detected — using gallery-dl..." >&2
         _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC" "$BROWSER_EXPLICIT"
-        local _gdl_rc=$?
-        if [[ $_gdl_rc -eq 0 ]]; then
-            return 0
+        _ig_rc=$?
+        if [[ $_ig_rc -eq $_AMIR_IG_AUTH_REQUIRED ]]; then
+            _ig_auth_only=true
+        elif [[ $_ig_rc -ne 0 && "$item_count" -le 1 ]]; then
+            # yt-dlp cannot fetch photos at all, so a fallback is only worth
+            # trying when this post is a single video/reel gallery-dl missed —
+            # never for a multi-item carousel, which yt-dlp would just as
+            # surely leave incomplete (video items only) while still exiting 0.
+            log_warning "gallery-dl failed — falling back to yt-dlp..." >&2
+            video_download "${ARGS[@]}"
+            _ig_rc=$?
         fi
-        if [[ $_gdl_rc -eq $_AMIR_IG_AUTH_REQUIRED ]]; then
-            # Already printed the one explicit "not logged in" message — a
-            # yt-dlp fallback hits the same login wall and would only add noise.
-            return 1
-        fi
-        log_warning "gallery-dl failed — falling back to yt-dlp..." >&2
-        video_download "${ARGS[@]}"
     fi
+
+    if [[ "$_ig_auth_only" == true ]]; then
+        # _gallery_dl_download already printed the one explicit login message —
+        # a completeness warning on top of it would only add noise.
+        rm -f "$_ig_before"
+        return 1
+    fi
+
+    local _ig_new_count
+    _ig_new_count=$(find "$_ig_out_dir" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" -o -iname "*.mp4" -o -iname "*.mov" -o -iname "*.mkv" -o -iname "*.webm" \) 2>/dev/null | grep -vxFf "$_ig_before" | wc -l | tr -d ' ')
+    rm -f "$_ig_before"
+
+    if [[ "$item_count" -gt 1 && "$_ig_new_count" -lt "$item_count" ]]; then
+        log_error "⚠️  $_ig_new_count of $item_count items downloaded — the rest need a logged-in session (try --refresh-cookies)." >&2
+        return 1
+    fi
+
+    return "$_ig_rc"
 }
 
 # ── gallery-dl wrapper ─────────────────────────────────────────────────────────
