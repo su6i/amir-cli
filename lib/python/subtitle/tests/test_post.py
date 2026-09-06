@@ -160,6 +160,12 @@ class TestSrtDurationStr(unittest.TestCase):
 # ─────────────────────────────────────────────────────────────────────────────
 
 SAMPLE_ELON_POST = (
+    # The prompt makes these four intro lines mandatory (rule 12), so a sample
+    # post that is meant to pass validation has to carry them.
+    "🎙️ میزبان و کانال: لری فینک | مجمع جهانی اقتصاد\n"
+    "📊 دنبال‌کننده‌ها و سوابق میزبان: نامشخص | مدیرعامل بلک‌راک\n"
+    "👤 مهمان اصلی: ایلان ماسک\n"
+    "🏅 سوابق مهمان: بنیان‌گذار تسلا، اسپیس‌ایکس و xAI\n\n"
     "📽️ مصاحبه کامل ایلان ماسک در مجمع جهانی اقتصاد داووس ۲۰۲۶\n"
     "با زیرنویس فارسی و انگلیسی\n\n"
     "🔴 «می‌خوایم استارفلیت Star Trek رو واقعی بسازیم»\n\n"
@@ -450,6 +456,10 @@ class TestGetPostPromptDe(unittest.TestCase):
 # 6.  generate_posts — mock LLM full pipeline
 # ─────────────────────────────────────────────────────────────────────────────
 COMPLETE_MOCK_POST = (
+    "🎙️ میزبان و کانال: نامشخص | نامشخص\n"
+    "📊 دنبال‌کننده‌ها و سوابق میزبان: نامشخص\n"
+    "👤 مهمان اصلی: پیتر اشتاینبرگر\n"
+    "🏅 سوابق مهمان: توسعه‌دهنده متن‌باز\n\n"
     "📽️ گفت‌وگوی اختصاصی با پیتر اشتاینبرگر، توسعه‌دهنده هوش مصنوعی\n"
     "با زیرنویس فارسی و آلمانی\n\n"
     "🔴 «دستیار من می‌تواند به جای من پشت کامپیوتر بنشیند و کارهای واقعی انجام دهد»\n\n"
@@ -563,6 +573,12 @@ class TestGeneratePostsMockLLM(unittest.TestCase):
     def test_tail_truncation_retry_uses_append_message(self):
         """Tail-only truncation must send a 'continue/append' message, not a full rewrite."""
         incomplete_body = (
+            # Header lines present: what is missing is only the tail, which is
+            # what makes this a tail-truncation case rather than a bad post.
+            "🎙️ میزبان و کانال: نامشخص | نامشخص\n"
+            "📊 دنبال‌کننده‌ها و سوابق میزبان: نامشخص\n"
+            "👤 مهمان اصلی: پیتر اشتاینبرگر\n"
+            "🏅 سوابق مهمان: توسعه‌دهنده متن‌باز\n\n"
             "📽️ گفت‌وگو با توسعه‌دهنده هوش مصنوعی\n"
             "با زیرنویس فارسی و آلمانی\n\n"
             "🔴 «دستیار من می‌تواند کارهای واقعی انجام دهد»\n\n"

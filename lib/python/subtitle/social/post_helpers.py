@@ -1,6 +1,9 @@
 import re
 from typing import Optional, Tuple
 
+# Telegram caption limit; posts are attached to the rendered video.
+TELEGRAM_CAPTION_LIMIT = 1024
+
 try:
     from openai import OpenAI
     HAS_OPENAI = True
@@ -57,12 +60,18 @@ def sanitize_post(text: str, platform: str) -> str:
         text = re.sub(r"^-{3,}\s*\n?", "", text)
         text = re.sub(r"\n?-{3,}\s*$", "", text)
         text = text.strip()
-        if len(text) > 4096:
-            cut = text[:4096].rfind("\n")
-            if cut < 3000:
-                cut = text[:4096].rfind(" ")
-            text = text[: cut if cut > 2000 else 4096].rstrip()
-            text += "..." if len(text) < 4096 else ""
+        # Posts ship as a media caption, so Telegram's limit is 1024 characters,
+        # not the 4096 of a plain message -- the prompt asks for 850-950 and this
+        # is the backstop when the model overshoots anyway. Cut on the last line
+        # break inside the budget, fall back to the last space, and only chop
+        # mid-word when neither is close enough to the cap to be worth keeping.
+        if len(text) > TELEGRAM_CAPTION_LIMIT:
+            cap = TELEGRAM_CAPTION_LIMIT
+            cut = text[:cap].rfind("\n")
+            if cut < cap * 3 // 4:
+                cut = text[:cap].rfind(" ")
+            text = text[: cut if cut > cap // 2 else cap].rstrip()
+            text += "..." if len(text) < cap else ""
     return text
 
 

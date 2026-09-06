@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-09-06 — fix: the subtitle test suite is green again
+
+### Fixed
+
+- **Telegram posts are capped at 1024 characters, not 4096.** `sanitize_post` still
+  enforced the plain-message limit while the posts are attached to the rendered video as
+  a caption, where Telegram cuts at 1024 — the same number the prompt states as a hard
+  rule. The backstop now cuts on the last line break inside the budget, falls back to
+  the last space, and only chops mid-word when neither is near the cap.
+- **`run_rendering_stage` accepts `limit_start=None`.** `--limit` is optional and only
+  the full pipeline path normalises it to `0.0`; any other caller hit `TypeError:
+  unsupported operand type(s) for -: 'NoneType' and 'float'` on the ASS time offset.
+
+### Changed
+
+- **Test fixtures carry the four mandatory intro lines.** The sample and mock posts
+  predated the host/channel/guest header block that the prompt requires (rule 12) and
+  `telegram_sections_complete` checks, so they failed validation that real posts pass.
+
+### Known issue
+
+- The Telegram prompt asks for exactly 4 `🔹` bullets and never asks for the `📌`
+  audience line, while the validator demands 5 bullets and a `📌`. Every real post is
+  therefore judged incomplete once and costs a retry call. Fixing it changes the shape
+  of published posts, so it is left as an editorial decision.
+
+---
+
 ## 2026-09-06 — fix: `uv sync` no longer fails on Intel Macs
 
 ### Fixed
