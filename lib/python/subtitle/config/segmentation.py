@@ -59,8 +59,7 @@ class SegmentationConfig:
         """Manual YAML parser for simple config structure (no external dependency)."""
         config = {}
         current_section = None
-        current_subsection = None
-        
+
         for line in yaml_content.split('\n'):
             line = line.rstrip()
             
@@ -71,7 +70,6 @@ class SegmentationConfig:
             # Check for section (no leading spaces)
             if line and line[0] not in (' ', '\t'):
                 current_section = line.rstrip(':')
-                current_subsection = None
                 config[current_section] = {}
                 continue
             

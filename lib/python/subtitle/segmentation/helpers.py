@@ -191,7 +191,7 @@ def merge_orphan_segments(entries: List[Dict], hard_limit: int, min_words: int =
                         gap = parse_to_sec_fn(entry["start"]) - parse_to_sec_fn(prev["end"])
                         if gap > 0.5:  # Allow slightly larger gaps
                             gap_safe = False
-                    except:
+                    except Exception:
                         pass
                 
                 if gap_safe:
@@ -214,7 +214,7 @@ def merge_orphan_segments(entries: List[Dict], hard_limit: int, min_words: int =
                         gap = parse_to_sec_fn(nxt["start"]) - parse_to_sec_fn(entry["end"])
                         if gap > 0.5:
                             gap_safe = False
-                    except:
+                    except Exception:
                         pass
 
                 if gap_safe:

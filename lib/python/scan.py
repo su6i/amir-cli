@@ -101,7 +101,7 @@ def main():
                 break
     
     if not os.path.exists(smart_crop):
-        print(f"❌ Error: Cannot find smart_crop script!")
+        print("❌ Error: Cannot find smart_crop script!")
         print(f"   Looked in: {script_dir}")
         sys.exit(1)
     

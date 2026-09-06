@@ -16,10 +16,10 @@ def validate_imports():
     print("\n✓ Checking pipeline imports...")
     try:
         from subtitle.translation import (
-            run_deepseek_translation_pipeline,
-            run_gemini_translation_pipeline,
-            run_litellm_translation_pipeline,
-            run_minimax_translation_pipeline,
+            run_deepseek_translation_pipeline,  # noqa: F401 -- successful import is the assertion
+            run_gemini_translation_pipeline,  # noqa: F401 -- successful import is the assertion
+            run_litellm_translation_pipeline,  # noqa: F401 -- successful import is the assertion
+            run_minimax_translation_pipeline,  # noqa: F401 -- successful import is the assertion
         )
         print("  ✅ All pipeline functions imported successfully")
         return True
@@ -114,7 +114,7 @@ def validate_method_delegation():
         
         if pipeline_name in source:
             # Count lines - should be thin (< 20 lines)
-            lines = len([l for l in source.split('\n') if l.strip()])
+            lines = len([line for line in source.split('\n') if line.strip()])
             if lines < 20:
                 print(f"  ✅ {method_name:30} delegates to {pipeline_name}")
             else:

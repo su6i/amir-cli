@@ -18,7 +18,6 @@ import time
 from tqdm import tqdm
 
 from . import (
-    build_contextual_batch_text, 
     write_partial_translation_srt,
     filter_gemini_generation_models,
     rank_gemini_model_name

@@ -79,7 +79,7 @@ def render_markdown(input_path, output_path, font_path, fallback_path):
         font_fa_p = ImageFont.truetype(font_path, 45)
         font_en_h1 = ImageFont.truetype(fallback_path, 80)
         font_en_p = ImageFont.truetype(fallback_path, 45)
-    except:
+    except Exception:
         font_fa_h1 = font_fa_p = font_en_h1 = font_en_p = ImageFont.load_default()
 
     with open(input_path, 'r', encoding='utf-8') as f:
@@ -123,5 +123,6 @@ def render_markdown(input_path, output_path, font_path, fallback_path):
     pm.save_all()
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3: sys.exit(1)
+    if len(sys.argv) < 3:
+        sys.exit(1)
     render_markdown(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv)>3 else "/Library/Fonts/B-NAZANIN.TTF", sys.argv[4] if len(sys.argv)>4 else "/System/Library/Fonts/Supplemental/Times New Roman.ttf")

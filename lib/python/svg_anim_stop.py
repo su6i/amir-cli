@@ -1,5 +1,4 @@
 import sys
-import os
 
 def inject_stop_css(input_path, output_path):
     with open(input_path, 'r', encoding='utf-8') as f:

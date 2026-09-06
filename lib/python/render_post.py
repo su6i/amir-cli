@@ -11,7 +11,10 @@ Usage:  render_post.py <folder> <fonts_dir>
 The macOS RTL/Persian font handling here is non-obvious — see
 .agent/constitution/skills/weasyprint-rtl-persian-pdf.md before changing it.
 """
-import os, re, sys, tempfile
+import os
+import re
+import sys
+import tempfile
 from pathlib import Path
 
 FOLDER = Path(sys.argv[1]).resolve()
@@ -30,9 +33,9 @@ _fc.write_text(f'''<?xml version="1.0"?>
 </fontconfig>''')
 os.environ["FONTCONFIG_FILE"] = str(_fc)
 
-import markdown
-import yaml
-from weasyprint import HTML
+import markdown  # noqa: E402 -- must load after FONTCONFIG_FILE is set above
+import yaml  # noqa: E402 -- must load after FONTCONFIG_FILE is set above
+from weasyprint import HTML  # noqa: E402 -- must load after FONTCONFIG_FILE is set above
 
 META = yaml.safe_load((FOLDER / "post.yml").read_text(encoding="utf-8"))
 COVER    = META.get("cover", {})

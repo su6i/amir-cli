@@ -303,6 +303,23 @@ Full PhD and job application tracker with SQLite backend, web UI, and Gmail sync
 | `amir update [opts]` | Single maintenance command: pulls this repo (only on the default branch with a clean tree — skips the pull and warns otherwise), runs `uv sync` (never `uv lock --upgrade`, so `uv.lock` is never touched by this command), upgrades the `uv tool` copies of `yt-dlp` `gallery-dl` `mlx-whisper` `static-ffmpeg` `gdown` `openai-whisper` (`yt-dlp` via `uv tool upgrade` so its `yt-dlp-get-pot-rustypipe` plugin is preserved), and runs `npm install` for `lib/nodejs` if present. Never runs `git push`, `git merge`, or `git commit`. `--check` is fully read-only: it prints the version table and what each step would do, including whether the pull would be skipped and why. `--brew` additionally upgrades the Homebrew formulae amir uses. `--all-tools` upgrades every installed `uv tool` instead of just amir's own list. `--no-git` skips the repo pull step. |
 
 
+## 🧪 Development
+
+```bash
+# Run the Python test suite
+uv run pytest -q
+
+# Lint the codebase (must print "All checks passed!" before every commit)
+uv run ruff check .
+```
+
+`ruff` is a dev-only dependency (`[dependency-groups] dev` in `pyproject.toml`) —
+it never ships to end users. `[tool.ruff]` in `pyproject.toml` excludes
+`.claude`, `.venv`, and `node_modules` so `ruff check .` from the repo root
+doesn't recurse into git worktrees or vendored packages, and pins
+`select = ["E4", "E7", "E9", "F"]` (pycodestyle errors/syntax-errors +
+pyflakes) rather than ruff's much larger current default rule set.
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please check the issues page or submit a Pull Request.

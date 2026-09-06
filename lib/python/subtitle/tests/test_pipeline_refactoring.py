@@ -5,8 +5,7 @@ can be called with correct signatures and don't break existing workflows.
 """
 
 import unittest
-from unittest.mock import Mock, patch, MagicMock
-from typing import List, Dict, Optional
+from unittest.mock import Mock
 
 
 class TestTranslationPipelineIntegration(unittest.TestCase):
@@ -45,10 +44,10 @@ class TestTranslationPipelineIntegration(unittest.TestCase):
         """Verify all pipeline functions can be imported"""
         try:
             from subtitle.translation import (
-                run_deepseek_translation_pipeline,
-                run_gemini_translation_pipeline,
-                run_litellm_translation_pipeline,
-                run_minimax_translation_pipeline,
+                run_deepseek_translation_pipeline,  # noqa: F401 -- successful import is the assertion
+                run_gemini_translation_pipeline,  # noqa: F401 -- successful import is the assertion
+                run_litellm_translation_pipeline,  # noqa: F401 -- successful import is the assertion
+                run_minimax_translation_pipeline,  # noqa: F401 -- successful import is the assertion
             )
         except ImportError as e:
             self.fail(f"Pipeline imports failed: {e}")
@@ -163,10 +162,12 @@ class TestTranslationPipelineIntegration(unittest.TestCase):
         from subtitle.processor import SubtitleProcessor
         import inspect
         
-        processor = SubtitleProcessor.__init__.__self__ if hasattr(
+        # Constructing a processor must not raise (implicit smoke check);
+        # only the class-level source below is actually inspected.
+        SubtitleProcessor.__init__.__self__ if hasattr(
             SubtitleProcessor.__init__, '__self__'
         ) else SubtitleProcessor()
-        
+
         # Check that translate_with_deepseek roughly delegates
         source = inspect.getsource(SubtitleProcessor.translate_with_deepseek)
         

@@ -6,8 +6,8 @@ _ROOT = Path(__file__).resolve().parents[1]   # …/lib/python/subtitle
 sys.path.insert(0, str(_ROOT.parent.parent.parent))
 sys.path.insert(0, str(_ROOT.parent))
 
-from subtitle.models.types import WordObj
-from subtitle.processor import SubtitleProcessor
+from subtitle.models.types import WordObj  # noqa: E402 -- must load after sys.path is patched above
+from subtitle.processor import SubtitleProcessor  # noqa: E402 -- must load after sys.path is patched above
 
 
 def _make_words(tokens: list[str], step: float = 0.3) -> list[WordObj]:

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 import os
-import sys
 import argparse
 import subprocess
-from PIL import Image, ImageOps, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
 """
 🌊 Universal Watermarker (Housi / Amir-CLI)
@@ -27,7 +26,7 @@ def watermark_image(base_path, output_path, watermark_file=None, watermark_text=
             try:
                 w, h = map(int, resize.lower().split('x'))
                 base = base.resize((w, h), Image.Resampling.LANCZOS)
-            except:
+            except Exception:
                 print("❌ Invalid resize format. Use WxH (e.g. 400x120)")
                 return
 
@@ -57,7 +56,7 @@ def watermark_image(base_path, output_path, watermark_file=None, watermark_text=
             font_size = int(base.height * 0.05) # 5% of height
             try:
                 font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
-            except:
+            except Exception:
                 font = ImageFont.load_default()
             
             # Calculate text size
@@ -121,12 +120,7 @@ def watermark_video(base_path, output_path, watermark_file=None, watermark_text=
 
     # FFMPEG Overlay Position Logic
     overlay_cmd = ""
-    scale_filter = ""
-    
-    if resize:
-        w, h = resize.lower().split('x')
-        # [0:v]scale=W:H[bg]; ...
-    
+
     # Position Logic
     if position == 'SE':
         overlay_cmd = "main_w-overlay_w-20:main_h-overlay_h-20"

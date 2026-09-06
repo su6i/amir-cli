@@ -145,8 +145,8 @@ def get_post_prompt(
         }
         return fa_names.get(code, get_language_config(code).name)
 
-    subs_line_fa = "با زیرنویس " + " و ".join(lang_name_fa(l) for l in all_langs)
-    subs_line_en = "With " + " & ".join(get_language_config(l).name for l in all_langs) + " subtitles"
+    subs_line_fa = "با زیرنویس " + " و ".join(lang_name_fa(line) for line in all_langs)
+    subs_line_en = "With " + " & ".join(get_language_config(line).name for line in all_langs) + " subtitles"
     dur = duration if duration else "(از تایم‌استمپ محاسبه کن)"
     dur_en = duration if duration else "(calculate from SRT)"
     src_lang_fa = lang_name_fa(source_lang) if source_lang else ""
@@ -225,7 +225,7 @@ def get_post_prompt(
                     f"عنوان اصلی: {title}\n"
                     f"مدت: {dur}\n"
                     + (f"{src_info_fa}\n" if src_info_fa else "")
-                    + f"زبان‌های زیرنویس: {', '.join(lang_name_fa(l) for l in all_langs)}\n\n"
+                    + f"زبان‌های زیرنویس: {', '.join(lang_name_fa(line) for line in all_langs)}\n\n"
                     f"محتوای زیرنویس:\n{full_text}"
                 )
             else:
@@ -248,7 +248,7 @@ def get_post_prompt(
                 f"عنوان اصلی: {title}\n"
                 f"مدت: {dur}\n"
                 + (f"{src_info_fa}\n" if src_info_fa else "")
-                + f"زبان‌های زیرنویس: {', '.join(lang_name_fa(l) for l in all_langs)}\n\n"
+                + f"زبان‌های زیرنویس: {', '.join(lang_name_fa(line) for line in all_langs)}\n\n"
                 f"محتوای زیرنویس:\n{full_text}\n\n"
                 f"⛔ قوانین اجباری — تخطی از اینها مجاز نیست:\n"
                 f"① همه بخش‌های قالب را بنویس: 🔴 + پاراگراف + 🚨 (۴ بخش 🔹) + ✨ + ⏱️ + هشتگ‌ها\n"

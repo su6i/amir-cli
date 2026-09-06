@@ -1,6 +1,6 @@
 """Unit tests for subtitle.workflow.base module"""
 import unittest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock
 from pathlib import Path
 import tempfile
 import os

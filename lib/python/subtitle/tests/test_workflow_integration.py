@@ -1,6 +1,6 @@
 """Integration tests for complete workflow orchestration"""
 import unittest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock
 from pathlib import Path
 import tempfile
 import os
@@ -43,7 +43,6 @@ class TestWorkflowOrchestration(unittest.TestCase):
             prepare_source_srt,
             run_translation_stage,
         )
-        from subtitle.translation import validate_and_retry_translations
         
         # Create test video
         video_path = os.path.join(self.temp_dir, "test.mp4")

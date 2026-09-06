@@ -7,10 +7,7 @@ PDF rendering delegates to `amir pdf` (Puppeteer engine).
 import os
 import re
 import subprocess
-import shutil
-from pathlib import Path
 from typing import List, Dict, Optional
-from dataclasses import dataclass
 
 # Language metadata for document headers and RTL detection
 LANG_META = {
@@ -180,8 +177,6 @@ def srt_to_plain_text(srt_path: str) -> str:
 
 def export_txt(text: str, output_path: str, lang: str) -> bool:
     """Export as plain text file."""
-    meta = _get_lang_meta(lang)
-    
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(text)
     
