@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-09-06 — fix: the subtitle test suite is green again
+
+### Fixed
+
+- **Telegram posts are capped at 1024 characters, not 4096.** `sanitize_post` still
+  enforced the plain-message limit while the posts are attached to the rendered video as
+  a caption, where Telegram cuts at 1024 — the same number the prompt states as a hard
+  rule. The backstop now cuts on the last line break inside the budget, falls back to
+  the last space, and only chops mid-word when neither is near the cap.
+- **`run_rendering_stage` accepts `limit_start=None`.** `--limit` is optional and only
+  the full pipeline path normalises it to `0.0`; any other caller hit `TypeError:
+  unsupported operand type(s) for -: 'NoneType' and 'float'` on the ASS time offset.
+
+### Changed
+
+- **Test fixtures carry the four mandatory intro lines.** The sample and mock posts
+  predated the host/channel/guest header block that the prompt requires (rule 12) and
+  `telegram_sections_complete` checks, so they failed validation that real posts pass.
+
+### Known issue
+
+- The Telegram prompt asks for exactly 4 `🔹` bullets and never asks for the `📌`
+  audience line, while the validator demands 5 bullets and a `📌`. Every real post is
+  therefore judged incomplete once and costs a retry call. Fixing it changes the shape
+  of published posts, so it is left as an editorial decision.
+
+---
+
+## 2026-09-06 — fix: `uv sync` no longer fails on Intel Macs
+
+### Fixed
+
+- **Dependencies now resolve on macOS x86_64.** Every `amir` run on an Intel Mac ended
+  in `error: Distribution onnxruntime==1.24.2 ... doesn't have a source distribution or
+  wheel for the current platform`, so the dependency sync never completed and `amir
+  update` reported a failure each time. The cause is upstream: `onnxruntime` published
+  its last macOS x86_64 wheel in 1.23.2 and `torch` in 2.2.2. `onnxruntime` is therefore
+  pinned to `>=1.23.2,<1.24` on that platform, and `torch`, `accelerate` and
+  `pyannote-audio` are skipped there.
+- **Subtitles keep working on Intel Macs.** `faster-whisper` stays a hard dependency
+  everywhere: it runs on CTranslate2, which does ship macOS x86_64 wheels, and every
+  `import torch` in `processor.py` already sits inside `try/except`. An Intel Mac
+  installs 28 additional packages including `ctranslate2` and `onnxruntime==1.23.2`, and
+  transcribes on CPU. Only the optional torch-backed extras (BERT phrase scoring, CUDA
+  paths, diarization) drop out. Apple Silicon and Linux resolve unchanged — 190
+  packages, same versions.
+
+---
+
 ## 2026-09-06 — feat: browser cookies are cached instead of re-read on every download
 
 ### Added

@@ -15,7 +15,7 @@ def run_rendering_stage(
     original_base: str,
     current_video_input: str,
     force: bool,
-    limit_start: float,
+    limit_start: Optional[float],
     video_width: int,
     video_height: int,
     render_resolution: Optional[int],
@@ -42,6 +42,11 @@ def run_rendering_stage(
     guest_tag_pos: str = "br",
 ) -> bool:
     """Run ASS creation and final video rendering stage. Returns False on hard failure."""
+    # `--limit` is optional, and the runtime context normalises it to 0.0 only on
+    # the full pipeline path; callers that skip that step (and every direct
+    # caller in the tests) hand over None, which used to blow up on the
+    # `limit_start - subtitle_shift` offset below.
+    limit_start = limit_start or 0.0
     processor.logger.info("Rendering sequence initiated.")
     emit_progress(80, "🎬 Rendering ASS subtitles...")
 

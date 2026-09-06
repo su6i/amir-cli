@@ -59,6 +59,12 @@ Amir CLI uses **Python 3** for helper tasks (like data formatting and subtitle p
   - `bc` (for calculations)
   - `qrencode`, `uv` and other system tools (the installer attempts to install them automatically where possible)
     
+- **Intel Macs:** `torch` published its last macOS x86_64 wheel in 2.2.2 and
+  `onnxruntime` in 1.23.2, so on an Intel Mac `onnxruntime` is held at 1.23.x and
+  `torch`, `accelerate` and `pyannote-audio` are skipped entirely. Subtitles still work:
+  `amir subtitle` transcribes through faster-whisper, whose CTranslate2 engine does ship
+  Intel wheels — on CPU, so slower than MLX on Apple Silicon. Only the optional
+  torch-backed extras (BERT phrase scoring, GPU paths) are unavailable there.
 - **uv-first execution:** Where possible, `amir` and its subcommands use `uv` to manage and run Python dependencies (`uv run`).
 - **ExFAT & Storage Robustness:** `amir` automatically handles storage on ExFAT drives (like SanDisk) by bypassing file-locking limitations and redirecting temporary data to external volumes when internal space is low.
  
