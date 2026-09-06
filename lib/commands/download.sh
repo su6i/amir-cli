@@ -12,6 +12,13 @@ if [[ -z "${_AMIR_COOKIE_CACHE_LOADED:-}" ]]; then
     unset _amir_cookie_cache_sh
 fi
 
+# Sentinel exit code from _gallery_dl_download(): the Instagram cookie jar has
+# no sessionid, so any further retry (with cookies, or falling back to
+# yt-dlp) would hit the exact same login wall. _download_instagram() checks
+# for this specific code to stop after the one explicit message instead of
+# also trying yt-dlp and adding more noise.
+_AMIR_IG_AUTH_REQUIRED=2
+
 run_download() {
     source "$LIB_DIR/commands/video.sh"
     source "$LIB_DIR/commands/download_course_site.sh"
@@ -33,6 +40,14 @@ run_download() {
                 # which does not forward arbitrary args to the gallery-dl binary.
                 KEEP_SOURCE_CODEC=true
                 PASSTHROUGH+=("$1"); shift ;;
+            --refresh-cookies)
+                # Consumed here only — yt-dlp/gallery-dl do not understand this
+                # flag, so it must never reach PASSTHROUGH. video.sh's own
+                # parser (line ~2984) does the same for the `amir video
+                # download` entry point; this file has no direct dependency on
+                # that one and must keep working standalone.
+                export AMIR_REFRESH_COOKIES=1
+                shift ;;
             *)
                 [[ "$1" =~ ^https?:// && -z "$URL" ]] && URL="$1"
                 PASSTHROUGH+=("$1"); shift ;;
@@ -152,7 +167,7 @@ _classify_instagram_url() {
     url_lower=$(printf '%s' "$url" | tr '[:upper:]' '[:lower:]')
 
     if [[ "$url_lower" =~ /(reel|reels|tv)(/|\?|$) ]]; then
-        echo "video"
+        echo "video 1"
         return 0
     fi
 
@@ -160,22 +175,32 @@ _classify_instagram_url() {
     probe_json=$(yt-dlp --no-playlist "${cookie_args[@]}" -J "$url" 2>/dev/null)
 
     local has_video="no"
+    local item_count=1
     if [[ -n "$probe_json" ]]; then
-        has_video=$(echo "$probe_json" | python3 -c "
+        local probe_result
+        probe_result=$(echo "$probe_json" | python3 -c "
 import json,sys
 try:
     d=json.load(sys.stdin)
+    entries=d.get('entries')
+    count=len(entries) if isinstance(entries, list) else 1
     fmts=d.get('formats',[])
-    print('yes' if any(f.get('vcodec','none') not in ('none','') and f.get('height') for f in fmts) else 'no')
-except:
-    print('unknown')
+    has_video='yes' if any(f.get('vcodec','none') not in ('none','') and f.get('height') for f in fmts) else 'no'
+    print(f'{has_video} {count}')
+except Exception:
+    print('unknown 1')
 " 2>/dev/null)
+        if [[ -n "$probe_result" ]]; then
+            has_video="${probe_result%% *}"
+            item_count="${probe_result##* }"
+        fi
     fi
+    [[ "$item_count" =~ ^[0-9]+$ ]] || item_count=1
 
     if [[ "$has_video" == "yes" ]]; then
-        echo "video"
+        echo "video $item_count"
     else
-        echo "photo"
+        echo "photo $item_count"
     fi
 }
 
@@ -210,24 +235,64 @@ _download_instagram() {
 
     log_info "🔍 Probing Instagram URL..." >&2
 
-    local target_type
-    target_type=$(_classify_instagram_url "$URL" "${PROBE_COOKIE_ARGS[@]}")
+    local target_type item_count
+    read -r target_type item_count <<< "$(_classify_instagram_url "$URL" "${PROBE_COOKIE_ARGS[@]}")"
+    [[ "$item_count" =~ ^[0-9]+$ ]] || item_count=1
+
+    # Snapshot the output directory so a post's completeness can be judged by
+    # what actually landed on disk, not by any single tool's own exit code —
+    # yt-dlp fetches only the video item(s) of a multi-item carousel and still
+    # reports success, silently dropping the rest.
+    local _ig_out_dir _ig_before
+    _ig_out_dir=$(pwd -P 2>/dev/null || pwd)
+    _ig_before=$(mktemp)
+    find "$_ig_out_dir" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" -o -iname "*.mp4" -o -iname "*.mov" -o -iname "*.mkv" -o -iname "*.webm" \) 2>/dev/null > "$_ig_before"
+
+    local _ig_rc=0
+    local _ig_auth_only=false
 
     if [[ "$target_type" == "video" ]]; then
         log_info "🎬 Reel/video detected — using yt-dlp..." >&2
-        if video_download "${ARGS[@]}"; then
-            return 0
+        if ! video_download "${ARGS[@]}"; then
+            log_warning "yt-dlp failed — falling back to gallery-dl..." >&2
+            _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC" "$BROWSER_EXPLICIT"
+            _ig_rc=$?
+            [[ $_ig_rc -eq $_AMIR_IG_AUTH_REQUIRED ]] && _ig_auth_only=true
         fi
-        log_warning "yt-dlp failed — falling back to gallery-dl..." >&2
-        _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC" "$BROWSER_EXPLICIT"
     else
         log_info "📸 Photo/carousel post detected — using gallery-dl..." >&2
-        if _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC" "$BROWSER_EXPLICIT"; then
-            return 0
+        _gallery_dl_download "$URL" "$(pwd)" "$BROWSER" "$COOKIES_FILE" "$IMG_FORMAT" "$KEEP_SOURCE_CODEC" "$BROWSER_EXPLICIT"
+        _ig_rc=$?
+        if [[ $_ig_rc -eq $_AMIR_IG_AUTH_REQUIRED ]]; then
+            _ig_auth_only=true
+        elif [[ $_ig_rc -ne 0 && "$item_count" -le 1 ]]; then
+            # yt-dlp cannot fetch photos at all, so a fallback is only worth
+            # trying when this post is a single video/reel gallery-dl missed —
+            # never for a multi-item carousel, which yt-dlp would just as
+            # surely leave incomplete (video items only) while still exiting 0.
+            log_warning "gallery-dl failed — falling back to yt-dlp..." >&2
+            video_download "${ARGS[@]}"
+            _ig_rc=$?
         fi
-        log_warning "gallery-dl failed — falling back to yt-dlp..." >&2
-        video_download "${ARGS[@]}"
     fi
+
+    if [[ "$_ig_auth_only" == true ]]; then
+        # _gallery_dl_download already printed the one explicit login message —
+        # a completeness warning on top of it would only add noise.
+        rm -f "$_ig_before"
+        return 1
+    fi
+
+    local _ig_new_count
+    _ig_new_count=$(find "$_ig_out_dir" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" -o -iname "*.mp4" -o -iname "*.mov" -o -iname "*.mkv" -o -iname "*.webm" \) 2>/dev/null | grep -vxFf "$_ig_before" | wc -l | tr -d ' ')
+    rm -f "$_ig_before"
+
+    if [[ "$item_count" -gt 1 && "$_ig_new_count" -lt "$item_count" ]]; then
+        log_error "⚠️  $_ig_new_count of $item_count items downloaded — the rest need a logged-in session (try --refresh-cookies)." >&2
+        return 1
+    fi
+
+    return "$_ig_rc"
 }
 
 # ── gallery-dl wrapper ─────────────────────────────────────────────────────────
@@ -287,7 +352,29 @@ _gallery_dl_download() {
         _cookie_args_from_browser "$BROWSER" "$URL"
         RETRY_COOKIE_ARGS=("${BROWSER_COOKIE_ARGS[@]}")
     fi
+
     if [[ $rc -ne 0 && ${#RETRY_COOKIE_ARGS[@]} -gt 0 ]]; then
+        # A retry with a cookie jar that carries no `sessionid` is not really a
+        # retry: it identifies the same anonymous device and fails the exact
+        # same way, just louder (gallery-dl's own multi-line error output on
+        # top of ours). Skip it and say the one thing that actually helps.
+        local _retry_jar="" _has_session=true
+        if [[ "${RETRY_COOKIE_ARGS[0]:-}" == "--cookies" ]]; then
+            _retry_jar="${RETRY_COOKIE_ARGS[1]:-}"
+            _cookie_jar_has_cookie "$_retry_jar" sessionid || _has_session=false
+        elif [[ "${RETRY_COOKIE_ARGS[0]:-}" == "--cookies-from-browser" ]]; then
+            # Extraction above found no usable jar at all — no cookies means
+            # no session either.
+            _has_session=false
+        fi
+
+        if [[ "$_has_session" == false ]]; then
+            log_error "❌ Instagram: not logged in — sign into Chrome (Default profile), then:" >&2
+            log_error "   amir download --refresh-cookies '$URL'" >&2
+            rm -f "$_snapshot" "$_video_snapshot"
+            return "$_AMIR_IG_AUTH_REQUIRED"
+        fi
+
         log_info "↻ Anonymous attempt failed — retrying with cookies (${RETRY_COOKIE_ARGS[1]})..." >&2
         gallery-dl \
             "${RETRY_COOKIE_ARGS[@]}" \
@@ -376,6 +463,9 @@ TikTok, Twitter/X, Vimeo, and 1000+ other sites.
   wall and a rate-limit on that id — strictly worse than sending nothing.
   Cookies you ask for explicitly (--cookies / --browser <name>) are used on the
   first attempt. --browser none, or AMIR_NO_COOKIES=1, forces full anonymity.
+  For Instagram specifically: if the cached jar has no `sessionid`, amir prints
+  one explicit "not logged in" message and stops — it will not retry with the
+  same useless cookies or fall back to yt-dlp and add more noise.
 
   Cookie cache: reading cookies out of a browser decrypts the whole profile
   through the system keychain, so the jar for the site being downloaded is kept

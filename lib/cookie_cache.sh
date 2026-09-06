@@ -93,6 +93,21 @@ _cookie_jar_has_live_cookie() {
     ' "$file"
 }
 
+# _cookie_jar_has_cookie FILE NAME — true when FILE holds a live (non-expired)
+# cookie with exactly this name. Narrower than _cookie_jar_has_live_cookie
+# above: not "is there any live cookie" but "is there this specific one" —
+# e.g. Instagram's `sessionid`, whose absence means the jar identifies a
+# device but not a logged-in account.
+_cookie_jar_has_cookie() {
+    local file="$1" name="$2"
+    [[ -s "$file" ]] || return 1
+    awk -v now="$(date +%s)" -v want="$name" -F'\t' '
+        /^#[[:space:]]/ { next }
+        NF >= 7 && $6 == want { if ($5 + 0 == 0 || $5 + 0 > now) { found = 1; exit } }
+        END { exit(found ? 0 : 1) }
+    ' "$file"
+}
+
 # _cookie_jar_is_fresh FILE TTL — true when FILE was written less than TTL
 # seconds ago. A TTL of 0 disables the cache.
 _cookie_jar_is_fresh() {

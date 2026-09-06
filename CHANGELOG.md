@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Instagram downloads with no logged-in session print one explicit message and stop.**
+  When an Instagram post requires authentication and the cached cookie jar has
+  no `sessionid`, `gallery-dl` skips retrying with useless device-only cookies and
+  stops immediately with one clear error, skipping the yt-dlp fallback rather than
+  dumping noisy technical errors.
+- **`amir download --refresh-cookies` works for Instagram/gallery-dl downloads.**
+  `run_download()` now parses `--refresh-cookies` directly and exports
+  `AMIR_REFRESH_COOKIES=1`, so Instagram photo/carousel downloads force a cookie
+  cache refresh rather than silently ignoring the flag (not just the yt-dlp path).
+- **Instagram carousel downloads are verified complete against the post's item count.**
+  The actual number of downloaded files is compared against the post's real item
+  count from the existing classification probe (no extra network call). An
+  incomplete result now prints one explicit "N of M items downloaded" message and
+  exits nonzero instead of silently reporting success after yt-dlp fetched only
+  the video item(s) of a multi-item carousel.
 - **Telegram posts are capped at 1024 characters, not 4096.** `sanitize_post` still
   enforced the plain-message limit while the posts are attached to the rendered video as
   a caption, where Telegram cuts at 1024 — the same number the prompt states as a hard
