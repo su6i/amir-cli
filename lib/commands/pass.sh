@@ -1,6 +1,14 @@
 #!/bin/bash
 
+_pass_usage() {
+    echo "Usage: amir pass [length]"
+}
+
 run_pass() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _pass_usage
+        return 0
+    fi
     pass() {
         # Source Config
         local SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

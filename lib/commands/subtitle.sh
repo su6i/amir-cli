@@ -71,7 +71,14 @@ _subtitle_run() {
         "$_PYTHON" -m subtitle "$@"
 }
 
+_subtitle_usage() { echo "Usage: amir subtitle <file_or_url> [options]"; }
+
 run_subtitle() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _subtitle_usage
+        return 0
+    fi
+
     # Translate --sub-only (public flag) to --no-render (internal Python flag)
     local -a _args_tr=()
     for _a in "$@"; do

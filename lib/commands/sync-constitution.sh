@@ -1,6 +1,12 @@
 #!/bin/bash
 
+_sync_constitution_usage() { echo "Usage: amir sync-constitution [target_dir]"; }
+
 run_sync_constitution() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _sync_constitution_usage
+        return 0
+    fi
 
     local CONSTITUTION_PATH=".agent/constitution"
 
@@ -20,6 +26,25 @@ run_sync_constitution() {
     echo "🔄 amir sync-constitution"
     echo "   Target : $TARGET_DIR"
     echo ""
+
+    # ── 1b. Symlink path (preferred) ────────────────────────────────────────
+    if [[ -L "$CONSTITUTION_PATH" ]]; then
+        local link_target
+        link_target="$(cd "$(dirname "$CONSTITUTION_PATH")" && cd "$(readlink "$CONSTITUTION_PATH")" 2>/dev/null && pwd)"
+        if [[ -n "$link_target" && -d "$link_target/.git" ]]; then
+            echo "📦 Pulling central constitution clone ($link_target)..."
+            git -C "$link_target" pull --ff-only && \
+                echo "   ✅ Constitution updated to latest" || \
+                echo "   ❌ Pull failed — check network/auth"
+            local ref
+            ref="$(git -C "$link_target" describe --tags --always 2>/dev/null || echo 'unknown')"
+            echo "   Version: $ref"
+            echo ""
+            return 0
+        else
+            echo "⚠️  $CONSTITUTION_PATH is a symlink but its target is not a git repo ($link_target) — falling through"
+        fi
+    fi
 
     # ── 2. Submodule path (preferred) ─────────────────────────────────────────
     if [[ -f ".gitmodules" ]] && grep -qF "$CONSTITUTION_PATH" ".gitmodules" 2>/dev/null; then

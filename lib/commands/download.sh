@@ -20,6 +20,11 @@ fi
 _AMIR_IG_AUTH_REQUIRED=2
 
 run_download() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _download_help
+        return 0
+    fi
+
     source "$LIB_DIR/commands/video.sh"
     source "$LIB_DIR/commands/download_course_site.sh"
 

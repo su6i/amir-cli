@@ -4,6 +4,10 @@
 _JOB_SEARCH_DIR="${JOB_SEARCH_DIR:-$HOME/@-Amir/Apply/2026-2027/Job-Search}"
 
 run_job() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _job_usage
+        return 0
+    fi
     if [[ -z "$1" || "$1" == --* ]]; then
         _job_python status.py --pending-only "$@"
         return $?

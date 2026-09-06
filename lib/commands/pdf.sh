@@ -437,6 +437,13 @@ run_pdf_split() {
     done
 }
 
+if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+    echo "Usage: amir pdf <file> [opts]              → render Markdown/PDF/etc"
+    echo "       amir pdf linkedin-post <folder> [carousel | guide [fr en fa tri]]"
+    echo "       amir pdf split <file.pdf> --pages <spec> [--combined] [-o output]"
+    exit 0
+fi
+
 if [[ "$1" == "linkedin-post" ]]; then
     run_pdf_linkedin_post "${@:2}"
 elif [[ "$1" == "split" ]]; then

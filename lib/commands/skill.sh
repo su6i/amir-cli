@@ -6,7 +6,14 @@ SKILL_DIR="${AMIR_ROOT:+${AMIR_ROOT}/.agent/skills}"
 [[ -z "$SKILL_DIR" ]] && SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.agent/skills" 2>/dev/null && pwd)"
 [[ -z "$SKILL_DIR" || ! -d "$SKILL_DIR" ]] && SKILL_DIR="$HOME/@-github/amir-cli/.agent/skills"
 
+_skill_usage() { echo "Usage: amir skill <subcommand> [options]"; }
+
 run_skill() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _skill_usage
+        return 0
+    fi
+
     local subcmd="${1:-help}"
     shift 2>/dev/null
 

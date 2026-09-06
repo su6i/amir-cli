@@ -1,6 +1,11 @@
 #!/bin/bash
 
+_dashboard_usage() { echo "Usage: amir dashboard"; }
 run_dashboard() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _dashboard_usage
+        return 0
+    fi
     dashboard() {
         
         echo -e "\033[1;34m"$(printf '%.0s─' {1..60})"\033[0m"

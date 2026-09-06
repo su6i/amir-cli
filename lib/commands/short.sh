@@ -1,6 +1,14 @@
 #!/bin/bash
 
+_short_usage() {
+    echo "Usage: amir short <url> [--debug]"
+}
+
 run_short() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _short_usage
+        return 0
+    fi
     # Helper: Copy to Clipboard
     copy_to_clipboard() {
         local response="$1"

@@ -1,6 +1,14 @@
 #!/bin/bash
 
+_qr_usage() {
+    echo "Usage: amir qr <text|link|phone|email> [output.png]"
+}
+
 run_qr() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _qr_usage
+        return 0
+    fi
     qr() {
         if [[ -z "$1" ]]; then 
             echo "❌ Enter text, link, phone number or email."

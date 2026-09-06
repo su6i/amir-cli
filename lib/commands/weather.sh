@@ -1,6 +1,13 @@
 #!/bin/bash
 
+_weather_usage() { echo "Usage: amir weather [city]"; }
+
 run_weather() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _weather_usage
+        return 0
+    fi
+
     weather() {
         # Source Config
         local SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

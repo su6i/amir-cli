@@ -415,6 +415,29 @@ if [[ -f "$SCRIPT_DIR_INSTALL/.gitmodules" ]]; then
     fi
 fi
 
+# ----------------------
+# 8. Agent Constitution (central clone, symlink)
+# ----------------------
+echo "-------------------------------------"
+echo "📜 Setting up Agent Constitution (central clone, symlink)..."
+
+CONSTITUTION_CENTRAL="${AGENT_CONSTITUTION_DIR:-$HOME/@-github/agent-constitution}"
+CONSTITUTION_URL="${AGENT_CONSTITUTION_URL:-https://github.com/su6i/agent-constitution.git}"
+if [ -d "$CONSTITUTION_CENTRAL/.git" ]; then
+  git -C "$CONSTITUTION_CENTRAL" pull --ff-only >/dev/null 2>&1 && echo "  ✅ Constitution updated" || echo "  ⚠️  Could not fast-forward $CONSTITUTION_CENTRAL"
+else
+  echo "  ⚠️  Cloning constitution → $CONSTITUTION_CENTRAL"
+  mkdir -p "$(dirname "$CONSTITUTION_CENTRAL")"
+  git clone "$CONSTITUTION_URL" "$CONSTITUTION_CENTRAL" || { echo "❌ Failed to clone constitution"; exit 1; }
+fi
+mkdir -p .agent
+if [ -e .agent/constitution ] && [ ! -L .agent/constitution ]; then
+  echo "❌ .agent/constitution exists and is not a symlink — remove it first (old submodule?)" >&2
+  exit 1
+fi
+ln -sfn "$CONSTITUTION_CENTRAL" .agent/constitution
+echo "  ✅ .agent/constitution → $CONSTITUTION_CENTRAL (symlink)"
+
 echo "-------------------------------------"
 echo "🎉 Installation Complete! Run 'amir help' to start."
 if [[ $INSTALL_ML -eq 0 ]]; then

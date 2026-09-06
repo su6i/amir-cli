@@ -1,6 +1,13 @@
 #!/bin/bash
 
+_transfer_usage() { echo "Usage: amir transfer <file>"; }
+
 run_transfer() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _transfer_usage
+        return 0
+    fi
+
     transfer() {
         if [[ -z "$1" || ! -f "$1" ]]; then 
             echo "❌ File not found."

@@ -1,6 +1,14 @@
 #!/bin/bash
 
+_lock_usage() {
+    echo "Usage: amir lock <file>"
+}
+
 run_lock() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _lock_usage
+        return 0
+    fi
     lock() {
         if [[ -z "$1" || ! -f "$1" ]]; then 
             echo "❌ File not found."
@@ -25,7 +33,15 @@ run_lock() {
     lock "$@"
 }
 
+_unlock_usage() {
+    echo "Usage: amir unlock <file>"
+}
+
 run_unlock() {
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _unlock_usage
+        return 0
+    fi
     unlock() {
         if [[ -z "$1" || ! -f "$1" ]]; then 
             echo "❌ File not found."
