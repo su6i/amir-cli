@@ -42,6 +42,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   phrase-loop filter reuses the exact same function and threshold rather
   than reimplementing the metric a second time.
 
+## 2026-09-06 — fix: ffmpeg no longer swallows filenames from the caller's loop
+
+### Fixed
+
+- **Downloaded videos were silently skipped during macOS normalization.** Both the
+  webp conversion loop and the normalization loop in `_gallery_dl_download()` are fed
+  by `while IFS= read -r f; do ...; done < <(find ...)`, so every command inside the
+  loop inherits the `find` pipe as its stdin. `ffmpeg` reads stdin when it is not told
+  otherwise, so it consumed the filenames the loop had not read yet: on a 19-item
+  Instagram carousel only 9 of 15 videos were normalized, and ffmpeg printed a parse
+  error against a half-eaten name (`hes_...11.mp4`) it had interpreted as an
+  interactive command. Both invocations now pass `-nostdin`, matching what
+  `run_ffmpeg_with_progress()` already enforced for the progress-bar path.
+  Regression tests in `lib/python/tests/test_ffmpeg_stdin_isolation.py` stub ffmpeg
+  with a binary that drains stdin unless `-nostdin` is present, so they fail if the
+  flag is ever dropped again.
+
+## 2026-09-06 — fix: Instagram completion count and gallery-dl filenames
+
+### Fixed
+
+- **Instagram carousel completion no longer reports a false "0 of N downloaded".**
+  `_download_instagram()` resolved its before/after snapshot directory with its own
+  `pwd`-based lookup while the gallery-dl step resolved the actual destination
+  independently, so a run from a different working directory could snapshot the
+  wrong folder and undercount every file that actually landed. The destination is
+  now resolved exactly once and reused for both snapshots and for the download
+  call itself. The before/after diff also no longer uses `grep -vxFf` (unreliable
+  across grep implementations when the "before" list is empty); it now sorts both
+  snapshots and diffs them with `comm -13`, which handles an empty "before" list
+  (e.g. a fresh destination directory) correctly.
+- **gallery-dl downloads now produce readable filenames.** Instagram photo/carousel
+  downloads via `gallery-dl` were named after the CDN's internal media id
+  (`AQNfld...59rc5V1.mp4`), unlike the yt-dlp path which already produces clean,
+  searchable names. The `--filename` template is now
+  `{username}_{post_shortcode}_{num}.{extension}`, using metadata fields gallery-dl's
+  Instagram extractor populates for every downloaded file (verified against the
+  installed extractor source, `gallery_dl/extractor/instagram.py`).
+
+---
+
 ## 2026-09-06 — fix: the subtitle test suite is green again
 
 ### Fixed
@@ -153,6 +194,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **amir-cli's own `.agent/constitution` is now a symlink.** Migrated from a git submodule (SSH-only, pinned SHA that drifted silently) to a symlink into the single central clone at `~/@-github/agent-constitution` — exactly the same pattern every other project managed by this tool already uses.
 - **`amir sync-constitution` natively supports symlink updates.** The script (`lib/commands/sync-constitution.sh`) gained a symlink-aware update path, refreshing the central clone directly via `git pull --ff-only` instead of only knowing how to update a submodule.
+
 ## 2026-08-11 — fix: `--help` sweep across `lib/commands/` modules
 
 ### Fixed
