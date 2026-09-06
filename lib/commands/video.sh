@@ -2697,7 +2697,10 @@ ensure_mac_playable_video() {
     local _tmp_out="${_video_file%.*}.mac_compat_tmp.${_target_container}"
     log_info "🛠️  Normalizing for macOS playback (v=${_vcodec:-?}, a=${_acodec:-none})..." >&2
 
-    if ffmpeg -hide_banner -loglevel error -y \
+    # -nostdin is load-bearing, not decoration: callers run this inside
+    # `while read ... done < <(find ...)` loops, so ffmpeg inherits the find
+    # pipe as its stdin and would eat the filenames the loop has yet to read.
+    if ffmpeg -nostdin -hide_banner -loglevel error -y \
         -i "$_video_file" \
         -map "0:v:0" -map "0:a?" \
         -c:v "$_venc" -preset "$_preset" -crf "$_crf" -pix_fmt yuv420p \

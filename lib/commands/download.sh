@@ -424,7 +424,7 @@ _gallery_dl_download() {
             grep -qxF "$webp_file" "$_snapshot" && continue  # skip pre-existing
             local out_file="${webp_file%.webp}.$IMG_FORMAT"
             if [[ -n "$_ffmpeg_bin" ]]; then
-                "$_ffmpeg_bin" -y -i "$webp_file" "$out_file" -loglevel quiet 2>/dev/null && rm -f "$webp_file"
+                "$_ffmpeg_bin" -nostdin -y -i "$webp_file" "$out_file" -loglevel quiet 2>/dev/null && rm -f "$webp_file"
             else
                 # fallback: sips on macOS
                 sips --setProperty format "$SIPS_FORMAT" "$webp_file" --out "$out_file" &>/dev/null && rm -f "$webp_file"

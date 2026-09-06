@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-09-06 — fix: ffmpeg no longer swallows filenames from the caller's loop
+
+### Fixed
+
+- **Downloaded videos were silently skipped during macOS normalization.** Both the
+  webp conversion loop and the normalization loop in `_gallery_dl_download()` are fed
+  by `while IFS= read -r f; do ...; done < <(find ...)`, so every command inside the
+  loop inherits the `find` pipe as its stdin. `ffmpeg` reads stdin when it is not told
+  otherwise, so it consumed the filenames the loop had not read yet: on a 19-item
+  Instagram carousel only 9 of 15 videos were normalized, and ffmpeg printed a parse
+  error against a half-eaten name (`hes_...11.mp4`) it had interpreted as an
+  interactive command. Both invocations now pass `-nostdin`, matching what
+  `run_ffmpeg_with_progress()` already enforced for the progress-bar path.
+  Regression tests in `lib/python/tests/test_ffmpeg_stdin_isolation.py` stub ffmpeg
+  with a binary that drains stdin unless `-nostdin` is present, so they fail if the
+  flag is ever dropped again.
+
 ## 2026-09-06 — fix: Instagram completion count and gallery-dl filenames
 
 ### Fixed
