@@ -104,15 +104,14 @@ def telegram_sections_complete(text: str) -> Tuple[bool, list]:
         ("\U0001f4fd", "📽️ title icon"),
         ("\U0001f534", "🔴 pull-quote"),
         ("\U0001f6a8", "🚨 key-points header"),
-        ("\u2728", "✨ summary paragraph"),
-        ("\U0001f4cc", "📌 audience line"),
-        ("\u23f1", "⏱️ duration"),
+        ("✨", "✨ summary paragraph"),
+        ("⏱", "⏱️ duration"),
     ]:
         if marker not in text:
             missing.append(label)
     bullet_count = text.count("\U0001f539")
-    if bullet_count < 5:
-        missing.append(f"🔹 bullet points (found {bullet_count}, need 5)")
+    if bullet_count < 4:
+        missing.append(f"🔹 bullet points (found {bullet_count}, need 4)")
     if "#" not in text:
         missing.append("hashtags (#)")
     return (len(missing) == 0, missing)

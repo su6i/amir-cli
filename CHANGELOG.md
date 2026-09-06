@@ -34,19 +34,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`run_rendering_stage` accepts `limit_start=None`.** `--limit` is optional and only
   the full pipeline path normalises it to `0.0`; any other caller hit `TypeError:
   unsupported operand type(s) for -: 'NoneType' and 'float'` on the ASS time offset.
+- **Telegram validator now matches the prompt.** The prompt asks for exactly 4 `🔹`
+  bullets and never asks for a `📌` audience line, but `telegram_sections_complete`
+  demanded 5 bullets and treated `📌` as mandatory — judging every real post
+  incomplete on the first pass and spending a retry call it did not need. The
+  validator now requires 4 bullets and no longer checks for `📌`.
 
 ### Changed
 
 - **Test fixtures carry the four mandatory intro lines.** The sample and mock posts
   predated the host/channel/guest header block that the prompt requires (rule 12) and
   `telegram_sections_complete` checks, so they failed validation that real posts pass.
-
-### Known issue
-
-- The Telegram prompt asks for exactly 4 `🔹` bullets and never asks for the `📌`
-  audience line, while the validator demands 5 bullets and a `📌`. Every real post is
-  therefore judged incomplete once and costs a retry call. Fixing it changes the shape
-  of published posts, so it is left as an editorial decision.
 
 ---
 
