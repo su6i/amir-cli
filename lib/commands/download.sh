@@ -33,6 +33,14 @@ run_download() {
                 # which does not forward arbitrary args to the gallery-dl binary.
                 KEEP_SOURCE_CODEC=true
                 PASSTHROUGH+=("$1"); shift ;;
+            --refresh-cookies)
+                # Consumed here only — yt-dlp/gallery-dl do not understand this
+                # flag, so it must never reach PASSTHROUGH. video.sh's own
+                # parser (line ~2984) does the same for the `amir video
+                # download` entry point; this file has no direct dependency on
+                # that one and must keep working standalone.
+                export AMIR_REFRESH_COOKIES=1
+                shift ;;
             *)
                 [[ "$1" =~ ^https?:// && -z "$URL" ]] && URL="$1"
                 PASSTHROUGH+=("$1"); shift ;;

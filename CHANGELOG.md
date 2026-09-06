@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`amir download --refresh-cookies` works for Instagram/gallery-dl downloads.**
+  `run_download()` now parses `--refresh-cookies` directly and exports
+  `AMIR_REFRESH_COOKIES=1`, so Instagram photo/carousel downloads force a cookie
+  cache refresh rather than silently ignoring the flag (not just the yt-dlp path).
 - **Telegram posts are capped at 1024 characters, not 4096.** `sanitize_post` still
   enforced the plain-message limit while the posts are attached to the rendered video as
   a caption, where Telegram cuts at 1024 — the same number the prompt states as a hard

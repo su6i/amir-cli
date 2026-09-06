@@ -265,3 +265,44 @@ def test_implicit_browser_retry_jar_does_not_trigger_an_extraction(tmp_path):
         cwd=str(tmp_path),
     )
     assert out == "--cookies-from-browser chrome"
+
+
+def _stub_lib_dir(tmp_path):
+    """A minimal LIB_DIR so run_download() can be exercised without pulling in
+    the real video.sh/download_course_site.sh (heavy, and would perform a real
+    network download)."""
+    lib_dir = tmp_path / "lib"
+    commands = lib_dir / "commands"
+    commands.mkdir(parents=True)
+    (commands / "video.sh").write_text(
+        'video_download() { echo "REFRESH=${AMIR_REFRESH_COOKIES:-unset}"; }\n'
+    )
+    (commands / "download_course_site.sh").write_text(
+        '_url_is_course_site() { return 1; }\n'
+    )
+    return str(lib_dir)
+
+
+def test_refresh_cookies_flag_is_parsed_by_run_download(tmp_path):
+    """--refresh-cookies must be recognized by run_download() itself (not just
+    by video.sh's separate parser) so the Instagram/gallery-dl path also gets
+    a forced cache refresh instead of silently ignoring the flag."""
+    env = os.environ.copy()
+    env["LIB_DIR"] = _stub_lib_dir(tmp_path)
+    env.pop("AMIR_REFRESH_COOKIES", None)
+    out = run_bash(
+        f'source "{DOWNLOAD_SCRIPT}" && run_download --refresh-cookies "https://example.com/video"',
+        env=env,
+    )
+    assert out == "REFRESH=1"
+
+
+def test_without_refresh_cookies_flag_env_stays_unset(tmp_path):
+    env = os.environ.copy()
+    env["LIB_DIR"] = _stub_lib_dir(tmp_path)
+    env.pop("AMIR_REFRESH_COOKIES", None)
+    out = run_bash(
+        f'source "{DOWNLOAD_SCRIPT}" && run_download "https://example.com/video"',
+        env=env,
+    )
+    assert out == "REFRESH=unset"
