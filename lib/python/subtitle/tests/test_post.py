@@ -21,7 +21,7 @@ import os
 import sys
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from pathlib import Path
 
 # ── Resolve imports ──────────────────────────────────────────────────────────
@@ -29,7 +29,7 @@ _ROOT = Path(__file__).resolve().parents[1]   # …/lib/python/subtitle
 sys.path.insert(0, str(_ROOT.parent.parent.parent))   # project root so imports work
 sys.path.insert(0, str(_ROOT.parent))                  # …/lib/python
 
-from subtitle.processor import SubtitleProcessor
+from subtitle.processor import SubtitleProcessor  # noqa: E402 -- must load after sys.path is patched above
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -552,7 +552,7 @@ class TestGeneratePostsMockLLM(unittest.TestCase):
         with open(saved['fa_telegram'], 'r', encoding='utf-8') as f:
             content = f.read()
         # Find the ⏱️ line
-        dur_line = next((l for l in content.splitlines() if '⏱️' in l or '⏱' in l), None)
+        dur_line = next((line for line in content.splitlines() if '⏱️' in line or '⏱' in line), None)
         self.assertIsNotNone(dur_line, "No ⏱️ duration line found in post")
         for digit in '0123456789':
             self.assertNotIn(digit, dur_line,
@@ -564,7 +564,7 @@ class TestGeneratePostsMockLLM(unittest.TestCase):
         incomplete = COMPLETE_MOCK_POST.replace('✨', '').replace('📌', '').replace('⏱️', '')
         # Also remove the hashtag line
         incomplete = '\n'.join(
-            l for l in incomplete.splitlines() if not l.startswith('#')
+            line for line in incomplete.splitlines() if not line.startswith('#')
         )
         TAIL = (
             "✨ این مصاحبه قابلیت‌های عامل‌های هوش مصنوعی را نشان می‌دهد.\n\n"
@@ -582,7 +582,7 @@ class TestGeneratePostsMockLLM(unittest.TestCase):
 
         self.proc._call_llm_for_post = mock_llm
         result = {'fa': self.srt_fa}
-        saved = self.proc.generate_posts(self.original_base, 'de', result, platforms=['telegram'])
+        self.proc.generate_posts(self.original_base, 'de', result, platforms=['telegram'])
         self.assertGreaterEqual(call_count['n'], 2, "Retry was not triggered for incomplete post")
 
     def test_tail_truncation_retry_uses_append_message(self):
@@ -686,7 +686,6 @@ class TestGeneratePostsMockLLM(unittest.TestCase):
         """post_only=True with no SRT → returns empty dict without error."""
         proc = _make_processor()
         proc._call_llm_for_post = MagicMock(return_value=COMPLETE_MOCK_POST)
-        result = proc.run_workflow.__wrapped__ if hasattr(proc.run_workflow, '__wrapped__') else None
         # Call generate_posts directly with empty result and non-existent base
         saved = proc.generate_posts('/nonexistent/path/video', 'de', {}, platforms=['telegram'])
         self.assertEqual(saved, {})

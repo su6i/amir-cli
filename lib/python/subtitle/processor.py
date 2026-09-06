@@ -25,16 +25,11 @@ os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "0"
 
 import tempfile
 import shutil
-import threading
-import zipfile
-from datetime import timedelta
-from collections import deque
 from typing import List, Dict, Optional, Any, Tuple
 from pathlib import Path
+from tqdm import tqdm
 
 from subtitle.config import (
-    LANGUAGE_REGISTRY,
-    LanguageConfig,
     get_language_config,
     get_segmentation_config,
     has_target_language_chars,
@@ -90,7 +85,6 @@ from subtitle.transcription import (
 )
 from subtitle.translation import (
     apply_final_target_text_fixes,
-    build_contextual_batch_text,
     filter_gemini_generation_models,
     parse_translated_batch_output,
     rank_gemini_model_name,
@@ -98,7 +92,6 @@ from subtitle.translation import (
     translate_batch_single_attempt as run_translate_batch_single_attempt,
     translate_with_batch_fallback_chain as run_translate_with_batch_fallback_chain,
     validate_and_retry_translations,
-    write_partial_translation_srt,
     run_deepseek_translation_pipeline,
     run_gemini_translation_pipeline,
     run_litellm_translation_pipeline,
@@ -150,7 +143,6 @@ from subtitle.text import clean_bidi, fix_persian_text, strip_english_echo
 from subtitle.quality import jaccard_similarity, NEAR_DUP_JACCARD_THRESHOLD
 from subtitle.models import (
     ProcessingCheckpoint,
-    ProcessingStage,
     STYLE_PRESETS,
     StyleConfig,
     SubtitleStyle,
@@ -171,7 +163,7 @@ try:
 
     # Check for LiteLLM availability
     try:
-        from litellm import completion
+        from litellm import completion  # noqa: F401 -- probes availability for HAS_LITELLM; the real call site re-imports locally
         HAS_LITELLM = True
     except ImportError:
         HAS_LITELLM = False
@@ -197,7 +189,7 @@ except ImportError:
                         if '=' in line and not line.startswith('#'):
                             key, value = line.split('=', 1)
                             os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
-            except:
+            except Exception:
                 pass
             break
 
@@ -219,7 +211,6 @@ except ImportError:
     HAS_PLATFORM = False
 
 # Non-heavy imports
-from tqdm import tqdm
 try:
     from openai import OpenAI
     HAS_OPENAI = True
@@ -228,8 +219,7 @@ except ImportError:
 
 # ==================== CENTRALIZED MEDIA CONFIG ====================
 # Import centralized media configuration for encoding standards
-import sys
-from pathlib import Path
+import sys  # noqa: E402 -- needed here, immediately before the sys.path patch below
 # Add lib/python/ to sys.path to allow direct import of media_config
 _media_config_path = str(Path(__file__).parent.parent)
 if _media_config_path not in sys.path:
@@ -398,12 +388,18 @@ class SubtitleProcessor:
             
         # Apply overrides from CLI arguments
         self.style_config.max_lines = max_lines
-        if alignment is not None: self.style_config.alignment = alignment
-        if font_size is not None: self.style_config.font_size = font_size
-        if shadow is not None: self.style_config.shadow = shadow
-        if outline is not None: self.style_config.outline = outline
-        if back_color is not None: self.style_config.back_color = back_color
-        if primary_color is not None: self.style_config.primary_color = primary_color
+        if alignment is not None:
+            self.style_config.alignment = alignment
+        if font_size is not None:
+            self.style_config.font_size = font_size
+        if shadow is not None:
+            self.style_config.shadow = shadow
+        if outline is not None:
+            self.style_config.outline = outline
+        if back_color is not None:
+            self.style_config.back_color = back_color
+        if primary_color is not None:
+            self.style_config.primary_color = primary_color
         
         # Finally, apply the english font scaling factor
         self.style_config.font_size = int(self.style_config.font_size * self.en_font_scale)
@@ -503,7 +499,7 @@ class SubtitleProcessor:
             free_gb = free // (2**30)
             if free_gb < min_gb:
                 self.logger.warning(f"Resource threshold warning: available disk space is {free_gb}GB (minimum requirement: {min_gb}GB)")
-        except:
+        except Exception:
             pass
 
     @staticmethod
@@ -864,7 +860,7 @@ class SubtitleProcessor:
                 import torch
                 if HAS_TORCH and torch.cuda.is_available():
                     device = "cuda"
-            except:
+            except Exception:
                 pass
 
             if self.low_ram_mode:
@@ -1096,8 +1092,10 @@ class SubtitleProcessor:
             return [], ""
         finally:
             if os.path.exists(slice_path):
-                try: os.remove(slice_path)
-                except: pass
+                try:
+                    os.remove(slice_path)
+                except Exception:
+                    pass
 
     def _fill_vad_gaps(self, all_words: List['WordObj'], video_path: str, language: str = '') -> List['WordObj']:
         """DEPRECATED: Gap filling via no-VAD re-transcription is disabled.
@@ -1305,8 +1303,10 @@ class SubtitleProcessor:
         except Exception as e:
             self.logger.warning(f"⚠️ faster-whisper full-video pass error: {e}. Falling back to MLX.")
             if tmp_wav and os.path.exists(tmp_wav):
-                try: os.remove(tmp_wav)
-                except: pass
+                try:
+                    os.remove(tmp_wav)
+                except Exception:
+                    pass
             return [], ''
 
         pre_dedup_count = len(all_words)
@@ -1530,7 +1530,7 @@ class SubtitleProcessor:
                         output = res.stdout.strip()
                         if output:
                             dur = float(output)
-                    except:
+                    except Exception:
                         pass
                 
                 if dur > 0:
@@ -2221,7 +2221,8 @@ class SubtitleProcessor:
         Example: "is 1" + ",500" -> "is 1,500"
         Addresses transcription errors where large numbers are split across lines.
         """
-        if not segments: return []
+        if not segments:
+            return []
         merged = []
         i = 0
         while i < len(segments):
@@ -2262,7 +2263,8 @@ class SubtitleProcessor:
                 with open(coll_path, 'r', encoding='utf-8') as f:
                     for line in f:
                         line = line.strip()
-                        if not line: continue
+                        if not line:
+                            continue
                         coll.add(line.lower())
         except Exception:
             pass
@@ -2291,8 +2293,10 @@ class SubtitleProcessor:
             
             # --- PUNCTUATION BONUSES ---
             char_before = text[pos-1] if pos > 0 else ""
-            if char_before in ('.', '!', '?', '...'): score += 80
-            if char_before in (',', '،', ';', ':', '-'): score += 50
+            if char_before in ('.', '!', '?', '...'):
+                score += 80
+            if char_before in (',', '،', ';', ':', '-'):
+                score += 50
             
             # --- COLLOCATION PENALTY ---
             # Don't break common pairs
@@ -2718,12 +2722,12 @@ class SubtitleProcessor:
             
         context_prompt = ""
         if prev_lines:
-            context_prompt += "Previous context:\n" + "\n".join([f"- {l}" for l in prev_lines]) + "\n"
+            context_prompt += "Previous context:\n" + "\n".join([f"- {line}" for line in prev_lines]) + "\n"
         
         context_prompt += f"\n>>> TARGET LINE TO TRANSLATE ({source_lang.upper()} -> {target_lang.upper()}):\n{text}\n"
         
         if next_lines:
-            context_prompt += "\nNext context:\n" + "\n".join([f"- {l}" for l in next_lines])
+            context_prompt += "\nNext context:\n" + "\n".join([f"- {line}" for line in next_lines])
             
         lang_config = get_language_config(target_lang)
         lang_name = lang_config.name
@@ -3015,7 +3019,8 @@ class SubtitleProcessor:
             counts = {}
             for e in partial_entries:
                 t = e['text'].strip()
-                if t: counts[t] = counts.get(t, 0) + 1
+                if t:
+                    counts[t] = counts.get(t, 0) + 1
             
             # Identify texts that repeat too much (more than 5% of file or > 5 times for long strings)
             hallucinated_texts = set()
@@ -3452,7 +3457,7 @@ class SubtitleProcessor:
             if temp_vid and os.path.exists(temp_vid):
                 try:
                     os.remove(temp_vid)
-                except:
+                except Exception:
                     pass
 
 

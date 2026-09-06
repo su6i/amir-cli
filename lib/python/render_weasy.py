@@ -1,5 +1,4 @@
 import sys
-import os
 from markdown2 import markdown
 from weasyprint import HTML, CSS
 

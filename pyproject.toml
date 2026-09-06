@@ -57,7 +57,31 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "ruff>=0.16.6",
 ]
+
+[tool.ruff]
+target-version = "py312"
+# Existing code style runs well past black's 88-column default (over half the
+# tracked files have lines >88 cols); 100 keeps genuinely long lines flagged
+# without churning the whole codebase. E501 is not in the selected rule set
+# below anyway, so this mainly affects `ruff format`.
+line-length = 100
+exclude = [
+    ".claude",
+    ".venv",
+    "node_modules",
+]
+
+[tool.ruff.lint]
+# NOTE: ruff's current *actual* built-in default (no select at all) enables
+# ~800+ rules (F, E, B, UP, RUF, and "many more" per docs.astral.sh/ruff/rules)
+# and finds >1100 issues on this codebase -- far beyond this WO's scope.
+# WO-amir-cli-0012 targets the older, narrower default subset (E4, E7, E9, F --
+# pycodestyle errors/syntax-errors + pyflakes), matching the WO's measured
+# baseline of 162 findings. This is set explicitly, not left implicit, so it
+# stays pinned regardless of future ruff default changes.
+select = ["E4", "E7", "E9", "F"]
 
 [tool.pytest.ini_options]
 # Collect only the real suites. `lib/python/test_4_claude.py` and

@@ -155,7 +155,7 @@ def run_minimax_translation_pipeline(
                             write_partial_translation_srt(
                                 output_srt, final_result, original_entries
                             )
-                        except:
+                        except Exception:
                             pass
 
                     pbar.update(len(batch))

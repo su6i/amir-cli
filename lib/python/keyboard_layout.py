@@ -4,7 +4,9 @@ Keyboard layout viewer — Apple Compact keyboard (Mac Mini)
 Layouts: French AZERTY · English QWERTY · Persian Standard
 Supports: --auto to detect the current OS keyboard layout
 """
-import argparse, sys, unicodedata, subprocess, platform
+import argparse
+import subprocess
+import platform
 
 # ── ANSI ─────────────────────────────────────────────────────────────────────
 R   = '\033[0m'
@@ -273,7 +275,10 @@ def draw_row(keys, indent=0, highlight=None, three_layer=True, layer='all'):
     layer = 'opt'    → 1-line key: only option char
     """
     pad = ' ' * indent
-    tops = []; mids = []; bot1s = []; bots = []
+    tops = []
+    mids = []
+    bot1s = []
+    bots = []
     B = chr(0x2502)  # │
     EMPTY = c('·', BRD)   # placeholder for empty option slot
 
@@ -385,7 +390,7 @@ def show_fr(highlight=None, auto_info=None, layer='all'):
     }
     title = 'AZERTY  --  Apple Compact  (Mac Mini)'
     if auto_info:
-        title = f'AZERTY  --  Apple Compact  (Francais)  [auto]'
+        title = 'AZERTY  --  Apple Compact  (Francais)  [auto]'
     header(title, subtitle_map.get(layer, ''))
 
     if layer == 'all':
@@ -441,7 +446,7 @@ def show_en(highlight=None, auto_info=None, layer='all'):
     }
     title = 'QWERTY  --  Apple Compact  (English US)'
     if auto_info:
-        title = f'QWERTY  --  Apple Compact  (English)  [auto]'
+        title = 'QWERTY  --  Apple Compact  (English)  [auto]'
     header(title, subtitle_map.get(layer, ''))
 
     if layer == 'all':
@@ -598,7 +603,7 @@ def show_auto():
         print()
         print(c('  Could not detect keyboard layout automatically.', HLT))
         print()
-        print(f"  Try specifying manually:")
+        print("  Try specifying manually:")
         print(f"    {c('amir keyboard fr', NRM)}  (French AZERTY)")
         print(f"    {c('amir keyboard en', NRM)}  (English QWERTY)")
         print(f"    {c('amir keyboard fa', NRM)}  (Persian)")

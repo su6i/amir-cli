@@ -162,7 +162,7 @@ class Verification:
         assert result.returncode == 0, "Git log failed"
         
         lines = result.stdout.strip().split("\n")
-        extraction_commits = [l for l in lines if "extract" in l.lower() or "test" in l.lower()]
+        extraction_commits = [line for line in lines if "extract" in line.lower() or "test" in line.lower()]
         
         assert len(extraction_commits) >= 10, f"Expected 10+ extraction/test commits, found {len(extraction_commits)}"
         print(f"    → Git history shows {len(extraction_commits)} refactoring commits")

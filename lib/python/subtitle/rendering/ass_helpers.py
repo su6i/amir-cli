@@ -1,5 +1,5 @@
 import re
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional
 
 # Import vis_len for proper Unicode character counting
 try:

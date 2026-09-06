@@ -44,7 +44,7 @@ async def _serve(args: argparse.Namespace) -> None:
         pass
 
     model = WhisperModel(args.model, device=args.device, compute_type=args.compute_type)
-    print(f"Model loaded successfully.", flush=True)
+    print("Model loaded successfully.", flush=True)
     lock = asyncio.Lock()
     socket_path = Path(args.socket)
 

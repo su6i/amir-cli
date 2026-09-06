@@ -295,7 +295,7 @@ def _auto_yt_check(
             return False
 
         # ── Decision 1: single high-quality track ──────────────────────────
-        best_lang = max(qualities, key=lambda l: qualities[l].score)
+        best_lang = max(qualities, key=lambda line: qualities[line].score)
         best_q = qualities[best_lang]
 
         if best_q.score >= quality_threshold and best_q.coverage >= 0.72:
@@ -310,7 +310,7 @@ def _auto_yt_check(
         # For language-map purposes (Whisper will do the actual transcription)
         # we only need coverage, not high quality score.
         total_coverage = sum(q.coverage for q in qualities.values())
-        decent_tracks = {l: downloaded[l] for l, q in qualities.items() if q.coverage >= 0.10}
+        decent_tracks = {line: downloaded[line] for line, q in qualities.items() if q.coverage >= 0.10}
 
         if len(decent_tracks) >= 2 and total_coverage >= 0.75:
             processor.logger.info(
@@ -349,7 +349,6 @@ def _auto_yt_check(
         # boundaries for Whisper. Works even if source_lang track failed to
         # download — English-only at high coverage still signals "mostly English"
         # and the source_lang segment can be inferred from the gap.
-        has_src = source_lang in qualities
         has_en = "en" in qualities
         if has_en and source_lang not in ("en",):
             en_q = qualities["en"]

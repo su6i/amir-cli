@@ -192,7 +192,7 @@ def get_smart_filename(img, original_path):
                     lang='eng+fra+spa+deu+ita+por+rus+ara+chi_sim+jpn+kor',
                     config='--psm 6'
                 )
-            except:
+            except Exception:
                 text_results[strategy] = ""
         
         # === STRATEGY 3: Pattern Matching (Universal) ===
@@ -328,7 +328,8 @@ def detect_document(img, kernel_size):
         mask = cv2.bitwise_not(mask) # Objects white
     
     k_size = int(kernel_size)
-    if k_size % 2 == 0: k_size += 1
+    if k_size % 2 == 0:
+        k_size += 1
     
     # Edge energy map for tie-breaking
     # Strong edges (physical objects) vs soft edges (screen UI)
@@ -342,7 +343,8 @@ def detect_document(img, kernel_size):
         area_pct = area / total_area
         
         # 1. Area Penalty: Allow smaller documents like cards on A4 scans (from 1.5% to 98% of page)
-        if area_pct < 0.015 or area_pct > 0.98: return -1
+        if area_pct < 0.015 or area_pct > 0.98:
+            return -1
         
         hull = cv2.convexHull(cnt)
         peri = cv2.arcLength(hull, True)
@@ -351,7 +353,8 @@ def detect_document(img, kernel_size):
         
         rect = cv2.minAreaRect(cnt)
         (x, y), (w, h), angle = rect
-        if w == 0 or h == 0: return -1
+        if w == 0 or h == 0:
+            return -1
         ratio = max(w, h) / min(w, h)
         
         # 3. Ratio-Area Correlation:
@@ -394,7 +397,8 @@ def detect_document(img, kernel_size):
             if s > 0:
                 all_raw_candidates.append([s, c])
                 
-    if not all_raw_candidates: return None, mask
+    if not all_raw_candidates:
+        return None, mask
     
     # --- RECURSIVE CONTEST: HIERARCHICAL SUBJECT SELECTION ---
     # We distinguish between "Subjects" (docs on background) and "Fragments" (features in docs).
@@ -405,7 +409,8 @@ def detect_document(img, kernel_size):
         r_inner = max(rect_inner[1]) / (min(rect_inner[1]) if min(rect_inner[1]) > 0 else 1)
         
         for j in range(len(all_raw_candidates)):
-            if i == j: continue
+            if i == j:
+                continue
             s_outer, c_outer = all_raw_candidates[j]
             area_outer = cv2.contourArea(c_outer)
             
@@ -550,7 +555,7 @@ def smart_crop(input_path, output_path, margin=20, mode="crop", dilation=9, offs
         print(f"📄 Saved original: {output_path}")
         return
 
-    print(f"✅ Document detected successfully!")
+    print("✅ Document detected successfully!")
     
     if mode == "preview":
         # Expand for visibility in preview
@@ -645,7 +650,8 @@ def smart_crop(input_path, output_path, margin=20, mode="crop", dilation=9, offs
             v_r = tr - tl
             
             def move_side(p1, p2, vec, pixels):
-                if pixels == 0: return p1, p2
+                if pixels == 0:
+                    return p1, p2
                 n = vec / np.linalg.norm(vec)
                 return p1 + n * pixels, p2 + n * pixels
             
@@ -751,10 +757,14 @@ if __name__ == "__main__":
             for p in pairs:
                 k, v = p.split('=')
                 v = int(v)
-                if k == 'top': offsets[0] = v
-                elif k == 'bottom': offsets[1] = v
-                elif k == 'left': offsets[2] = v
-                elif k == 'right': offsets[3] = v
+                if k == 'top':
+                    offsets[0] = v
+                elif k == 'bottom':
+                    offsets[1] = v
+                elif k == 'left':
+                    offsets[2] = v
+                elif k == 'right':
+                    offsets[3] = v
         else:
             v = int(raw)
             offsets = [v, v, v, v]

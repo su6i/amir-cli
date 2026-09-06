@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from itertools import groupby
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +113,7 @@ def _parse_srt(srt_path: str) -> List[Dict]:
                 try:
                     start = _ts_to_sec(m.group(1))
                     end = _ts_to_sec(m.group(2))
-                    body = " ".join(l.strip() for l in lines[i + 1 :] if l.strip())
+                    body = " ".join(ln.strip() for ln in lines[i + 1 :] if ln.strip())
                     if body:
                         entries.append({"start": start, "end": end, "text": body})
                 except Exception:

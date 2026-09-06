@@ -18,7 +18,7 @@ def resolve_workflow_base(
         video_path = str(video_path)
     video_path = os.path.abspath(os.fspath(video_path))
     source_lang = (source_lang or "auto").strip().lower()
-    target_langs = [str(l).strip().lower() for l in (target_langs or ["auto", "fa"]) if str(l).strip()]
+    target_langs = [str(line).strip().lower() for line in (target_langs or ["auto", "fa"]) if str(line).strip()]
 
     source_auto_requested = source_lang in ("auto", "detect", "")
     if os.path.exists(video_path) and not post_only:
@@ -73,9 +73,9 @@ def resolve_workflow_base(
     ]
 
     probe_langs = [
-        l
-        for l in ([source_lang] + [t for t in (target_langs or []) if t != source_lang])
-        if re.fullmatch(r"[a-z]{2,3}", str(l or "").lower())
+        line
+        for line in ([source_lang] + [t for t in (target_langs or []) if t != source_lang])
+        if re.fullmatch(r"[a-z]{2,3}", str(line or "").lower())
     ]
 
     if source_lang in ("auto", "detect", ""):
@@ -120,8 +120,8 @@ def resolve_workflow_base(
 
     existing_base = None
     for b in candidate_bases:
-        for l in probe_langs:
-            if os.path.exists(f"{b}_{l}.srt"):
+        for line in probe_langs:
+            if os.path.exists(f"{b}_{line}.srt"):
                 existing_base = b
                 break
         if existing_base:
@@ -140,12 +140,12 @@ def resolve_workflow_base(
                 search_dirs.append(d)
 
         for search_dir in search_dirs:
-            for l in probe_langs:
+            for line in probe_langs:
                 try:
-                    for p in Path(search_dir).glob(f"*_{l}.srt"):
+                    for p in Path(search_dir).glob(f"*_{line}.srt"):
                         if not p.is_file():
                             continue
-                        cand_base = str(p)[: -len(f"_{l}.srt")]
+                        cand_base = str(p)[: -len(f"_{line}.srt")]
                         cand_stem = os.path.basename(cand_base)
                         cand_norm = normalize_candidate_stem(cand_stem)
                         if cand_norm == normalized_target_stem or stem_match_key(cand_norm) == target_stem_key:
@@ -247,7 +247,7 @@ def detect_subtitle_geometry(processor, video_path: str, target_langs: List[str]
         text_area_px = vw * 0.80  # Keep WIDTH for horizontal videos
     
     rtl_langs = {"fa", "ar", "ur", "he"}
-    is_rtl = target_langs and any(l in rtl_langs for l in target_langs)
+    is_rtl = target_langs and any(line in rtl_langs for line in target_langs)
     avg_glyph_w = rendered_font_px * (0.64 if is_rtl else 0.55)
     max_chars_dyn = max(10, int(text_area_px / avg_glyph_w))
     if vh > vw:

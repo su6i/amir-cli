@@ -8,7 +8,7 @@ package_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if package_root not in sys.path:
     sys.path.insert(0, package_root)
 
-from subtitle.cli import main
+from subtitle.cli import main  # noqa: E402 -- must load after sys.path is patched above
 
 if __name__ == "__main__":
     main()

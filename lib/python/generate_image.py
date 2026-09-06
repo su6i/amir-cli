@@ -1,9 +1,6 @@
-import os
 import sys
 import requests
 import random
-import math
-from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter
 
 def create_premium_gradient(output_path):

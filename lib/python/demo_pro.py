@@ -1,5 +1,4 @@
 import sys
-import os
 from subtitle.processor import SubtitleProcessor, SubtitleStyle
 
 def main():
@@ -13,7 +12,7 @@ def main():
     video_path = sys.argv[1]
     
     # Initialize Processor with Vlog Style (Top center)
-    print(f"\nPhase 1: Initializing Processor (VLOG Style)...")
+    print("\nPhase 1: Initializing Processor (VLOG Style)...")
     try:
         processor = SubtitleProcessor(style=SubtitleStyle.VLOG, max_lines=2)
         print(f"✅ Initialized: {processor.style_config.name}")

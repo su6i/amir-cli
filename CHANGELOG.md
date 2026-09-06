@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-09-07 — chore: add ruff to the toolchain, zero out lint findings
+
+### Added
+
+- **`ruff`** added to `[dependency-groups] dev` in `pyproject.toml`, with a
+  `[tool.ruff]` block: `target-version = "py312"`, `line-length = 100`, and
+  `exclude = [".claude", ".venv", "node_modules"]` (without the exclude,
+  `ruff check .` from the repo root recurses into `.claude/worktrees/**` and
+  multiplies every finding by however many worktrees exist). `select` is
+  pinned explicitly to `["E4", "E7", "E9", "F"]` — pycodestyle
+  errors/syntax-errors plus pyflakes — because ruff's actual current
+  built-in default (no `select` at all) enables ~800+ rules across many
+  more linters (bugbear, isort, bandit, pyupgrade, ruff-specific, …) and
+  reports 1000+ findings on this codebase; this WO's scope was the smaller,
+  older default subset.
+- `uv run ruff check .` documented in the README under a new **Development**
+  section, alongside `uv run pytest -q`.
+
+### Fixed
+
+- **Real bug: `detect_video_dimensions()` in `lib/python/subtitle/io/media_io.py`
+  never used ffprobe's rotation metadata.** The primary JSON-parsing code
+  path called `json.loads(...)` but the module never imported `json`
+  (`NameError: name 'json' is not defined`); a bare `except Exception: pass`
+  around that path silently swallowed the error every time, so execution
+  always fell through to a CSV fallback that has no rotation awareness at
+  all. Rotated video (e.g. a portrait phone recording tagged `rotate=90`,
+  or carrying a `side_data_list` rotation entry) was reported with
+  un-swapped width/height. Fixed by adding the missing `import json`.
+  Regression test: `lib/python/subtitle/tests/test_media_io_detect_dimensions.py`
+  (mocks `subprocess.run` to return a rotated JSON payload and asserts the
+  swapped, display-correct dimensions come back).
+- 161 further ruff findings across ~35 files, all under the pinned
+  `E4/E7/E9/F` subset: 65 `F401` unused imports (two left in place with
+  `# noqa: F401` — `subtitle/__init__.py`'s re-exports, now also listed in
+  `__all__`, and a handful of "import success is the assertion" checks in
+  tests/validation scripts and availability-probe imports in
+  `processor.py`/`check_mlx.py`), 30 `E701` + 3 `E702` (one-line compound
+  statements split into standard multi-line form), 18 `E741` (the
+  ambiguous loop variable `l` renamed to `line`, or `ln` where `line` was
+  already in use in the same scope), 14 `E722` bare `except:` narrowed to
+  `except Exception:` (none of the 14 sites needed `BaseException`), 10
+  `F541` f-strings without placeholders, 10 `E402` (import-after-code —
+  fixed by moving the import when there was no ordering reason, or
+  `# noqa: E402` with a one-line reason where the position is deliberate,
+  e.g. `sys.path` patched immediately above), 8 `F841` unused variables
+  (each checked for a hidden bug per WO instructions before touching it —
+  most were dead leftovers from earlier refactors with zero other
+  references; none turned out to indicate lost logic), 2 `E401`, and 1
+  `F811`.
+- `ruff check .` now prints `All checks passed!` and `uv run pytest -q`
+  stays green with no test removed or skipped to get there.
+
+---
+
 ## 2026-09-06 — fix: collapse Whisper phrase-loop hallucinations
 
 ### Fixed

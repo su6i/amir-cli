@@ -14,13 +14,16 @@ def bake_svg_animation(input_path, output_path):
     def find_block_content(text, start_index):
         depth = 0
         content_start = text.find('{', start_index)
-        if content_start == -1: return None, start_index
+        if content_start == -1:
+            return None, start_index
         
         depth = 1
         current = content_start + 1
         while current < len(text) and depth > 0:
-            if text[current] == '{': depth += 1
-            elif text[current] == '}': depth -= 1
+            if text[current] == '{':
+                depth += 1
+            elif text[current] == '}':
+                depth -= 1
             current += 1
         return text[content_start+1:current-1], current
 
@@ -28,7 +31,8 @@ def bake_svg_animation(input_path, output_path):
     pos = 0
     while True:
         match = re.search(r'@keyframes\s+([\w-]+)\s*', content[pos:])
-        if not match: break
+        if not match:
+            break
         
         anim_name = match.group(1)
         full_match_start = pos + match.start()
@@ -49,23 +53,11 @@ def bake_svg_animation(input_path, output_path):
     # or animation-name: NAME
     
     overrides = []
-    
+
     # We scan the <style> content again roughly or just regex the whole file for selectors
     # Simpler: Look for "selector { ... animation: ... }" patterns
     # Using a similar block scanner for standard CSS rules
-    
-    style_start = 0
-    while True:
-        # Find start of a style rule (very rough: something followed by {)
-        # Avoiding @ starting blocks to skip keyframes/media queries roughly
-        # This is fragile but fits the user's file structure
-        
-        # Strategy B: simpler regex for usage
-        # This regex finds "Class/Id { ... animation: NAME ... }"
-        # It captures the selector and the body
-        pass # moving to regex iterator below
-        break
-        
+
     # Regex to find selectors using animation
     # format:  .classname { ... animation: name ... }
     # We iterate over the file looking for css blocks
@@ -98,7 +90,7 @@ def bake_svg_animation(input_path, output_path):
             new_content = content + override_css
     else:
         new_content = content
-        print(f"Warning: No animations mapped. Copying original.")
+        print("Warning: No animations mapped. Copying original.")
 
     # 4. Fix for librsvg/rsvg-convert whitespace collapsing
     # We replace standalone spaces in tspans with Non-Breaking Space (\u00A0) literal

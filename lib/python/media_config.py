@@ -9,7 +9,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Any, Optional, Dict, List
+from typing import Any, Dict
 
 
 class MediaConfig:

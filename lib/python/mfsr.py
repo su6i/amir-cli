@@ -148,7 +148,7 @@ def main():
     result = np.clip(result * 255.0, 0, 255).astype(np.uint8)
     
     cv2.imwrite(output_path, result)
-    print(f"✅ Success! Reconstructed image saved at:")
+    print("✅ Success! Reconstructed image saved at:")
     print(f"👉 {output_path}")
 
 if __name__ == "__main__":
