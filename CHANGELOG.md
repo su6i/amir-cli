@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-09-06 — feat: `amir doctor` and portable external-repo errors
+
+### Added
+
+- **`amir doctor`.** One command reports every external tool (`ffmpeg`, `yt-dlp`,
+  `gallery-dl`, `qpdf`, `node`, `uv`), the Python `.venv`, the optional companion
+  repos (`research_toolkit`, `ApplyForge`, `ai-router`), and the
+  `agent-constitution` symlink — a ✅/❌ list with a copy-pasteable fix command for
+  every ❌. The exit code is honest: nonzero only when a required tool or the
+  `.venv` is missing; the optional companion repos and the constitution symlink
+  never fail the exit code on their own. `install.sh` now runs it automatically
+  at the end of a fresh install and prints the summary.
+
+### Fixed
+
+- **A command whose companion repo isn't cloned yet now tells you exactly what
+  to run**, instead of a dead-end "not found" message. `amir trend`,
+  `amir research`, `amir apply` (including `phd lettre`), and `amir router` all
+  share one message function (`_require_external_repo` in `lib/amir_lib.sh`):
+  the `git clone <url> <path>` command to get it, or the `export ..._DIR=` to
+  point at a clone you already have elsewhere.
+- **`amir router` no longer depends on a deprecated vault compatibility shim.**
+  It resolved `delegate.py` from `~/.local/share/agent-projects/_router/`, a
+  path that itself just re-execed the real copy in the `ai-router` repo (and
+  printed a deprecation warning every call). It now resolves `ai-router` via
+  `AI_ROUTER_DIR` (default `~/@-github/ai-router`) directly, using the same
+  actionable message as the other companion-repo commands above.
+- **`amir skill`'s directory-resolution fallback no longer hardcodes a
+  personal clone path.** If `AMIR_ROOT` was set but pointed at a location
+  without `.agent/skills`, the old code accepted it anyway (no `-d` check) and
+  never reached the fallback; the one true last-resort fallback also hardcoded
+  `$HOME/@-github/amir-cli`, which breaks for any other clone location. Every
+  step now validates the directory actually exists before accepting it, and
+  the final fallback derives from `AMIR_ROOT` first.
+
 ## 2026-09-06 — fix: the subtitle test suite is green again
 
 ### Fixed

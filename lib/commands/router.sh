@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# amir router — single AI gateway (delegate.py in the vault).
+# amir router — single AI gateway (ai-router repo: $HOME/@-github/ai-router/src/delegate.py, overridable via AI_ROUTER_DIR).
 # Multi-model: gemini/gemma (FREE) · minimax · deepseek-v4-flash/-pro · grok.
 # Conversation memory via --session, proof + cost ledger via audit.
-# Source of truth for routing policy: ~/.local/share/agent-projects/_router/STRATEGY.md
 
 run_router() {
-    local DELEGATE="$HOME/.local/share/agent-projects/_router/delegate.py"
+    local ai_router_dir="${AI_ROUTER_DIR:-$HOME/@-github/ai-router}"
+    _require_external_repo "amir router" "ai-router" "$ai_router_dir" "AI_ROUTER_DIR" "git@github.com:su6i/ai-router.git" || return 1
+    local DELEGATE="$ai_router_dir/src/delegate.py"
     if [[ ! -f "$DELEGATE" ]]; then
-        echo "❌ router not found: $DELEGATE"; return 1
+        echo "❌ ai-router repo found at $ai_router_dir but src/delegate.py is missing (repo layout changed?)" >&2
+        return 1
     fi
 
     case "$1" in

@@ -6,6 +6,7 @@
 _tracker_py() {
     local script="$1"; shift
     local applyforge_dir="${APPLYFORGE_DIR:-$HOME/@-github/ApplyForge}"
+    _require_external_repo "amir apply" "ApplyForge" "$applyforge_dir" "APPLYFORGE_DIR" "git@github.com:su6i/ApplyForge.git" || return 1
     (cd "$applyforge_dir" && uv run python -m "src.apply_tracker.${script%.py}" "$@")
 }
 
@@ -141,10 +142,7 @@ run_apply() {
     esac
 
     # ── ApplyForge CV generator ───────────────────────────────────────────────
-    if [[ ! -d "$CV_DIR" ]]; then
-        echo "❌ Error: CV project directory not found at $CV_DIR" >&2
-        return 1
-    fi
+    _require_external_repo "amir apply" "ApplyForge" "$CV_DIR" "APPLYFORGE_DIR" "git@github.com:su6i/ApplyForge.git" || return 1
 
     if [[ "$1" == "preview" ]]; then
         shift
@@ -174,6 +172,7 @@ _apply_sync_both() {
 _gmail_sync_direct() {
     local base_dir="$1"
     local applyforge_dir="${APPLYFORGE_DIR:-$HOME/@-github/ApplyForge}"
+    _require_external_repo "amir apply sync" "ApplyForge" "$applyforge_dir" "APPLYFORGE_DIR" "git@github.com:su6i/ApplyForge.git" || return 1
     (cd "$applyforge_dir" && uv run python - <<PYEOF
 import sys
 from pathlib import Path

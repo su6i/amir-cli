@@ -59,11 +59,7 @@ run_trend() {
     local toolkit_dir
     toolkit_dir="$(_trend_toolkit_dir)"
 
-    if [[ ! -d "$toolkit_dir" ]]; then
-        echo "❌ Research toolkit not found at: $toolkit_dir"
-        echo "   Set RESEARCH_TOOLKIT_DIR in .env or export it before running."
-        return 1
-    fi
+    _require_external_repo "amir trend" "research_toolkit" "$toolkit_dir" "RESEARCH_TOOLKIT_DIR" "git@github.com:su6i/research-toolkit.git" || return 1
 
     # Use the toolkit's own venv python directly to avoid venv conflicts
     local python_bin="$toolkit_dir/.venv/bin/python"

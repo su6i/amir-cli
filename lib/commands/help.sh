@@ -43,6 +43,7 @@ run_help() {
     echo ""
     echo -e "${BOLD}System:${NC}"
     echo "  help                         Show this help"
+    echo "  doctor                       Check external tools/repos/venv, print a fix command for each missing one"
     echo "  update [opts]                Update repo, Python/Node deps, and uv-tool copies (yt-dlp etc); see --check/--brew"
     echo ""
 }

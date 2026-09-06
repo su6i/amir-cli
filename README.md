@@ -48,6 +48,7 @@ The installer will:
 1. Link the `amir` executable to your system path.
 2. Check for dependencies (FFmpeg, etc.) and offer to install them automatically.
 3. Set up command auto-completion for Zsh.
+4. Run `amir doctor` and print a summary — a ✅/❌ list of every external tool, the Python venv, and the optional companion repos below, with a fix command for anything missing. Run it again any time with `amir doctor`.
 
 ### Dependencies & Python Note 🐍
 Amir CLI uses **Python 3** for helper tasks (like data formatting and subtitle processing).
@@ -87,6 +88,17 @@ During installation, you will be asked to provide the following API key for AI f
 | **`GROK_API_KEY`** | For `amir router models grok`/`amir router --model grok` (optional). | [xAI Console](https://console.x.ai/) |
 | **`ANTHROPIC_API_KEY`** | For `amir router models anthropic` (optional). | [Anthropic Console](https://console.anthropic.com/) |
 
+### Optional Dependencies (private companion repos)
+
+A few commands bridge to their own sibling repo instead of vendoring that code here. `install.sh` never clones these automatically — the SSH remotes are private and the key has a passphrase no script can enter — so on a fresh machine they simply aren't there until you clone them yourself. Run `amir doctor` any time to see exactly what's missing and get a copy-pasteable fix for each.
+
+| Command | Needs repo | Default path | Override env var |
+| :--- | :--- | :--- | :--- |
+| `amir trend`, `amir research` | `research_toolkit` | `~/@-github/research_toolkit` | `RESEARCH_TOOLKIT_DIR` |
+| `amir apply`, `amir apply phd`, `amir apply job` | `ApplyForge` | `~/@-github/ApplyForge` | `APPLYFORGE_DIR` |
+| `amir router` | `ai-router` | `~/@-github/ai-router` | `AI_ROUTER_DIR` |
+
+If a repo is missing, the command fails fast with the exact `git clone` command (and the `export ..._DIR=` alternative if you already have a clone elsewhere) instead of a generic "not found" dead end.
 
 ## ⚙️ Configuration
 

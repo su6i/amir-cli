@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # amir skill — search GitHub for high-starred repos and create skill files
 
-# Resolve skill dir — works whether sourced via amir or run directly
-SKILL_DIR="${AMIR_ROOT:+${AMIR_ROOT}/.agent/skills}"
+# Resolve skill dir — works whether sourced via amir or run directly.
+# Each step validates -d before accepting the candidate, so a stale/wrong
+# AMIR_ROOT falls through to the next step instead of silently winning.
+SKILL_DIR=""
+[[ -n "$AMIR_ROOT" && -d "$AMIR_ROOT/.agent/skills" ]] && SKILL_DIR="$AMIR_ROOT/.agent/skills"
 [[ -z "$SKILL_DIR" ]] && SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.agent/skills" 2>/dev/null && pwd)"
-[[ -z "$SKILL_DIR" || ! -d "$SKILL_DIR" ]] && SKILL_DIR="$HOME/@-github/amir-cli/.agent/skills"
+[[ -z "$SKILL_DIR" || ! -d "$SKILL_DIR" ]] && SKILL_DIR="${AMIR_ROOT:-$HOME/@-github/amir-cli}/.agent/skills"
 
 _skill_usage() { echo "Usage: amir skill <subcommand> [options]"; }
 
