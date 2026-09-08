@@ -31,14 +31,20 @@ _doctor_check_tool() {
 }
 
 _doctor_check_repo() {
-    # _doctor_check_repo LABEL SHORT_NAME RESOLVED_PATH ENV_VAR CLONE_URL
-    local label="$1" short_name="$2" resolved_path="$3" env_var="$4" clone_url="$5"
+    # _doctor_check_repo LABEL SHORT_NAME RESOLVED_PATH ENV_VAR DEP_KEY
+    # DEP_KEY is passed to _amir_external_repo_https_url / _amir_external_repo_ssh_url
+    # (lib/amir_lib.sh) — the single shared source of truth for these URLs.
+    local label="$1" short_name="$2" resolved_path="$3" env_var="$4" dep_key="$5"
     if [[ -d "$resolved_path" ]]; then
         echo "  ✅ $label — $resolved_path"
         return 0
     fi
+    local https_url ssh_url
+    https_url="$(_amir_external_repo_https_url "$dep_key")"
+    ssh_url="$(_amir_external_repo_ssh_url "$dep_key")"
     echo "  ❌ $label — not found at: $resolved_path"
-    echo "     Fix: git clone $clone_url $resolved_path"
+    echo "     Fix:      git clone $https_url $resolved_path"
+    echo "     With SSH: git clone $ssh_url $resolved_path"
     echo "     Or:  export $env_var=/path/to/$short_name"
     return 1
 }
@@ -54,6 +60,16 @@ run_doctor() {
     amir_root="$(_doctor_root)"
 
     print_header "amir doctor"
+
+    echo ""
+    echo "amir-cli install:"
+    if git -C "$amir_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        local head_info
+        head_info="$(git -C "$amir_root" log -1 --format='%h (%ad)' --date=short 2>/dev/null)"
+        echo "  Commit: ${head_info:-unknown}"
+    else
+        echo "  Commit: unknown (not a git checkout)"
+    fi
 
     echo ""
     echo "External tools (required):"
@@ -78,13 +94,13 @@ run_doctor() {
     echo "External repositories (optional — only needed for specific commands):"
     _doctor_check_repo "research_toolkit (amir trend / amir research)" "research_toolkit" \
         "${RESEARCH_TOOLKIT_DIR:-$HOME/@-github/research_toolkit}" \
-        "RESEARCH_TOOLKIT_DIR" "git@github.com:su6i/research-toolkit.git"
+        "RESEARCH_TOOLKIT_DIR" "research_toolkit"
     _doctor_check_repo "ApplyForge (amir apply)" "ApplyForge" \
         "${APPLYFORGE_DIR:-$HOME/@-github/ApplyForge}" \
-        "APPLYFORGE_DIR" "git@github.com:su6i/ApplyForge.git"
+        "APPLYFORGE_DIR" "ApplyForge"
     _doctor_check_repo "ai-router (amir router)" "ai-router" \
         "${AI_ROUTER_DIR:-$HOME/@-github/ai-router}" \
-        "AI_ROUTER_DIR" "git@github.com:su6i/ai-router.git"
+        "AI_ROUTER_DIR" "ai-router"
 
     echo ""
     echo "Agent constitution symlink (optional):"
@@ -93,8 +109,12 @@ run_doctor() {
         echo "  ✅ .agent/constitution → $(cd "$constitution_link" && pwd -P)"
     else
         local constitution_dir="${AGENT_CONSTITUTION_DIR:-$HOME/@-github/agent-constitution}"
+        local const_https const_ssh
+        const_https="$(_amir_external_repo_https_url agent-constitution)"
+        const_ssh="$(_amir_external_repo_ssh_url agent-constitution)"
         echo "  ❌ .agent/constitution — missing or broken symlink"
-        echo "     Fix: git clone https://github.com/su6i/agent-constitution.git $constitution_dir"
+        echo "     Fix:      git clone $const_https $constitution_dir"
+        echo "     With SSH: git clone $const_ssh $constitution_dir"
         echo "     Then: ln -sfn $constitution_dir $constitution_link"
     fi
 

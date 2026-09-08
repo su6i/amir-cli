@@ -88,9 +88,9 @@ During installation, you will be asked to provide the following API key for AI f
 | **`GROK_API_KEY`** | For `amir router models grok`/`amir router --model grok` (optional). | [xAI Console](https://console.x.ai/) |
 | **`ANTHROPIC_API_KEY`** | For `amir router models anthropic` (optional). | [Anthropic Console](https://console.anthropic.com/) |
 
-### Optional Dependencies (private companion repos)
+### Optional Dependencies (public companion repos)
 
-A few commands bridge to their own sibling repo instead of vendoring that code here. `install.sh` never clones these automatically — the SSH remotes are private and the key has a passphrase no script can enter — so on a fresh machine they simply aren't there until you clone them yourself. Run `amir doctor` any time to see exactly what's missing and get a copy-pasteable fix for each.
+A few commands bridge to their own sibling repo instead of vendoring that code here. `install.sh` never clones these automatically — so on a fresh machine they simply aren't there until you clone them yourself. All of these repos are **public** on GitHub, so a plain HTTPS clone is enough — no SSH key, no passphrase, no port 22 required. SSH is only needed if you intend to push changes back to one of them (it requires your own SSH key registered on that GitHub account). Run `amir doctor` any time to see exactly what's missing and get a copy-pasteable fix (both HTTPS and SSH) for each.
 
 | Command | Needs repo | Default path | Override env var |
 | :--- | :--- | :--- | :--- |
@@ -98,7 +98,7 @@ A few commands bridge to their own sibling repo instead of vendoring that code h
 | `amir apply`, `amir apply phd`, `amir apply job` | `ApplyForge` | `~/@-github/ApplyForge` | `APPLYFORGE_DIR` |
 | `amir router` | `ai-router` | `~/@-github/ai-router` | `AI_ROUTER_DIR` |
 
-If a repo is missing, the command fails fast with the exact `git clone` command (and the `export ..._DIR=` alternative if you already have a clone elsewhere) instead of a generic "not found" dead end.
+If a repo is missing, the command fails fast with the exact `git clone` command (HTTPS first, SSH as a second line, and the `export ..._DIR=` alternative if you already have a clone elsewhere) instead of a generic "not found" dead end.
 
 ## ⚙️ Configuration
 

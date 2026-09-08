@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-09-08 — fix: print HTTPS clone hints first for public companion repos
+
+### Fixed
+
+- **Clone-URL hints printed SSH first (`git@github.com:...`) even though
+  `research-toolkit`, `ApplyForge`, `ai-router`, and `agent-constitution` are
+  all PUBLIC repos on GitHub.** On a network where port 22 to GitHub is
+  blocked (reported from an Intel Mac: `ssh_dispatch_run_fatal: ... port 22:
+  Operation timed out`), the exact command the CLI told the user to run would
+  hang or fail — even though a plain HTTPS clone needs no key, no
+  passphrase, and no port 22 at all. `_require_external_repo` (in
+  `lib/amir_lib.sh`) and `amir doctor`'s `_doctor_check_repo` now print
+  `Install it: git clone https://github.com/...` (or `Fix:` for doctor) as
+  the primary line, with `With SSH: git clone git@github.com:...` as a
+  second line only for someone who also intends to push.
+- **The four clone URLs were duplicated across six files** (`lib/amir_lib.sh`,
+  `lib/commands/doctor.sh`, `lib/commands/router.sh`, `lib/commands/trend.sh`,
+  `lib/commands/apply.sh` ×3, `lib/commands/research.sh`, `lib/commands/phd.sh`),
+  including one inconsistency where `doctor.sh`'s `agent-constitution` block
+  already used HTTPS while the other three repos in the same file still used
+  SSH. Consolidated into two lookup functions in `lib/amir_lib.sh`,
+  `_amir_external_repo_https_url` and `_amir_external_repo_ssh_url` (plain
+  `case` statements, not associative arrays — this codebase must still run
+  under bash 3.2 on macOS system bash). `_require_external_repo` and
+  `doctor.sh`'s `_doctor_check_repo`/agent-constitution block now take a
+  short dependency key (`research_toolkit`, `ApplyForge`, `ai-router`,
+  `agent-constitution`) instead of a raw URL, and every call site was updated
+  to pass the key.
+- README's "Optional Dependencies" section renamed from "private companion
+  repos" to "public companion repos" and rewritten to say HTTPS is sufficient
+  to clone them; SSH is only needed to push.
+
+### Added
+
+- **`amir doctor` now prints the installed `amir-cli` commit + date** (`git
+  -C "$AMIR_ROOT" log -1 --format='%h (%ad)' --date=short`, no `git fetch` —
+  entirely local) right under the `amir doctor` header, so a stale install on
+  another machine is obvious without guessing from stale error text. Falls
+  back to `unknown (not a git checkout)` when `$AMIR_ROOT` isn't a git
+  working tree.
+
+---
+
 ## 2026-09-07 — chore: add ruff to the toolchain, zero out lint findings
 
 ### Added

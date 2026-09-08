@@ -50,23 +50,55 @@ print_header() {
 
 # --- Shared Utilities ---
 
-# _require_external_repo CMD_LABEL DEP_LABEL RESOLVED_PATH ENV_VAR CLONE_URL
-# Prints an actionable error and returns 1 when RESOLVED_PATH is not a directory;
-# returns 0 silently when it is. Single source of truth for the "external repo
-# missing" message so no command re-implements it (DRY).
+# Shared source-of-truth for optional external repo clone URLs (bash 3.2
+# safe — no associative arrays, since macOS system bash on some machines is
+# still 3.2). Every consumer (this function, doctor.sh) calls these instead
+# of hardcoding its own copy of the URL (DRY) — see WO-amir-cli-0013. All
+# four repos are PUBLIC on GitHub, so HTTPS needs no key/passphrase/port-22
+# and is offered first; SSH is a second line only for someone who also pushes.
+_amir_external_repo_https_url() {
+    case "$1" in
+        research_toolkit)   echo "https://github.com/su6i/research-toolkit.git" ;;
+        ApplyForge)         echo "https://github.com/su6i/ApplyForge.git" ;;
+        ai-router)          echo "https://github.com/su6i/ai-router.git" ;;
+        agent-constitution) echo "https://github.com/su6i/agent-constitution.git" ;;
+        *) return 1 ;;
+    esac
+}
+
+_amir_external_repo_ssh_url() {
+    case "$1" in
+        research_toolkit)   echo "git@github.com:su6i/research-toolkit.git" ;;
+        ApplyForge)         echo "git@github.com:su6i/ApplyForge.git" ;;
+        ai-router)          echo "git@github.com:su6i/ai-router.git" ;;
+        agent-constitution) echo "git@github.com:su6i/agent-constitution.git" ;;
+        *) return 1 ;;
+    esac
+}
+
+# _require_external_repo CMD_LABEL DEP_LABEL RESOLVED_PATH ENV_VAR DEP_KEY
+# DEP_KEY is passed to _amir_external_repo_https_url / _amir_external_repo_ssh_url
+# above. Prints an actionable error and returns 1 when RESOLVED_PATH is not a
+# directory; returns 0 silently when it is. Single source of truth for the
+# "external repo missing" message so no command re-implements it (DRY).
 _require_external_repo() {
     local cmd_label="$1"
     local dep_label="$2"
     local resolved_path="$3"
     local env_var="$4"
-    local clone_url="$5"
+    local dep_key="$5"
 
     if [[ -d "$resolved_path" ]]; then
         return 0
     fi
 
+    local https_url ssh_url
+    https_url="$(_amir_external_repo_https_url "$dep_key")"
+    ssh_url="$(_amir_external_repo_ssh_url "$dep_key")"
+
     echo "❌ $cmd_label needs $dep_label, not found at: $resolved_path" >&2
-    echo "   Install it:   git clone $clone_url $resolved_path" >&2
+    echo "   Install it:   git clone $https_url $resolved_path" >&2
+    echo "   With SSH:     git clone $ssh_url $resolved_path" >&2
     echo "   Or point at an existing clone:  export $env_var=/path/to/$dep_label" >&2
     return 1
 }

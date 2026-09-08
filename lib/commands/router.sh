@@ -5,7 +5,7 @@
 
 run_router() {
     local ai_router_dir="${AI_ROUTER_DIR:-$HOME/@-github/ai-router}"
-    _require_external_repo "amir router" "ai-router" "$ai_router_dir" "AI_ROUTER_DIR" "git@github.com:su6i/ai-router.git" || return 1
+    _require_external_repo "amir router" "ai-router" "$ai_router_dir" "AI_ROUTER_DIR" "ai-router" || return 1
     local DELEGATE="$ai_router_dir/src/delegate.py"
     if [[ ! -f "$DELEGATE" ]]; then
         echo "❌ ai-router repo found at $ai_router_dir but src/delegate.py is missing (repo layout changed?)" >&2
