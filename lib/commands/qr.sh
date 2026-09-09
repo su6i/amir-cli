@@ -1,11 +1,33 @@
 #!/bin/bash
 
 _qr_usage() {
-    echo "Usage: amir qr <text|link|phone|email> [output.png]"
+    usage_block <<'TXT'
+Usage: amir qr <text|link|phone|email> [output.png]
+
+Description:
+  Generate a QR code and copy it to the clipboard, or save it to a PNG file.
+  The input is auto-detected: a run of 8+ digits becomes a tel: link, an
+  address with an "@" becomes a mailto: link, anything with a "." and no
+  spaces/scheme becomes an https:// URL, everything else is plain text.
+
+Options:
+  text|link|phone|email   Data to encode — required
+  output.png              If given, save the QR code here instead of the
+                           clipboard (".png" is appended if missing)
+
+Examples:
+  amir qr "https://example.com"
+  amir qr 15551234567
+  amir qr "hello world" out.png
+TXT
 }
 
 run_qr() {
     if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _qr_usage
+        return 0
+    fi
+    if [[ -z "$1" ]]; then
         _qr_usage
         return 0
     fi

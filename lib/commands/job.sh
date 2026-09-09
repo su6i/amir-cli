@@ -112,6 +112,10 @@ _job_show() {
 }
 
 _job_draft() {
+    if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+        echo "Usage: amir apply job draft <position-id> [--force] [--lang fr|en] [--track T]"
+        return 0
+    fi
     local pos_id=""
     local force_flag=""
     local lang_flag=""
@@ -201,6 +205,10 @@ _job_search() {
 }
 
 _job_add_source() {
+    if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+        echo "Usage: amir apply job add-source <name> <url> [description] [-p|--priority N]"
+        return 0
+    fi
     local name="" url="" desc="" priority_flag=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -226,6 +234,10 @@ _job_sync_cmd() {
 }
 
 _job_new() {
+    if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+        echo "Usage: amir apply job new <id> [--track devops|ai_engineer|polyvalent]"
+        return 0
+    fi
     local pos_id="$1"
     local track="polyvalent"
     shift || true
@@ -289,24 +301,35 @@ _job_init() {
 }
 
 _job_usage() {
-    echo ""
-    echo "  amir apply job — Job Application Tracker"
-    echo ""
-    echo "  Commands:"
-    echo "    status [--track devops|ai_engineer|polyvalent|all]  Show all positions"
-    echo "    show   [<id>]                   Show position + draft (no ID = list)"
-    echo "    list                            List all position IDs and titles"
-    echo "    search                          How to find new job positions"
-    echo "    add-source <name> <url> [desc]  Add a search source"
-    echo "               [-p N]              Insert at position N (default: end)"
-    echo "    new    <id> [--track <track>]   Create new position file"
-    echo "    draft  <id> [--force]           Generate email draft (DeepSeek)"
-    echo "    sent   <id> [--date DATE]       Mark as sent"
-    echo "    reply  <id> --type positive|negative|bounce|info"
-    echo "    open   [track]                  Open HTML tracker"
-    echo "    sync                            Sync Gmail job newsletters"
-    echo "    init   [track]                  Initialize tracking.json"
-    echo ""
+    usage_block <<'TXT'
+Usage: amir apply job [subcommand] [args]
+
+Description:
+  Job application tracker (found positions, drafts, sent/reply status).
+  With no args (or a lone --flag), shows pending positions.
+
+Options:
+  (no args)                        Show pending positions
+  status [--track T|all]           Show all positions
+  pending                          Show pending positions
+  show|list [<id>]                 Show position + draft (no ID = list all)
+  search                           How to find new job positions
+  sources | list-sources           List configured search sources
+  add-source <name> <url> [desc] [-p N]   Add a search source (insert at N)
+  new <id> [--track devops|ai_engineer|polyvalent]   Create new position file
+  draft <id> [--force] [--lang fr|en] [--track T]    Generate email draft
+  sent [<id>]                      Mark <id> sent, or list sent (no id)
+  reject [<id>]                    Mark <id> rejected, or list rejected (no id)
+  reply <id> ...                   Record a reply (see tracker for flags)
+  open [track]                     Open the HTML tracker
+  sync                             Sync Gmail job newsletters
+  init [track]                     Initialize tracking.json (all tracks if omitted)
+
+Examples:
+  amir apply job status --track ai_engineer
+  amir apply job draft pos-042 --lang en
+  amir apply job sent pos-042
+TXT
 }
 
 # Expose urgent header for apply.sh

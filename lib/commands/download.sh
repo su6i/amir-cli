@@ -24,6 +24,10 @@ run_download() {
         _download_help
         return 0
     fi
+    if [[ $# -eq 0 ]]; then
+        _download_help
+        return 0
+    fi
 
     source "$LIB_DIR/commands/video.sh"
     source "$LIB_DIR/commands/download_course_site.sh"
@@ -458,12 +462,14 @@ _gallery_dl_download() {
 # ── Help ──────────────────────────────────────────────────────────────────────
 
 _download_help() {
-    cat >&2 <<'EOF'
+    usage_block >&2 <<'EOF'
 Usage: amir download <url> [options]
 
-Download videos, reels, photos and carousels from YouTube, Instagram,
-TikTok, Twitter/X, Vimeo, and 1000+ other sites.
+Description:
+  Download videos, reels, photos and carousels from YouTube, Instagram,
+  TikTok, Twitter/X, Vimeo, and 1000+ other sites.
 
+Options:
   Video options (YouTube, TikTok, Twitter, Vimeo, ...):
     -R, --resolution <N>   Max height in pixels (default: 480)
     -F, --formats          List available resolutions before downloading

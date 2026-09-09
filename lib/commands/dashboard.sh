@@ -1,6 +1,20 @@
 #!/bin/bash
 
-_dashboard_usage() { echo "Usage: amir dashboard"; }
+_dashboard_usage() {
+    usage_block <<'TXT'
+Usage: amir dashboard
+
+Description:
+  One-screen overview: free disk space, pending TODOs (from `amir todo`),
+  and today/tomorrow's calendar events (via icalBuddy, if installed).
+
+Options:
+  (none)
+
+Examples:
+  amir dashboard
+TXT
+}
 run_dashboard() {
     if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
         _dashboard_usage

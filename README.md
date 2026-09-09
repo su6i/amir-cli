@@ -155,6 +155,16 @@ All commands respect these defaults unless overridden by command-line arguments.
 
 Run `amir help` or just `amir` to see the available commands. You can also rename the executable to whatever you prefer (e.g., `assist`, `do`) to match your workflow.
 
+**Every command and subcommand answers `--help` / `-h`** with its own usage
+(Description / Options / Examples), without touching the network or any
+files — this includes every `amir video <sub>`, `amir audio <sub>`, and
+`amir img <sub>` subcommand. Running a command that needs an argument with
+none prints the same usage (exit 0) instead of a raw error. Commands that
+are already useful with no arguments (e.g. `doctor`, `clean`, `trend`,
+`todo`, `scripts`, `update`, `router audit`) keep their normal behavior —
+only `--help` shows usage for those. `amir help <command>` is a shortcut
+that delegates to that command's own `--help` (e.g. `amir help audio`).
+
 ### 🎬 Multimedia
 | Command | Description |
 | :--- | :--- |
@@ -190,6 +200,8 @@ Run `amir help` or just `amir` to see the available commands. You can also renam
 | `amir img round <file> [radius] [fmt]` | Round image corners (PNG/JPG). |
 | `amir img compress <file(s)> [opts]` | Compress images to target size (default 300KB). Binary-search quality then auto-resize. `--target KB`, `--uniform` (same scale for all files in batch), `--grayscale` (ideal for official documents/scans), `--overwrite`, `-o dir`. |
 | `amir img extend <file> [opts]` | Extend image borders (custom/auto color). |
+| `amir img scan <file> [--fast\|--pro\|--ocr\|--py\|--all] [-o out]` | Document cleanup (white background, black ink); `--all` (default) generates all 4 methods side-by-side for comparison. |
+| `amir img burst <files\|dirs...> [-o out] [-r]` | Multi-frame reconstruction from a burst of near-duplicate photos (min 2). `-r`/`--recursive` expands directory arguments recursively. |
 | `amir img <file> <size> [g]` | Legacy mode (detects resize vs crop). |
 | `amir pdf [files] [opts]` | **Multi-Engine PDF Generator**: Render Markdown/Text/Images/LaTeX to PDF. Supports piping (e.g., `amir clip | amir pdf`), Puppeteer (Default), WeasyPrint, PIL (Robust Fallback), and **xelatex** for `.tex` files. Features: High-fidelity Persian RTL (Vazirmatn), auto-pagination, ExFAT compatibility, `--free-size` (`-f`) for continuous/custom dimensions, `--page-width/--page-height` (Puppeteer, pixels) for manual page sizing, `--theme carousel` (square 1080px LinkedIn slides, `##` = one slide), `--theme guide` (clean professional A4 long-form document — coloured headings, boxed blockquotes, clickable links; works LTR + RTL), and **`--force-rtl`** (alias `--rtl`) to force the whole document right-to-left. For LaTeX, custom `.sty` and `.cls` styles can be placed in `lib/latex/` to automatically include them. Common widths: 1200, 1440, 1600, 1800, 2000, 2480. |
 | `amir pdf linkedin-post <folder> [carousel \| guide [fr en fa tri]]` | **Trilingual LinkedIn post builder (WeasyPrint)**: from `<folder>/guide.{fr,en,fa}.md` + `<folder>/post.yml` it renders the three guides, `guide.trilingue.pdf`, and `carrousel.linkedin.pdf`. Subcommands rebuild only what changed: `carousel`, or `guide <fr en fa tri>` (one or several targets, e.g. `guide fa` rebuilds just the Persian guide; `tri` = the merged trilingual PDF). Fonts are vendored in `lib/fonts/` and a restricted `fontconfig` keeps Persian/RTL correct on macOS. See `docs/TRILINGUAL_POSTS.md`. Example: `amir pdf linkedin-post posts/04_my_post`. |

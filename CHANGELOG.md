@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-09-10 — feat: show per-command usage on --help and on missing arguments
+
+### Added
+
+- **New shared helper `lib/help_common.sh`** (sourced globally by the `amir`
+  entry script): `amir_help_requested "$@"` and `usage_block` (a consistent
+  Usage / Description / Options / Examples layout, bolded via `$BOLD`/`$NC`).
+- **Every command and subcommand now answers `--help`/`-h`** with real,
+  parser-verified usage text — including every `amir video <sub>`,
+  `amir audio <sub>`, `amir img <sub>`, `amir apply`/`job`/`phd` subcommand,
+  `amir skill <sub>`, and `amir pdf <sub>`. Two real bugs fixed along the
+  way: `amir router --help` and `amir trend --help` previously required
+  their (optional) external repo to exist before showing help; and
+  `amir img scan`'s help text advertised a `--bw` flag that has never
+  existed in the parser.
+- **`amir help <command>`** now delegates to that command's own `--help`
+  (e.g. `amir help audio`), reusing the exact source+call pattern from the
+  `amir` entry script's dispatcher so it can't drift out of sync. Fixed a
+  pre-existing bug where `amir help` (bare) passed the literal string
+  `"help"` through as the target command instead of showing the overview.
+- **No-argument behavior**, decided per command: commands that require an
+  argument (`video`, `audio`, `img`, `info`, `subtitle`, `pdf`, `clip`,
+  `download`, `apply`, `qr`, `lock`/`unlock`, `transfer`, `short`,
+  `watermark`, `extend`, and every argument-requiring subcommand) now print
+  usage and exit 0 instead of a raw error; commands that are already useful
+  with no arguments (`clean`, `doctor`, `trend`, `todo`, `scripts`,
+  `dashboard`, `update`, `keyboard`, `weather`, `pass`, `speed`,
+  `sync-constitution`, `update-projects`, `init-project`, `router`/`job`/`phd`
+  defaults) are unchanged.
+- `tests/test_help.sh` — smoke test covering every top-level command, every
+  documented subcommand's `--help`, `amir help <command>` delegation, and
+  the no-argument behavior above (95 checks).
+
+---
+
 ## 2026-09-08 — fix: print HTTPS clone hints first for public companion repos
 
 ### Fixed

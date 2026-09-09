@@ -168,6 +168,10 @@ else
     exit 1
 fi
 
+if [[ -f "$LIB_DIR/help_common.sh" ]]; then
+    source "$LIB_DIR/help_common.sh"
+fi
+
 # ==============================================================================
 # Subcommand Dispatcher
 # ==============================================================================
@@ -328,9 +332,23 @@ case "$COMMAND" in
 
     split)
         shift
+        if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+            echo "Usage: amir split <media_file> <mb>"
+            echo ""
+            echo "Description:"
+            echo "  Split a video or audio file into chunks of approximately <mb> megabytes."
+            echo ""
+            echo "Examples:"
+            echo "  amir split movie.mp4 25"
+            exit 0
+        fi
         local INPUT_FILE="$1"
         local SPLIT_MB="$2"
-        if [[ -z "$INPUT_FILE" || ! -f "$INPUT_FILE" ]]; then
+        if [[ -z "$INPUT_FILE" ]]; then
+            echo "Usage: amir split <media_file> <mb>"
+            exit 0
+        fi
+        if [[ ! -f "$INPUT_FILE" ]]; then
             echo "❌ Error: File not found: $INPUT_FILE" >&2
             echo "Usage: amir split <media_file> <mb>" >&2
             exit 1
@@ -350,6 +368,7 @@ case "$COMMAND" in
         ;;
 
     help|--help|-h)
+        shift
         if [[ -f "$LIB_DIR/commands/help.sh" ]]; then
             source "$LIB_DIR/commands/help.sh"
             run_help "$@"

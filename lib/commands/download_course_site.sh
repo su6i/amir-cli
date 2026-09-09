@@ -361,11 +361,37 @@ _course_site_download_one() {
 
 # 11. _download_course_site
 _download_course_site_usage() {
-    echo "Usage: amir download_course_site <url> [options]"
+    usage_block <<'TXT'
+Usage: amir download <lesson-or-course-url> [options]
+
+Description:
+  Private course-site handler (owner-purchased content only), routed to
+  automatically by "amir download" when the URL's host is listed in
+  AMIR_COURSE_SITE_DOMAINS (.env) or course_site.domains
+  (~/.amir/config.yaml). Accepts a single lesson URL or a whole course page
+  (downloads every lesson, in order). Auth comes from your own browser
+  cookies; never bypasses a login or paywall, and aborts if DRM is detected.
+
+Options:
+  url               Lesson or course page URL — required
+  --cookies FILE    Netscape cookies.txt file
+  --browser NAME    Browser to read cookies from (default: chrome)
+  --force           Re-download lessons even if the target file already exists
+  --keep-codec      Skip codec normalization; keep whatever the site served
+  --normalize       Force transcoding to H.264/AAC/MP4 even if already compliant
+
+Examples:
+  amir download https://course.example.com/lessons/3
+  amir download https://course.example.com/course/42 --force
+TXT
 }
 
 _download_course_site() {
     if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _download_course_site_usage
+        return 0
+    fi
+    if [[ -z "$1" ]]; then
         _download_course_site_usage
         return 0
     fi

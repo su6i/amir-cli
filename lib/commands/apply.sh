@@ -11,18 +11,33 @@ _tracker_py() {
 }
 
 _apply_usage() {
-    echo "Usage:"
-    echo "  amir apply               → sync + help"
-    echo "  amir apply --help        → همین راهنما (بدون sync، بدون شبکه)"
-    echo "  amir apply sync          → sync از Gmail"
-    echo "  amir apply phd [flags]   → pending PhD  (--sort fit|deadline|country  --country France  --min-fit 8)"
-    echo "  amir apply job [flags]   → pending Job"
-    echo "  amir apply tui [phd|job] → TUI ترمینال گرافیکی (کلیدهای جهت‌دار)"
-    echo "  amir apply web [port]    → Web interface روی localhost:8765"
-    echo "  amir apply stats         → آمار کلی"
-    echo "  amir apply alert         → ارسال ایمیل هشدار (همان ایمیلی که launchd روزانه می‌فرستد)"
-    echo "  amir apply preview       → پیش‌نمایش CV"
-    echo "  amir apply <url>         → تولید CV/CL برای آگهی"
+    usage_block <<'TXT'
+Usage: amir apply [subcommand] [args]
+
+Description:
+  Job/PhD application tracker and CV/cover-letter generator, backed by the
+  ApplyForge repo. With no arguments, syncs [AMIR-SYNC] positions from
+  Gmail, then prints this help. --help never touches the network.
+
+Options:
+  (no args)          Sync from Gmail, then show this help
+  sync                Sync [AMIR-SYNC] positions from Gmail
+  phd [flags]         Pending PhD positions — see "amir apply phd --help"
+  job [flags]         Pending Job positions — see "amir apply job --help"
+  tui [phd|job]       Terminal UI (arrow-key navigation)
+  web [port]          Web interface on localhost:<port> (default 8765)
+  stats               Overall application stats
+  alert               Send the deadline-alert email (same one launchd sends daily)
+  preview [args]      Preview the generated CV
+  <url> [--color C] [--role R] [--lang L]   Generate a CV/cover letter for a job posting URL
+
+Examples:
+  amir apply sync
+  amir apply phd --sort fit --min-fit 8
+  amir apply tui job
+  amir apply web 8765
+  amir apply https://example.com/job/123
+TXT
 }
 
 run_apply() {

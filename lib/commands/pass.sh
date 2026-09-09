@@ -1,7 +1,21 @@
 #!/bin/bash
 
 _pass_usage() {
-    echo "Usage: amir pass [length]"
+    usage_block <<'TXT'
+Usage: amir pass [length]
+
+Description:
+  Generate a random password (letters, digits, and !@#$%^&*()_+) and copy it
+  to the clipboard.
+
+Options:
+  length   Password length in characters (default: value of pass.length in
+           config, 16)
+
+Examples:
+  amir pass
+  amir pass 24
+TXT
 }
 
 run_pass() {

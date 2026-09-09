@@ -1,11 +1,29 @@
 #!/bin/bash
 
 _info_usage() {
-    echo "Usage: amir info <file>"
+    usage_block <<'TXT'
+Usage: amir info <file>
+
+Description:
+  Show detailed info about a file: type, MIME, size, created/modified
+  timestamps, originating device (macOS metadata), and — for
+  image/video/audio files — codec/resolution/bitrate metadata via ffprobe.
+
+Options:
+  file   File to inspect — required
+
+Examples:
+  amir info video.mp4
+  amir info photo.heic
+TXT
 }
 
 run_info() {
     if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _info_usage
+        return 0
+    fi
+    if [[ -z "$1" ]]; then
         _info_usage
         return 0
     fi

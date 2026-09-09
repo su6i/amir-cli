@@ -1,6 +1,25 @@
 #!/bin/bash
 
-_todo_usage() { echo "Usage: amir todo [task|list|done <number>]"; }
+_todo_usage() {
+    usage_block <<'TXT'
+Usage: amir todo [task|list|done <number>]
+
+Description:
+  A simple local TODO list, stored at ~/.amir/todo_list.txt (overridable via
+  todo.file in config).
+
+Options:
+  (no args)      Show the list (same as "list")
+  "task text"    Add a new item
+  list           Show the list
+  done <number>  Remove item <number> (as shown in the list)
+
+Examples:
+  amir todo
+  amir todo "write the report"
+  amir todo done 2
+TXT
+}
 
 run_todo() {
     if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then

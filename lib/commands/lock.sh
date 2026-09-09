@@ -1,11 +1,27 @@
 #!/bin/bash
 
 _lock_usage() {
-    echo "Usage: amir lock <file>"
+    usage_block <<'TXT'
+Usage: amir lock <file>
+
+Description:
+  Encrypt a file with GPG (AES256, interactive password prompt) to
+  <file>.gpg. The original file is left in place.
+
+Options:
+  file   File to encrypt — required
+
+Examples:
+  amir lock secrets.txt
+TXT
 }
 
 run_lock() {
     if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _lock_usage
+        return 0
+    fi
+    if [[ -z "$1" ]]; then
         _lock_usage
         return 0
     fi
@@ -34,11 +50,27 @@ run_lock() {
 }
 
 _unlock_usage() {
-    echo "Usage: amir unlock <file>"
+    usage_block <<'TXT'
+Usage: amir unlock <file>
+
+Description:
+  Decrypt a GPG-encrypted <file>.gpg back to its original file (drops the
+  .gpg extension). The encrypted file is left in place.
+
+Options:
+  file   File to decrypt — required, must end in .gpg
+
+Examples:
+  amir unlock secrets.txt.gpg
+TXT
 }
 
 run_unlock() {
     if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _unlock_usage
+        return 0
+    fi
+    if [[ -z "$1" ]]; then
         _unlock_usage
         return 0
     fi

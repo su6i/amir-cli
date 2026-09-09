@@ -13,12 +13,59 @@ if [[ -f "$LIB_DIR/media_lib.sh" ]]; then
 fi
 
 _audio_usage() {
-    echo "Usage: amir audio {extract|convert|cut|normalize|fade|trim-silence|split|concat|to-video|youtube|transcribe} [options]"
-    echo "       amir audio <directory>  (Smart folder-to-video flow)"
+    usage_block <<'TXT'
+Usage: amir audio <subcommand> [options]
+       amir audio <directory>   (Smart folder-to-video flow: concat + waveform video + subtitles)
+
+Description:
+  Audio processing toolkit: extract, convert, cut/trim, normalize, fade,
+  trim silence, split, concatenate, turn into a video, download from
+  YouTube, or transcribe. Every subcommand accepts multiple input files for
+  batch processing (except concat/to-video, which combine files into one).
+
+Options:
+  extract <video(s)> [bitrate] [--split MB]
+      Extract MP3 from video (default bitrate from config, usually 320)
+  convert <file(s)> [mp3|wav|ogg|m4a|flac]
+      Convert audio format (default: mp3)
+  cut <file(s)> [-s|--start T] [-e|--end T] [-d|--delete START END ...]
+      [-x|--extract START END] [-o|--output FILE]
+      Trim (keep -s..-e), delete one or more ranges (-d, repeatable), or
+      extract a single named clip (-x)
+  normalize <file(s)> [--target|-l LUFS] [--peak|-p dBTP] [-o FILE]
+      Two-pass EBU R128 loudness normalize (default: -16 LUFS, -1 dBTP)
+  fade <file(s)> [--in|-i SEC] [--out|-O SEC] [-o FILE]
+      Fade in/out (at least one of --in/--out required)
+  trim-silence <file(s)> [--threshold|-t DB] [--pad|-p SEC] [-o FILE]
+      Remove leading/trailing silence (default: -40dB threshold, 0.3s pad)
+  split <file(s)> <mb>
+      Split into ~N MB chunks
+  concat [file...] [-o|--output FILE]
+      Join multiple audio files into one (default output: <first>_merged.mp3)
+  to-video <audio> [-i|--image FILE] [--waveform] [-o|--output FILE]
+      Create a video from audio + a still or auto-fetched image
+      (--waveform draws a live waveform instead of a static image)
+  youtube|yt <url> [mp3|wav|ogg] [bitrate] [--split MB]
+      Download audio from YouTube at the closest available bitrate
+      (default: mp3, 128kbps)
+  transcribe <file> [--source LANG] [subtitle-options]
+      Transcribe via Whisper (amir subtitle) — saves both .srt and .txt
+
+Examples:
+  amir audio extract talk.mp4 192
+  amir audio cut song.mp3 -d 00:01:00 00:01:30 -o song_edit.mp3
+  amir audio normalize *.mp3 --target -14
+  amir audio youtube https://youtu.be/dQw4w9WgXcQ mp3 128
+  amir audio ./podcast_folder
+TXT
 }
 
 run_audio() {
     if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _audio_usage
+        return 0
+    fi
+    if [[ -z "$1" ]]; then
         _audio_usage
         return 0
     fi
@@ -68,40 +115,30 @@ run_audio() {
             audio_transcribe "$@"
             ;;
         *)
-            echo "Usage: amir audio {extract|convert|cut|normalize|fade|trim-silence|split|concat|to-video|youtube|transcribe} [options]"
-            echo "       amir audio <directory>  (Smart folder-to-video flow)"
+            echo "❌ Unknown subcommand: $SUBCOMMAND"
             echo ""
-            echo "Subcommands:"
-            echo "  extract <video_file> [bitrate] [--split mb]  Extract MP3 from video"
-            echo "  convert <audio_file> [format]   Convert audio format (wav, mp3, ogg, m4a)"
-            echo "  cut <audio_file> [-s start] [-e end]         Trim or delete segments"
-            echo "         -s 00:01:00 -e 00:03:00               Keep 1m–3m"
-            echo "         -d 00:01:00 00:03:00                  Delete 1m–3m, keep rest"
-            echo "         -d 00:01:00 00:02:00 -d 00:05:00 00:06:00  Multi-delete"
-            echo "         -x 00:01:00 00:03:00                  Extract named clip"
-            echo "  normalize <audio_file> [--target -16] [--peak -1]  Loudness normalize (EBU R128)"
-            echo "  fade <audio_file> [--in 2] [--out 3]         Fade in/out (seconds)"
-            echo "  trim-silence <audio_file> [--threshold -40] [--pad 0.3]  Remove leading/trailing silence"
-            echo "  split <audio_file> <mb>         Split audio into ~N MB chunks"
-            echo "  concat [files...] -o output     Join multiple audio files"
-            echo "  to-video <audio> -i <image>     Create video from audio and image"
-            echo "  youtube <url> [format] [bitrate] [--split mb]  Download audio from YouTube"
-            echo "    Formats: mp3 (default), wav, ogg"
-            echo "  transcribe <audio_file> [--source fa|en|...] [subtitle-options]"
-            echo "    Transcribe audio via Whisper — saves both .srt and .txt"
+            _audio_usage
             return 1
             ;;
     esac
 }
 
 audio_transcribe() {
+    if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+        echo "Usage: amir audio transcribe <audio_file> [--source fa|en|...] [subtitle-options]"
+        echo ""
+        echo "Description:"
+        echo "  Transcribes audio via Whisper (runs the full 'amir subtitle' pipeline)"
+        echo "  and saves both a .srt and a plain-text .txt alongside the input."
+        return 0
+    fi
     local input="$1"
     shift
 
     if [[ -z "$input" ]]; then
         echo "Usage: amir audio transcribe <audio_file> [--source fa|en|...] [subtitle-options]"
         echo "  Transcribes audio via Whisper and saves both .srt and .txt"
-        return 1
+        return 0
     fi
 
     if [[ ! -f "$input" ]]; then
@@ -149,6 +186,16 @@ audio_cut() {
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --help|-h)
+                echo "Usage: amir audio cut <file(s)> [-s start] [-e end] [-d start end ...] [-x start end] [-o output]"
+                echo ""
+                echo "Options:"
+                echo "  -s, --start T    Keep from T to --end (stream copy, fast)"
+                echo "  -e, --end T      End of the keep range"
+                echo "  -d, --delete S E Delete range S..E, keep the rest (repeatable)"
+                echo "  -x, --extract S E   Extract only S..E into a new clip"
+                echo "  -o, --output F   Output filename"
+                return 0 ;;
             -s|--start)   start_time="$2";  _opts+=("$1" "$2"); shift 2 ;;
             -e|--end|-t|--to) end_time="$2"; _opts+=("$1" "$2"); shift 2 ;;
             -x|--extract)
@@ -185,7 +232,7 @@ audio_cut() {
         echo "  -d 00:01:00 00:02:00 -d 00:05:00 00:06:00  Multi-delete in one pass" >&2
         echo "  -x 00:01:00 00:03:00                       Extract named clip" >&2
         echo "  -o output.mp3                              Custom output filename" >&2
-        return 1
+        return 0
     fi
 
     # ── Batch dispatch ─────────────────────────────────────────────────────────
@@ -390,6 +437,14 @@ audio_normalize() {
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --help|-h)
+                echo "Usage: amir audio normalize <file(s)> [--target -16] [--peak -1] [-o output]"
+                echo ""
+                echo "Options:"
+                echo "  --target, -l LUFS  Target integrated loudness (default: -16, YouTube standard)"
+                echo "  --peak, -p dBTP    Max true peak (default: -1)"
+                echo "  -o, --output F     Output filename"
+                return 0 ;;
             --target|-l) target_lufs="$2"; _opts+=("$1" "$2"); shift 2 ;;
             --peak|-p)   true_peak="$2";   _opts+=("$1" "$2"); shift 2 ;;
             -o|--output) output_file="$2"; shift 2 ;;
@@ -409,7 +464,7 @@ audio_normalize() {
         echo "Usage: amir audio normalize <file(s)> [--target -16] [--peak -1] [-o output]" >&2
         echo "  --target  Target integrated loudness in LUFS (default: -16, YouTube standard)" >&2
         echo "  --peak    Max true peak in dBTP (default: -1)" >&2
-        return 1
+        return 0
     fi
 
     # ── Batch dispatch ─────────────────────────────────────────────────────────
@@ -495,6 +550,14 @@ audio_fade() {
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --help|-h)
+                echo "Usage: amir audio fade <file(s)> [--in 2] [--out 3] [-o output]"
+                echo ""
+                echo "Options:"
+                echo "  --in, -i SEC    Fade-in duration in seconds (default: 0)"
+                echo "  --out, -O SEC   Fade-out duration in seconds (default: 0)"
+                echo "  -o, --output F  Output filename"
+                return 0 ;;
             --in|-i)  fade_in="$2";  _opts+=("$1" "$2"); shift 2 ;;
             --out|-O) fade_out="$2"; _opts+=("$1" "$2"); shift 2 ;;
             -o|--output) output_file="$2"; shift 2 ;;
@@ -514,7 +577,7 @@ audio_fade() {
         echo "Usage: amir audio fade <file(s)> [--in 2] [--out 3] [-o output]" >&2
         echo "  --in   Fade-in duration in seconds (default: 0)" >&2
         echo "  --out  Fade-out duration in seconds (default: 0)" >&2
-        return 1
+        return 0
     fi
 
     if [[ "$fade_in" == "0" && "$fade_out" == "0" ]]; then
@@ -600,6 +663,14 @@ audio_trim_silence() {
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --help|-h)
+                echo "Usage: amir audio trim-silence <file(s)> [--threshold -40] [--pad 0.3] [-o output]"
+                echo ""
+                echo "Options:"
+                echo "  --threshold, -t DB  Silence level in dB (default: -40)"
+                echo "  --pad, -p SEC       Silence to keep at edges (default: 0.3)"
+                echo "  -o, --output F      Output filename"
+                return 0 ;;
             --threshold|-t) threshold="$2"; _opts+=("$1" "$2"); shift 2 ;;
             --pad|-p)       pad="$2";       _opts+=("$1" "$2"); shift 2 ;;
             -o|--output)    output_file="$2"; shift 2 ;;
@@ -619,7 +690,7 @@ audio_trim_silence() {
         echo "Usage: amir audio trim-silence <file(s)> [--threshold -40] [--pad 0.3] [-o output]" >&2
         echo "  --threshold  Silence level in dB (default: -40). Louder = more aggressive." >&2
         echo "  --pad        Seconds of silence to keep at edges (default: 0.3)" >&2
-        return 1
+        return 0
     fi
 
     # ── Batch dispatch ─────────────────────────────────────────────────────────
@@ -690,6 +761,14 @@ audio_split() {
     local -a input_files=()
     local split_mb=""
 
+    if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+        echo "Usage: amir audio split <file(s)> <mb>"
+        echo ""
+        echo "Description:"
+        echo "  Split into ~<mb> MB chunks. Multiple input files run as a batch."
+        return 0
+    fi
+
     for arg in "$@"; do
         if [[ -f "$arg" ]]; then
             input_files+=("$arg")
@@ -703,9 +782,8 @@ audio_split() {
     done
 
     if [[ ${#input_files[@]} -eq 0 ]]; then
-        log_error "No input files specified." >&2
         echo "Usage: amir audio split <file(s)> <mb>" >&2
-        return 1
+        return 0
     fi
     if [[ -z "$split_mb" || "$split_mb" -le 0 ]]; then
         log_error "Split size must be a positive integer in MB." >&2
@@ -728,6 +806,14 @@ audio_convert() {
     local -a input_files=()
     local FORMAT="mp3"
 
+    if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+        echo "Usage: amir audio convert <file(s)> [mp3|wav|ogg|m4a|flac]"
+        echo ""
+        echo "Description:"
+        echo "  Convert audio format (default target: mp3). Multiple input files run as a batch."
+        return 0
+    fi
+
     for arg in "$@"; do
         if [[ -f "$arg" ]]; then
             input_files+=("$arg")
@@ -741,9 +827,8 @@ audio_convert() {
     done
 
     if [[ ${#input_files[@]} -eq 0 ]]; then
-        log_error "No input files specified." >&2
         echo "Usage: amir audio convert <file(s)> [mp3|wav|ogg|m4a|flac]" >&2
-        return 1
+        return 0
     fi
 
     local ENCODER_ARGS=()
@@ -801,6 +886,13 @@ audio_extract() {
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --help|-h)
+                echo "Usage: amir audio extract <video_file(s)> [bitrate] [--split <mb>]"
+                echo ""
+                echo "Options:"
+                echo "  bitrate       MP3 bitrate in kbps (default: mp3.bitrate config, usually 320)"
+                echo "  --split MB    Split the extracted MP3 into ~N MB chunks"
+                return 0 ;;
             --split) split_mb="$2"; shift 2 ;;
             *)
                 if [[ -f "$1" ]]; then
@@ -816,9 +908,8 @@ audio_extract() {
     done
 
     if [[ ${#input_files[@]} -eq 0 ]]; then
-        log_error "No input files specified." >&2
         echo "Usage: amir audio extract <video_file(s)> [bitrate] [--split <mb>]" >&2
-        return 1
+        return 0
     fi
 
     if [[ "$split_mb" != "0" && ( ! "$split_mb" =~ ^[0-9]+$ || "$split_mb" -le 0 ) ]]; then
@@ -862,14 +953,20 @@ audio_concat() {
     
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --help|-h)
+                echo "Usage: amir audio concat <file...> [-o output]"
+                echo ""
+                echo "Description:"
+                echo "  Join multiple audio files into one (default output: <first>_merged.mp3)."
+                return 0 ;;
             -o|--output) OUTPUT="$2"; shift 2 ;;
             *) INPUT_FILES+=("$1"); shift ;;
         esac
     done
 
     if [[ ${#INPUT_FILES[@]} -eq 0 ]]; then
-        log_error "No input files specified." >&2
-        return 1
+        echo "Usage: amir audio concat <file...> [-o output]"
+        return 0
     fi
 
     if [[ -z "$OUTPUT" ]]; then
@@ -919,6 +1016,14 @@ audio_to_video() {
     
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --help|-h)
+                echo "Usage: amir audio to-video <audio> [-i|--image FILE] [--waveform] [-o|--output FILE]"
+                echo ""
+                echo "Options:"
+                echo "  -i, --image FILE   Background image (auto-fetched/generated if omitted)"
+                echo "  --waveform         Draw a live waveform instead of a static image"
+                echo "  -o, --output FILE  Output video path"
+                return 0 ;;
             -i|--image) IMAGE="$2"; shift 2 ;;
             -o|--output) OUTPUT="$2"; shift 2 ;;
             --waveform) WAVEFORM=true; shift ;;
@@ -926,7 +1031,11 @@ audio_to_video() {
         esac
     done
 
-    if [[ -z "$AUDIO" || ! -f "$AUDIO" ]]; then
+    if [[ -z "$AUDIO" ]]; then
+        echo "Usage: amir audio to-video <audio> [-i|--image FILE] [--waveform] [-o|--output FILE]"
+        return 0
+    fi
+    if [[ ! -f "$AUDIO" ]]; then
         log_error "Audio file not found: '$AUDIO'" >&2
         return 1
     fi
@@ -981,6 +1090,14 @@ audio_to_video() {
 }
 
 audio_youtube() {
+    if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+        echo "Usage: amir audio youtube <url> [mp3|wav|ogg] [bitrate] [--split <mb>]"
+        echo ""
+        echo "Description:"
+        echo "  Download audio from YouTube at the closest available bitrate"
+        echo "  (default: mp3, 128kbps)."
+        return 0
+    fi
     local URL="$1"
     shift
     local OUT_FORMAT="mp3"
@@ -989,6 +1106,9 @@ audio_youtube() {
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --help|-h)
+                echo "Usage: amir audio youtube <url> [mp3|wav|ogg] [bitrate] [--split <mb>]"
+                return 0 ;;
             mp3|wav|ogg)
                 OUT_FORMAT="$1"
                 shift
@@ -1012,10 +1132,9 @@ audio_youtube() {
     done
 
     if [[ -z "$URL" ]]; then
-        log_error "YouTube URL is required." >&2
         echo "Usage: amir audio youtube <url> [format] [bitrate] [--split <mb>]" >&2
         echo "Formats: mp3 (default), wav, ogg" >&2
-        return 1
+        return 0
     fi
 
     if [[ "$split_mb" != "0" && ( ! "$split_mb" =~ ^[0-9]+$ || "$split_mb" -le 0 ) ]]; then

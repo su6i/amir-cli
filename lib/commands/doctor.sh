@@ -9,9 +9,22 @@
 # Dependencies").
 
 _doctor_usage() {
-    echo "Usage: amir doctor"
-    echo "  Checks external tools, the Python venv, optional external repos,"
-    echo "  and the agent-constitution symlink. Prints a fix command for every missing item."
+    usage_block <<'TXT'
+Usage: amir doctor
+
+Description:
+  One-shot dependency health check: required external tools (ffmpeg,
+  yt-dlp, gallery-dl, qpdf, node, uv), the Python .venv, optional external
+  repos (research_toolkit, ApplyForge, ai-router), and the
+  agent-constitution symlink. Prints an actionable fix command for every
+  missing item. Exits non-zero only when a REQUIRED item is missing.
+
+Options:
+  (none)
+
+Examples:
+  amir doctor
+TXT
 }
 
 _doctor_root() {

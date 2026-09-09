@@ -1,7 +1,23 @@
 #!/bin/bash
 
 _init_project_usage() {
-    echo "Usage: amir init-project [target_dir]"
+    usage_block <<'TXT'
+Usage: amir init-project [target_dir]
+
+Description:
+  Scaffold or update a project with the agent-constitution: symlinks
+  .agent/constitution to one central clone (cloning it first if needed),
+  installs the pre-commit/commit-msg hooks, and creates any missing
+  bootstrap files. Safe to re-run — only creates/updates what's missing,
+  never touches unrelated files.
+
+Options:
+  target_dir   Project directory to initialize (default: current directory)
+
+Examples:
+  amir init-project
+  amir init-project ~/@-github/new-project
+TXT
 }
 
 run_init_project() {

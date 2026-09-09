@@ -1,9 +1,28 @@
 #!/bin/bash
 
-_transfer_usage() { echo "Usage: amir transfer <file>"; }
+_transfer_usage() {
+    usage_block <<'TXT'
+Usage: amir transfer <file>
+
+Description:
+  Upload a file to a free anonymous file-sharing host (tries catbox.moe,
+  pixeldrain.com, then uguu.se in order) and copy the resulting link to the
+  clipboard.
+
+Options:
+  file   File to upload — required
+
+Examples:
+  amir transfer report.pdf
+TXT
+}
 
 run_transfer() {
     if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _transfer_usage
+        return 0
+    fi
+    if [[ -z "$1" ]]; then
         _transfer_usage
         return 0
     fi

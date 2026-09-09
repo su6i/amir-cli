@@ -20,42 +20,50 @@ _trend_toolkit_dir() {
 }
 
 _trend_help() {
-    echo ""
-    echo "Usage: amir trend [keyword] [options]"
-    echo ""
-    echo "  No keyword → show most-viewed videos globally (trending)"
-    echo ""
-    echo "Options:"
-    printf "  %-22s %s\n" "--source SOURCE"    "Platform to search (default: youtube)"
-    printf "  %-22s %s\n" "--lang CODE"         "Language filter, e.g. fa en de ar (default: any)"
-    printf "  %-22s %s\n" "--region CODE"       "Region filter, e.g. IR US GB (default: global)"
-    printf "  %-22s %s\n" "--metric METRIC"     "Sort by: views likes stars citations comments (default: views)"
-    printf "  %-22s %s\n" "--limit N"           "Number of results (default: 10)"
-    printf "  %-22s %s\n" "--semantic"          "Use semantic vector search instead of keyword"
-    printf "  %-22s %s\n" "--ideas"             "Generate cross-source ideas from collected data"
-    printf "  %-22s %s\n" "--count N"           "Number of ideas to generate (default: 10, use with --ideas)"
-    printf "  %-22s %s\n" "--help"              "Show this help"
-    echo ""
-    echo "Sources:"
-    printf "  %-16s %s\n" "youtube"       "Videos — views, likes, comments"
-    printf "  %-16s %s\n" "github"        "Repositories — stars, forks"
-    printf "  %-16s %s\n" "arxiv"         "Academic papers — citations"
-    printf "  %-16s %s\n" "reddit"        "Posts — score, comments"
-    printf "  %-16s %s\n" "producthunt"   "Products — votes, comments"
-    printf "  %-16s %s\n" "indiehackers"  "Projects — upvotes"
-    echo ""
-    echo "Examples:"
-    echo "  amir trend                                 # Global trending (most viewed)"
-    echo "  amir trend \"AI tools\"                      # Search YouTube for 'AI tools'"
-    echo "  amir trend --region IR                     # Trending in Iran"
-    echo "  amir trend \"موزیک\" --lang fa               # Persian music videos"
-    echo "  amir trend \"LLM\" --source github --metric stars --limit 20"
-    echo "  amir trend \"deep learning\" --source arxiv  # Academic papers"
-    echo "  amir trend \"devops\" --ideas                # Generate ideas from devops sources"
-    echo ""
+    usage_block <<'TXT'
+Usage: amir trend [keyword] [options]
+
+Description:
+  Trending content & idea search across YouTube, GitHub, ArXiv, Reddit,
+  Product Hunt and Indie Hackers, via the research_toolkit Multi-Agent RAG
+  pipeline. No keyword shows globally trending (most-viewed) content.
+
+Options:
+  keyword                Search term (omit for global trending)
+  --source, -s SOURCE    Platform: youtube github arxiv reddit producthunt
+                          indiehackers (default: youtube)
+  --lang, -l CODE        Language filter, e.g. fa en de ar (default: any)
+  --region, -r CODE      Region filter, e.g. IR US GB (default: global)
+  --metric, -m METRIC    Sort by: views likes stars citations comments (default: views)
+  --limit, -n N          Number of results (default: 10)
+  --semantic              Use semantic vector search instead of keyword
+  --ideas                 Generate cross-source ideas from collected data
+  --count, -c N           Number of ideas to generate (default: 10, use with --ideas)
+
+Sources:
+  youtube        Videos — views, likes, comments
+  github         Repositories — stars, forks
+  arxiv          Academic papers — citations
+  reddit         Posts — score, comments
+  producthunt    Products — votes, comments
+  indiehackers   Projects — upvotes
+
+Examples:
+  amir trend
+  amir trend "AI tools"
+  amir trend --region IR
+  amir trend "LLM" --source github --metric stars --limit 20
+  amir trend "devops" --ideas
+TXT
 }
 
 run_trend() {
+    # --help must answer before touching the (optional) research_toolkit repo.
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _trend_help
+        return 0
+    fi
+
     local toolkit_dir
     toolkit_dir="$(_trend_toolkit_dir)"
 

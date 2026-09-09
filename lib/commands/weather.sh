@@ -1,6 +1,20 @@
 #!/bin/bash
 
-_weather_usage() { echo "Usage: amir weather [city]"; }
+_weather_usage() {
+    usage_block <<'TXT'
+Usage: amir weather [city]
+
+Description:
+  Show a quick weather report for a city via wttr.in.
+
+Options:
+  city   City name (default: value of weather.default_city in config, "Montpellier")
+
+Examples:
+  amir weather
+  amir weather Paris
+TXT
+}
 
 run_weather() {
     if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then

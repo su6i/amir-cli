@@ -520,10 +520,21 @@ process_video() {
 }
 
 run_video_split() {
+    if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+        echo "Usage: amir video split <file> <mb>"
+        echo ""
+        echo "Description:"
+        echo "  Split a video into chunks of approximately <mb> megabytes."
+        return 0
+    fi
     local input_file="$1"
     local split_mb="$2"
 
-    if [[ -z "$input_file" || ! -f "$input_file" ]]; then
+    if [[ -z "$input_file" ]]; then
+        echo "Usage: amir video split <file> <mb>"
+        return 0
+    fi
+    if [[ ! -f "$input_file" ]]; then
         echo "❌ Error: No input file specified."
         echo "Usage: amir video split <file> <mb>"
         return 1
@@ -544,7 +555,7 @@ video_abspath() {
 video_convert() {
     local input="" output="" target_fmt="" reencode=0
 
-    if [[ $# -eq 0 ]]; then
+    _video_convert_usage() {
         echo "Usage: amir video convert <input> [--to FORMAT] [-o OUTPUT] [--cpu]"
         echo ""
         echo "Formats: mp4  mov  mkv  webm  avi"
@@ -557,13 +568,18 @@ video_convert() {
         echo "  amir video convert clip.mov --to mkv       # → clip.mkv"
         echo "  amir video convert clip.mov -o final.mp4"
         echo "  amir video convert slides.mp4 --cpu        # re-encode — sharper text"
-        return 1
+    }
+
+    if [[ $# -eq 0 ]]; then
+        _video_convert_usage
+        return 0
     fi
 
     local supported_formats=("mp4" "mov" "mkv" "webm" "avi")
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --help|-h) _video_convert_usage; return 0 ;;
             --to|-f) target_fmt="$2"; shift 2 ;;
             -o|--output) output="$2"; shift 2 ;;
             --cpu) reencode=1; shift ;;
@@ -690,6 +706,15 @@ video_concat() {
     local output_file=""
     local input_files=()
 
+    if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+        echo "Usage: amir video concat <files...> [-o output.mp4]"
+        echo ""
+        echo "Description:"
+        echo "  Concatenate videos in the given order (stream copy via ffmpeg's"
+        echo "  concat demuxer). Default output: <first-file>_merged.mp4."
+        return 0
+    fi
+
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -o|--output)
@@ -704,9 +729,8 @@ video_concat() {
     done
 
     if [[ ${#input_files[@]} -eq 0 ]]; then
-        echo "❌ Error: No input files specified."
         echo "Usage: amir video concat <files...> [-o output.mp4]"
-        return 1
+        return 0
     fi
 
     if [[ -z "$output_file" ]]; then
@@ -801,7 +825,7 @@ _pip_to_seconds() {
 }
 
 video_pip() {
-    if [[ $# -eq 0 ]]; then
+    if [[ $# -eq 0 || "$1" == "--help" || "$1" == "-h" ]]; then
         echo "Usage: amir video pip <main> --pip <file> [options] [--pip <file> [options]] [-o output]"
         echo ""
         echo "Options per --pip:"
@@ -823,7 +847,7 @@ video_pip() {
         echo ""
         echo "  # Custom pixel position"
         echo "  amir video pip screen.mp4 --pip cam.mov --pos 50:50 --size 30"
-        return 1
+        return 0
     fi
 
     local main_video="" output="" margin=20
@@ -997,7 +1021,7 @@ video_pip() {
 }
 
 video_outro() {
-    if [[ $# -eq 0 ]]; then
+    if [[ $# -eq 0 || "$1" == "--help" || "$1" == "-h" ]]; then
         echo "Usage: amir video outro <video> --image <img> [options]"
         echo ""
         echo "Options:"
@@ -1008,7 +1032,7 @@ video_outro() {
         echo ""
         echo "Example:"
         echo "  amir video outro presentation.mp4 --image outro_card.png --fade 1 --hold 4"
-        return 1
+        return 0
     fi
 
     local video="" image="" output="" fade_dur=1 hold_dur=3
@@ -1233,17 +1257,19 @@ video() {
         shift
     fi
 
-    # If no arguments, show help
-    if [[ $# -eq 0 ]]; then
-        echo "Usage: amir video compress <files...> [Resolution] [Quality] [--gpu|--cpu]"
+    _video_usage() {
+        echo "Usage: amir video <file(s)> [Resolution] [Quality] [--gpu|--cpu]"
+        echo "       amir video compress <files...> [Resolution] [Quality] [--gpu|--cpu]"
         echo "       amir video record [--list] [--screen N] [--audio N] [--fps N] [-o FILE]"
         echo "       amir video pip <main> --pip <file> [--start T] [--end T] [--pos tl|tr|bl|br|X:Y] [--size %]"
-        echo "       amir video convert <file> [--to FORMAT] [-o OUTPUT] [--reencode]"
+        echo "       amir video convert <file> [--to FORMAT] [-o OUTPUT] [--cpu]"
         echo "       amir video concat <files...> [-o output.mp4]"
         echo "       amir video outro <video> --image <img> [--fade N] [--hold N] [-o FILE]"
         echo "       amir video cut / trim <file> [options]"
         echo "       amir video split <file> <mb>"
         echo "       amir video batch <dir> [Resolution]"
+        echo "       amir video codecs"
+        echo "       amir video tiktok / tt <url> [options]"
         echo ""
         echo "Example (Compress): amir video compress movie.mp4 1080 60"
         echo "Example (Compress): amir video compress movie.mp4 --resolution 720 --quality 40"
@@ -1251,11 +1277,14 @@ video() {
         echo "Example (Trim):     amir video trim clip.mp4 -s 00:01:30 -t 00:03:00"
         echo "Example (Delete):   amir video cut clip.mp4 -d 00:01:00 00:02:00"
         echo ""
-        echo "Options:"
+        echo "Compress options:"
         echo "  --gpu            Use hardware encoder (default on Apple Silicon)"
         echo "  --cpu            Use software encoder (better compression, highly recommended for text/screen recordings)"
         echo "  --quality N      Set quality (1-100, higher = better)"
         echo "  --resolution N   Set resolution height (e.g. 720, 1080)"
+        echo "  --fps N          Force output frame rate"
+        echo "  --split MB       Split output into ~N MB chunks"
+        echo "  extreme          Fast preset: 360p, quality 30, CPU encoder"
         echo "  -s, --start      Start time (HH:MM:SS or seconds)"
         echo "  -e, --end        End time on original timeline (HH:MM:SS or seconds)"
         echo "  -t, --to         End time (alias for --end)"
@@ -1271,7 +1300,18 @@ video() {
         echo "  --subtitle-logo-width    Logo width percent of video width (default: 10)"
         echo "  --guest-tag             Guest lower-third: start,duration,name,title[,pos]"
         echo "  --guest-tag-pos         Default guest position: br|bl|tr|tl|bc|tc"
-        return 1
+    }
+
+    # --help must answer before touching ffmpeg/bc checks or any file I/O.
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _video_usage
+        return 0
+    fi
+
+    # If no arguments, show help
+    if [[ $# -eq 0 ]]; then
+        _video_usage
+        return 0
     fi
 
     # Basic runtime checks
@@ -1403,6 +1443,16 @@ run_video_cut() {
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --help|-h)
+                echo "Usage: amir video cut <file> [-s start] [-e end] [--duration d] [-d start end ...] [-x start end] [-o output] [--resolution H] [--quality Q] [--fps N] [--split MB] [--cover-frame IMG] [--subtitle-banner-image IMG|--subtitle-banner-color C] [--subtitle-logo IMG] [--guest-tag 'start,duration,name,title[,pos]'] [--render]"
+                echo ""
+                echo "Options:"
+                echo "  -s/-e/-t/--duration   Keep range (start/end/end-alias/duration-from-start)"
+                echo "  -d, --delete S E      Delete range(s), stitch the remainder (repeatable)"
+                echo "  -x, --extract S E     Extract only S..E into a new clip"
+                echo "  -o, --output F        Output filename"
+                echo "  --resolution/--quality/--fps/--split   Final-render passthrough options"
+                return 0 ;;
             -s|--start) start_time="$2"; shift 2 ;;
             -e|--end) end_time="$2"; shift 2 ;;
             -t|--to) end_time="$2"; shift 2 ;;
@@ -1465,9 +1515,8 @@ run_video_cut() {
     done
 
     if [[ -z "$input_file" ]]; then
-        echo "❌ Error: No input file specified."
-        echo "Usage: amir video cut <file> [-s start] [-e end] [--duration d] [-d start end] [-x start end] [-o output] [--resolution H] [--quality Q] [--fps N] [--split MB] [--cover-frame IMG] [--subtitle-banner-image IMG|--subtitle-banner-color C] [--subtitle-logo IMG] [--guest-tag 'start,duration,name,title[,pos]']"
-        return 1
+        echo "Usage: amir video cut <file> [-s start] [-e end] [--duration d] [-d start end ...] [-x start end] [-o output] [--resolution H] [--quality Q] [--fps N] [--split MB] [--cover-frame IMG] [--subtitle-banner-image IMG|--subtitle-banner-color C] [--subtitle-logo IMG] [--guest-tag 'start,duration,name,title[,pos]'] [--render]"
+        return 0
     fi
 
     if [[ $extract_mode -eq 1 && $delete_mode -eq 1 ]]; then
@@ -3949,7 +3998,26 @@ PY
 # Usage: amir video tiktok <url> [same options as 'video download']
 # ==============================================================================
 video_tiktok() {
-    if [[ -z "$1" || ( "$1" == --* && "$1" != "--subtitle" && "$1" != "-s" ) ]]; then
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" || -z "$1" ]]; then
+        echo "Usage: amir video tiktok <url> [options]"
+        echo "       amir video tt     <url> [options]"
+        echo ""
+        echo "Examples:"
+        echo "  amir video tiktok 'https://vt.tiktok.com/ZSu8LxsHC'"
+        echo "  amir video tiktok 'https://vt.tiktok.com/ZSu8LxsHC' --subtitle -t fa"
+        echo "  amir video tiktok 'https://vt.tiktok.com/ZSu8LxsHC' --translate -t en fa"
+        echo "  amir video tiktok 'https://vt.tiktok.com/ZSu8LxsHC' --sub-only"
+        echo ""
+        echo "Options (same as 'amir video download'):"
+        echo "  --subtitle, -s         Subtitle pipeline: YouTube manual -> YouTube auto -> Whisper large-v3"
+        echo "  --translate            Download YT-style subs + translate via LLM"
+        echo "  --target, -t [s] <t>   Subtitle language (e.g. -t fa  or  -t en fa)"
+        echo "  --sub-only             Generate SRT only, do not burn into video"
+        echo "  --only-subs            Keep subtitle files, prompt to delete raw video"
+        echo "  -l, --get-link         Print direct stream URL without downloading"
+        return 0
+    fi
+    if [[ "$1" == --* && "$1" != "--subtitle" && "$1" != "-s" ]]; then
         log_error "TikTok URL is required." >&2
         echo "" >&2
         echo "Usage: amir video tiktok <url> [options]" >&2

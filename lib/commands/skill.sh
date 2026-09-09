@@ -9,7 +9,7 @@ SKILL_DIR=""
 [[ -z "$SKILL_DIR" ]] && SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.agent/skills" 2>/dev/null && pwd)"
 [[ -z "$SKILL_DIR" || ! -d "$SKILL_DIR" ]] && SKILL_DIR="${AMIR_ROOT:-$HOME/@-github/amir-cli}/.agent/skills"
 
-_skill_usage() { echo "Usage: amir skill <subcommand> [options]"; }
+_skill_usage() { skill_help; }
 
 run_skill() {
     if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
@@ -30,18 +30,24 @@ run_skill() {
 }
 
 skill_help() {
-    cat <<'EOF'
+    usage_block <<'TXT'
 Usage: amir skill <subcommand> [options]
 
-Subcommands:
-  harvest <query> [--min-stars N] [--limit N] [--pick N]
-      Search GitHub, rank by stars, fetch READMEs, generate skill file
+Description:
+  Search GitHub for high-starred repos on a topic and turn them into a local
+  skill file under .agent/skills/, or browse existing skill files.
+
+Options:
+  harvest <query> [--min-stars N] [--limit N] [--pick N] [-o|--output FILE]
+      Search GitHub, rank by stars, fetch READMEs, generate a skill file
+      (min-stars default 500, limit default 20, pick default 5)
 
   search <query> [--min-stars N] [--limit N]
       Search GitHub and display results without creating a skill
+      (min-stars default 200, limit default 15)
 
   list [--grep PATTERN]
-      List all existing skill files
+      List all existing skill files (optionally filtered)
 
   show <skill-name>
       Display contents of a skill file
@@ -52,11 +58,19 @@ Examples:
   amir skill search "davinci resolve python" --min-stars 500
   amir skill list --grep video
   amir skill show opensource-tts
-EOF
+TXT
 }
 
 # ── List existing skills ───────────────────────────────────────────────────────
 skill_list() {
+    if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+        echo "Usage: amir skill list [--grep PATTERN]"
+        echo ""
+        echo "Description:"
+        echo "  List all skill files under .agent/skills/, optionally filtered by"
+        echo "  a substring match on name or description."
+        return 0
+    fi
     local grep_pat=""
     [[ "$1" == "--grep" ]] && grep_pat="$2"
 
@@ -79,6 +93,13 @@ skill_list() {
 
 # ── Show a skill ──────────────────────────────────────────────────────────────
 skill_show() {
+    if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+        echo "Usage: amir skill show <skill-name>"
+        echo ""
+        echo "Description:"
+        echo "  Print the contents of one skill file (with or without the .md extension)."
+        return 0
+    fi
     local name="${1:-}"
     [[ -z "$name" ]] && echo "❌ Usage: amir skill show <skill-name>" && return 1
 
@@ -95,6 +116,13 @@ skill_search() {
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --help|-h)
+                echo "Usage: amir skill search <query> [--min-stars N] [--limit N]"
+                echo ""
+                echo "Options:"
+                echo "  --min-stars N  Minimum repo stars (default: 200)"
+                echo "  --limit N      Max results (default: 15)"
+                return 0 ;;
             --min-stars) min_stars="$2"; shift 2 ;;
             --limit)     limit="$2";     shift 2 ;;
             *) query="${query:+$query }$1"; shift ;;
@@ -121,6 +149,15 @@ skill_harvest() {
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --help|-h)
+                echo "Usage: amir skill harvest <query> [--min-stars N] [--limit N] [--pick N] [-o|--output FILE]"
+                echo ""
+                echo "Options:"
+                echo "  --min-stars N     Minimum repo stars (default: 500)"
+                echo "  --limit N         Repos to search (default: 20)"
+                echo "  --pick N          Top repos to fetch READMEs for (default: 5)"
+                echo "  -o, --output FILE Skill filename (default: derived from query)"
+                return 0 ;;
             --min-stars) min_stars="$2"; shift 2 ;;
             --limit)     limit="$2";     shift 2 ;;
             --pick)      pick="$2";      shift 2 ;;

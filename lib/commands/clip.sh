@@ -1,7 +1,32 @@
 #!/bin/bash
 
 _clip_usage() {
-    echo "Usage: amir clip <existing-file>  OR  amir clip <new-filename>  OR  amir clip <word1 word2 ...>  OR  echo 'hi' | amir clip"
+    usage_block <<'TXT'
+Usage: amir clip <existing-file>
+       amir clip <new-filename>
+       amir clip <word1 word2 ...>
+       echo "text" | amir clip
+       amir clip            (with stdout piped: pastes clipboard content)
+
+Description:
+  Smart clipboard tool. Behavior depends on the argument and whether input
+  or output is piped: an existing file path is copied as a file/reference; a
+  non-existing single word is treated as a filename and the current
+  clipboard content is saved into it; multiple words are copied as plain
+  text; piped stdin is copied (optionally saved to a file named by the
+  argument); with no argument and piped stdout, the current clipboard
+  content is printed (paste). Falls back to OSC 52 over SSH/tmux when no
+  native clipboard is available.
+
+Options:
+  (none — behavior is inferred from arguments and pipes, see Usage above)
+
+Examples:
+  amir clip report.pdf
+  amir clip hello world
+  echo "hi" | amir clip
+  amir clip | amir pdf
+TXT
 }
 
 run_clip() {
@@ -75,9 +100,8 @@ run_clip() {
                 fi
                 return 0
             fi
-            echo "❌ Error: No input provided."
-            echo "Usage: clip <existing-file>  OR  clip <new-filename>  OR  clip <word1 word2 ...>  OR  echo 'hi' | clip"
-            return 1
+            _clip_usage
+            return 0
         fi
     
         # 3. Check if argument is an existing file or plain text

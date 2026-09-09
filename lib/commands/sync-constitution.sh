@@ -1,6 +1,23 @@
 #!/bin/bash
 
-_sync_constitution_usage() { echo "Usage: amir sync-constitution [target_dir]"; }
+_sync_constitution_usage() {
+    usage_block <<'TXT'
+Usage: amir sync-constitution [target_dir]
+
+Description:
+  Pull the latest agent-constitution into a single project: updates the
+  central clone and refreshes the symlink (preferred pattern), or updates
+  the legacy git submodule if that pattern is used instead. Use
+  "amir update-projects" to do this across every project at once.
+
+Options:
+  target_dir   Project directory to sync (default: current directory)
+
+Examples:
+  amir sync-constitution
+  amir sync-constitution ~/@-github/some-project
+TXT
+}
 
 run_sync_constitution() {
     if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then

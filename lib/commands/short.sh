@@ -1,11 +1,31 @@
 #!/bin/bash
 
 _short_usage() {
-    echo "Usage: amir short <url> [--debug]"
+    usage_block <<'TXT'
+Usage: amir short <url> [-d|--debug]
+
+Description:
+  Shorten a URL. Tries the configured preferred provider first (short.provider
+  in config, default is.gd), then falls back through is.gd, tinyurl.com,
+  da.gd. Copies the resulting short link to the clipboard. "https://" is
+  prepended automatically if the URL has no scheme.
+
+Options:
+  url          URL to shorten — required
+  -d, --debug  Print which provider is being tried
+
+Examples:
+  amir short example.com/very/long/path
+  amir short https://example.com --debug
+TXT
 }
 
 run_short() {
     if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _short_usage
+        return 0
+    fi
+    if [[ -z "$1" ]] || { [[ "$1" == "--debug" || "$1" == "-d" ]] && [[ -z "$2" ]]; }; then
         _short_usage
         return 0
     fi

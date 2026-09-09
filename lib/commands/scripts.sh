@@ -1,7 +1,24 @@
 #!/bin/bash
 
 _scripts_usage() {
-    echo "Usage: amir scripts [list | id | args...]"
+    usage_block <<'TXT'
+Usage: amir scripts [list | <id> [args...]]
+
+Description:
+  Pick and run a saved script from a small local registry
+  (lib/config/scripts.txt, format "id|description|command"). No args opens
+  an interactive numbered picker.
+
+Options:
+  (no args)    Interactive picker
+  list         List saved scripts without running one
+  <id> [args]  Run the saved script <id> directly, forwarding [args]
+
+Examples:
+  amir scripts
+  amir scripts list
+  amir scripts weather Paris
+TXT
 }
 
 run_scripts() {

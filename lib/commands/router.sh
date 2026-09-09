@@ -3,7 +3,46 @@
 # Multi-model: gemini/gemma (FREE) · minimax · deepseek-v4-flash/-pro · grok.
 # Conversation memory via --session, proof + cost ledger via audit.
 
+_router_usage() {
+    usage_block <<'TXT'
+Usage: amir router "<prompt>" [options]
+       amir router audit
+       amir router cost
+       amir router models [provider]
+
+Description:
+  Single AI gateway (ai-router repo): send a prompt to a model, or use one
+  of the ledger/catalog subcommands. With no prompt and no subcommand,
+  shows this help (no network call).
+
+Options:
+  "<prompt>"          Free-text prompt to send
+  -m, --model M       Model alias: minimax (default, prepaid) | flash | pro |
+                       grok | gemini | gemini-lite | gemma (FREE tier)
+  -s, --session S     Reuse conversation memory across calls under name S
+  --new               Reset the session named by --session
+  --system T          System prompt text
+  --out FILE          Write the response to FILE
+  --plan FILE         Read the prompt from a plan file
+  audit               Show the cost/usage ledger
+  cost                Show the cost dashboard
+  models [provider]   List provider model catalogs (delegates to amir llm-lists)
+
+Examples:
+  amir router --model gemini write a python fib function
+  amir router -s code --model gemini now add memoization
+  amir router --model deepseek-v4-flash --plan PLAN.md --out ANSWER.md
+  amir router audit
+TXT
+}
+
 run_router() {
+    # --help must answer before touching the (optional) ai-router repo.
+    if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _router_usage
+        return 0
+    fi
+
     local ai_router_dir="${AI_ROUTER_DIR:-$HOME/@-github/ai-router}"
     _require_external_repo "amir router" "ai-router" "$ai_router_dir" "AI_ROUTER_DIR" "ai-router" || return 1
     local DELEGATE="$ai_router_dir/src/delegate.py"
@@ -24,22 +63,8 @@ run_router() {
                 source "$LIB_DIR/commands/llm-lists.sh"; llm_lists "$@"; return $?
             fi
             echo "❌ llm-lists.sh not found"; return 1 ;;
-        ""|-h|--help)
-            cat <<'EOF'
-Usage:
-  amir router "<prompt>" [--model M] [--session S] [--new] [--system T]
-  amir router audit            # cost / usage ledger
-  amir router cost             # cost dashboard
-  amir router models [prov]    # list provider model catalogs
-
-Models (--model): minimax (default, prepaid) | flash | pro | grok
-                  gemini | gemini-lite | gemma   (FREE tier)
-Memory: reuse --session NAME across calls; --new resets it.
-Examples:
-  amir router --model gemini write a python fib function
-  amir router -s code --model gemini now add memoization
-  amir router --model deepseek-v4-flash --plan PLAN.md --out ANSWER.md
-EOF
+        "")
+            _router_usage
             return 0 ;;
     esac
 

@@ -71,10 +71,94 @@ _subtitle_run() {
         "$_PYTHON" -m subtitle "$@"
 }
 
-_subtitle_usage() { echo "Usage: amir subtitle <file_or_url> [options]"; }
+_subtitle_usage() {
+    usage_block <<'TXT'
+Usage: amir subtitle <file_or_url> [options]
+
+Description:
+  AI-generated, multi-language subtitles (Whisper transcription + LLM
+  translation) burned into the video, plus optional social-media posts and
+  document exports. If <file_or_url> is a URL, it is downloaded first (same
+  engine as "amir download"), then processed.
+
+Options (core):
+  video                   Video file path or URL — required
+  -s, --source LANG       Source language for Whisper (default: auto-detect)
+  -t, --sub LANG [LANG..] Subtitle languages, top-to-bottom (default: auto fa)
+  --sub-only               Generate subtitle files only, skip burning into video
+  --no-render               Same as --sub-only (internal name)
+  --native-lines keep|hide|on|off   Mixed-language line visibility (default: keep)
+  --ass-input FILE         Render directly from a pre-edited ASS file
+  -f, --force               Force re-transcription, skip SRT smart resume
+  -c, --correct              AI-correct the transcription
+  -l, --limit TIME [TIME]  Limit to a time range (1 arg = first N seconds;
+                            2 args = start end, or begin/end aliases)
+
+Options (style & rendering):
+  --style NAME              Subtitle style template (default: lecture)
+  --max-lines N              Max lines per subtitle, 1 or 2 (default: 1)
+  --speaker                  Enable speaker diarization
+  --alignment N               ASS alignment (2=Bottom, 8=Top, 5=Center)
+  --font-size N                 Primary font size
+  --sec-font-size N              Secondary font size
+  --shadow N / --outline N        Shadow depth / outline width
+  --back-color HEX / --primary-color HEX   ASS hex colors
+  --resolution N / --quality N / --fps N   Final burn resolution/quality/fps
+  --split N                        Split final rendered video into ~N MB chunks
+  --shift SECONDS                   Shift all subtitle timing (+later/-earlier)
+
+Options (AI tuning):
+  --llm deepseek|gemini|litellm|minimax|grok   Translation LLM (default: deepseek)
+  --model NAME                Specific model (required for litellm)
+  --whisper-model NAME          Whisper size, e.g. large-v3, turbo (default: large-v3)
+  --initial-prompt TEXT           Whisper initial context prompt
+  --temperature N                   Model temperature 0.0-1.0
+  --openai-fallback                   Use OpenAI if DeepSeek fails
+  --multilingual                        Non-YouTube video, language changes mid-video
+  --no-yt-auto                            Skip automatic YouTube-subtitle check
+  --whisper-timing                          Keep raw Whisper timing (skip normalization)
+  --no-vad                                    Disable Voice Activity Detection
+
+Options (branding & overlays):
+  --pad-bottom N                    Black padding at bottom, % of height
+  --subtitle-banner-image FILE / --subtitle-banner-color HEX / --subtitle-banner-height N
+  --brand-kit FILE [--brand-kit-shorts]    One-shot brand setup
+  --subtitle-logo FILE [--subtitle-logo-animated] [--subtitle-logo-width N]
+    [--subtitle-logo-margin-right N] [--subtitle-logo-margin-bottom N]
+  --guest-tag START,DURATION,NAME,TITLE[,POS]   Repeatable lower-third
+  --guest-tag-pos br|bl|tr|tl|bc|tc     Default POS for --guest-tag
+  --raise-top N / --raise-bottom N        Nudge subtitle position up (px)
+
+Options (social posts & export):
+  --post [PLATFORM ...]     Generate social posts: telegram youtube linkedin (default: telegram)
+  --post-only [PLATFORM ...]  Generate posts from existing SRTs, skip subtitle processing
+  --post-lang LANG [LANG..]     Languages to post in (default: fa)
+  --prompt-file FILE               Override the LLM post prompt for this run
+  --save [FMT ...]                   Export clean text: txt md html pdf (default: pdf)
+
+Options (URL/download passthrough, only when video_or_url is a URL):
+  --yt-subs                 Use YouTube's own subtitles instead of Whisper
+  -R, --resolution N          Download resolution cap (default: 480)
+  --browser NAME / --cookies FILE   Cookie auth for the download
+  --extreme                     Fast download mode: 360p, lower quality
+  -y, --yes                       Skip download confirmation prompts
+  --keep-thumb                      Keep the downloaded thumbnail
+  -F, --formats                       List available formats and exit
+
+Examples:
+  amir subtitle lecture.mp4
+  amir subtitle lecture.mp4 --sub fa en --style lecture
+  amir subtitle https://youtu.be/dQw4w9WgXcQ --sub-only --sub fa
+  amir subtitle talk.mp4 --llm gemini --post telegram linkedin
+TXT
+}
 
 run_subtitle() {
     if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+        _subtitle_usage
+        return 0
+    fi
+    if [[ $# -eq 0 ]]; then
         _subtitle_usage
         return 0
     fi

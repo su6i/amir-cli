@@ -19,6 +19,29 @@ _amir_ytdlp_ver() {
     return 1
 }
 
+_update_usage() {
+    usage_block <<'TXT'
+Usage: amir update [options]
+
+Description:
+  Update the repository, Python dependencies, tools, and system packages.
+  With no options, runs the full update (git pull, Python/Node deps,
+  pinned uv-tool upgrades — yt-dlp, gallery-dl, mlx-whisper, etc).
+
+Options:
+  --check        Report-only mode; inspect versions without mutating state
+  --no-git       Skip git repository update (Step 1)
+  --brew         Enable Homebrew formula upgrades (Step 5, disabled by default)
+  --all-tools    Upgrade all uv tools instead of the fixed list (Step 3)
+  -h, --help     Show this help message and exit
+
+Examples:
+  amir update
+  amir update --check
+  amir update --brew --all-tools
+TXT
+}
+
 run_update() {
     # ── defaults ────────────────────────────────────────────────────────────
     local CHECK_MODE=0
@@ -35,18 +58,7 @@ run_update() {
             --brew)         DO_BREW=1 ;;
             --all-tools)    ALL_TOOLS=1 ;;
             -h|--help)
-                cat <<'EOF'
-Usage: amir update [options]
-
-Update the repository, Python dependencies, tools, and system packages.
-
-Options:
-  --check        Report-only mode; inspect versions without mutating state
-  --no-git       Skip git repository update (Step 1)
-  --brew         Enable Homebrew formula upgrades (Step 5, disabled by default)
-  --all-tools    Upgrade all uv tools instead of the fixed list (Step 3)
-  -h, --help     Show this help message and exit
-EOF
+                _update_usage
                 return 0 ;;
             -*)             echo "❌ Unknown option: $1"; return 1 ;;
             *)              echo "❌ Unexpected argument: $1"; return 1 ;;

@@ -1,6 +1,23 @@
 #!/bin/bash
 
-_clean_usage() { echo "Usage: amir clean"; }
+_clean_usage() {
+    usage_block <<'TXT'
+Usage: amir clean
+
+Description:
+  Interactive macOS system-cache cleaner. Shows a checklist (Trash, user
+  caches, old logs, VS Code workspaceStorage, orphaned app containers, ...)
+  with a size estimate for each; toggle items and delete the selection.
+  On non-macOS, prints a short notice and exits.
+
+Options:
+  (none — fully interactive: arrows to move, Space/1-9/0 to toggle,
+  Enter/d to delete selection, q to cancel)
+
+Examples:
+  amir clean
+TXT
+}
 run_clean() {
     if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
         _clean_usage

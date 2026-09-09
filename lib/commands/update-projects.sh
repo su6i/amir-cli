@@ -8,6 +8,46 @@
 # symlink pattern). Idempotent and non-destructive. Written for bash 3.2 (no
 # mapfile / assoc arrays).
 
+_update_projects_usage() {
+    usage_block <<'TXT'
+Usage: amir update-projects [BASE_DIR] [options]
+
+Description:
+  (Re)installs the agent-constitution pre-commit/commit-msg hooks and
+  refreshes the constitution link in every project under BASE_DIR that uses
+  it — either the current symlink pattern (one central clone, re-linked per
+  project) or the legacy per-repo git-submodule pattern (still supported,
+  updated in place). With no options, scans and updates everything under
+  $AMIR_PROJECTS_DIR (default ~/@-github), skipping amir-cli and
+  agent-constitution.
+
+Options:
+  BASE_DIR           Directory to scan (default: $AMIR_PROJECTS_DIR or ~/@-github)
+  --dry-run          List what would happen, change nothing
+  --no-hook          Don't (re)install the pre-commit/commit-msg hooks
+  --no-link          Don't refresh the constitution link/submodule
+  --exclude "a b"    Extra project names to skip
+                     (default excludes: amir-cli agent-constitution)
+
+Notes:
+  - Symlink-pattern projects: the central clone
+    ($AGENT_CONSTITUTION_DIR, default ~/@-github/agent-constitution) is pulled
+    ONCE up front, then every project's symlink is refreshed (cheap, no
+    per-project network call).
+  - Legacy submodule-pattern projects keep working as before; re-run
+    `amir init-project` on them to migrate to the symlink pattern.
+    SSH submodule URLs may prompt for your key passphrase — run once:
+    ssh-add --apple-use-keychain ~/.ssh/id_ed25519
+  - The installed hook is strict: it blocks commits to main and commits that
+    change code without touching docs. Bypass per-commit with --no-verify.
+
+Examples:
+  amir update-projects
+  amir update-projects --dry-run
+  amir update-projects ~/projects --exclude "scratch old-repo"
+TXT
+}
+
 run_update_projects() {
     local CONSTITUTION_PATH=".agent/constitution"
     local HOOKS_REL="$CONSTITUTION_PATH/templates/hooks"
@@ -32,33 +72,7 @@ run_update_projects() {
             --exclude)      shift; EXCLUDES="$EXCLUDES $1" ;;
             --exclude=*)    EXCLUDES="$EXCLUDES ${1#*=}" ;;
             -h|--help)
-                cat <<'EOF'
-Usage: amir update-projects [BASE_DIR] [options]
-
-(Re)installs the agent-constitution pre-commit/commit-msg hooks and refreshes
-the constitution link in every project under BASE_DIR that uses it — either
-the current symlink pattern (one central clone, re-linked per project) or the
-legacy per-repo git-submodule pattern (still supported, updated in place).
-
-  BASE_DIR           Directory to scan (default: $AMIR_PROJECTS_DIR or ~/@-github)
-  --dry-run          List what would happen, change nothing
-  --no-hook          Don't (re)install the pre-commit/commit-msg hooks
-  --no-link          Don't refresh the constitution link/submodule
-  --exclude "a b"    Extra project names to skip
-                     (default excludes: amir-cli agent-constitution)
-
-Notes:
-  • Symlink-pattern projects: the central clone
-    ($AGENT_CONSTITUTION_DIR, default ~/@-github/agent-constitution) is pulled
-    ONCE up front, then every project's symlink is refreshed (cheap, no
-    per-project network call).
-  • Legacy submodule-pattern projects keep working as before; re-run
-    `amir init-project` on them to migrate to the symlink pattern.
-    SSH submodule URLs may prompt for your key passphrase — run once:
-    ssh-add --apple-use-keychain ~/.ssh/id_ed25519
-  • The installed hook is strict: it blocks commits to main and commits that
-    change code without touching docs. Bypass per-commit with --no-verify.
-EOF
+                _update_projects_usage
                 return 0 ;;
             -*)             echo "❌ Unknown option: $1"; return 1 ;;
             *)              BASE_DIR="$1" ;;

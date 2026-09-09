@@ -1,6 +1,19 @@
 #!/bin/bash
 
-_speed_usage() { echo "Usage: amir speed"; }
+_speed_usage() {
+    usage_block <<'TXT'
+Usage: amir speed
+
+Description:
+  Run a network quality test (macOS built-in `networkQuality`).
+
+Options:
+  (none)
+
+Examples:
+  amir speed
+TXT
+}
 run_speed() {
     if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
         _speed_usage

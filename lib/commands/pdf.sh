@@ -18,7 +18,17 @@
 run_pdf_linkedin_post() {
     local folder="$1"
 
-    if [[ -z "$folder" || ! -d "$folder" ]]; then
+    if [[ -z "$folder" || "$folder" == "--help" || "$folder" == "-h" ]]; then
+        echo "Usage: amir pdf linkedin-post <folder> [carousel | guide [fr en fa tri]]"
+        echo "   amir pdf linkedin-post <folder>               → whole post (guides + trilingue + carousel)"
+        echo "   amir pdf linkedin-post <folder> carousel      → carousel only"
+        echo "   amir pdf linkedin-post <folder> guide fa      → a single guide (trilingue auto-rebuilt)"
+        echo "   amir pdf linkedin-post <folder> guide fa en   → several guides at once (+ trilingue)"
+        echo "   amir pdf linkedin-post <folder> guide tri     → rebuild ONLY the trilingue"
+        echo "   amir pdf linkedin-post <folder> guide         → all guides + trilingue"
+        return 0
+    fi
+    if [[ ! -d "$folder" ]]; then
         echo "❌ Usage: amir pdf linkedin-post <folder> [carousel | guide [fr en fa tri]]"
         echo "   amir pdf linkedin-post <folder>               → whole post (guides + trilingue + carousel)"
         echo "   amir pdf linkedin-post <folder> carousel      → carousel only"
@@ -381,8 +391,23 @@ run_pdf() {
 run_pdf_split() {
     local input="" pages_spec="" combined=false output=""
 
+    _pdf_split_usage() {
+        echo "Usage: amir pdf split <file.pdf> --pages <spec> [--combined] [-o output]"
+        echo ""
+        echo "Options:"
+        echo "  --pages SPEC   Comma-separated pages/ranges, e.g. 1,3,4 or 1,2-3,4-8"
+        echo "  --combined     Merge the selected pages into one output PDF"
+        echo "  -o, --output   Output path/stem"
+    }
+
+    if [[ $# -eq 0 ]]; then
+        _pdf_split_usage
+        return 0
+    fi
+
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --help|-h) _pdf_split_usage; return 0 ;;
             --pages) pages_spec="$2"; shift 2 ;;
             --combined) combined=true; shift ;;
             -o|--output) output="$2"; shift 2 ;;
@@ -437,10 +462,59 @@ run_pdf_split() {
     done
 }
 
+_pdf_usage() {
+    cat <<'TXT'
+Usage: amir pdf <file...> [options]
+       amir pdf linkedin-post <folder> [carousel | guide [fr en fa tri]]
+       amir pdf split <file.pdf> --pages <spec> [--combined] [-o output]
+
+Description:
+  Multi-engine PDF renderer. Default mode renders one or more Markdown/.tex/
+  image/PDF files to a single PDF (via Puppeteer, WeasyPrint, Pandoc, or a
+  PIL fallback, with an ImageMagick collage step for photos/scans). Piped
+  stdin is accepted as a single Markdown/text input when no file is given.
+  Two extra subcommands: "linkedin-post" builds a trilingual LinkedIn
+  post/carousel, "split" extracts or recombines pages of an existing PDF.
+
+Options (default render mode):
+  file...                One or more input files (.md .txt .tex .pdf images);
+                          reads stdin if none given and input is piped
+  -o, --output FILE       Output PDF path (default: <first-input>_<engine>.pdf)
+  --engine NAME            Renderer: puppeteer (default) | weasyprint | pandoc | pil
+  --weasyprint / --pandoc / --pil   Shortcuts for --engine
+  -f, --free-size          Don't force A4 page size (Puppeteer only)
+  --page-width N / --page-height N   Custom page size (Puppeteer only)
+  --pages, --merge          Force multi-page mode (clip each input to an A4 page)
+  --deskew, --straighten      Auto-deskew scanned images (default: on)
+  --no-deskew, --no-straighten  Disable auto-deskew
+  --theme NAME               CSS theme, e.g. carousel (Puppeteer)
+  --force-rtl, --rtl          Force right-to-left rendering
+
+Options (linkedin-post):
+  folder                  Folder with post.yml + guide.{fr,en,fa}.md — required
+  (no subcommand)          Whole post: guides + guide.trilingue.pdf + carousel
+  carousel                  Carousel only
+  guide [fr en fa tri]       Rebuild the listed guides (+ trilingue always);
+                            "tri" alone rebuilds only the trilingue
+
+Options (split):
+  file.pdf                 Input PDF — required
+  --pages SPEC              Comma-separated pages/ranges, e.g. 1,3,4 or 1,2-3,4-8
+  --combined                 Merge the selected pages into one output PDF
+                            instead of one file per token
+  -o, --output FILE          Output path/stem
+
+Examples:
+  amir pdf notes.md
+  amir pdf slide1.png slide2.png -o deck.pdf
+  echo "# Hi" | amir pdf --theme carousel -o out.pdf
+  amir pdf linkedin-post ./post_folder guide fa en
+  amir pdf split report.pdf --pages 1,3-5 --combined
+TXT
+}
+
 if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
-    echo "Usage: amir pdf <file> [opts]              → render Markdown/PDF/etc"
-    echo "       amir pdf linkedin-post <folder> [carousel | guide [fr en fa tri]]"
-    echo "       amir pdf split <file.pdf> --pages <spec> [--combined] [-o output]"
+    _pdf_usage
     exit 0
 fi
 
@@ -448,6 +522,9 @@ if [[ "$1" == "linkedin-post" ]]; then
     run_pdf_linkedin_post "${@:2}"
 elif [[ "$1" == "split" ]]; then
     run_pdf_split "${@:2}"
+elif [[ $# -eq 0 && -t 0 ]]; then
+    _pdf_usage
+    exit 0
 else
     run_pdf "$@"
 fi

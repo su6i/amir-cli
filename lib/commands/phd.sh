@@ -121,6 +121,10 @@ _phd_show() {
 }
 
 _phd_draft() {
+    if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+        echo "Usage: amir apply phd draft <position-id> [--force] [--lang fr|en] [--track T]"
+        return 0
+    fi
     local pos_id=""
     local force_flag=""
     local lang_flag=""
@@ -177,6 +181,10 @@ _phd_open() {
 }
 
 _phd_audit() {
+    if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+        echo "Usage: amir apply phd audit <position-id>"
+        return 0
+    fi
     local pos_id="${1:-}"
     if [[ -z "$pos_id" ]]; then
         echo "Usage: amir apply phd audit <position-id>" >&2
@@ -188,6 +196,10 @@ _phd_audit() {
 }
 
 _phd_lettre() {
+    if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+        echo "Usage: amir apply phd lettre <position-id>"
+        return 0
+    fi
     # Scaffold the complete apply folder under PhD-Search/applied/<pos_id>/
     local pos_id="${1:-}"
     if [[ -z "$pos_id" ]]; then
@@ -248,6 +260,10 @@ _phd_lettre() {
 }
 
 _phd_research() {
+    if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+        echo "Usage: amir apply phd research <position-id>"
+        return 0
+    fi
     local pos_id="$1"
     if [[ -z "$pos_id" ]]; then
         echo "Usage: amir apply phd research <position-id>" >&2
@@ -332,6 +348,10 @@ _phd_search() {
 }
 
 _phd_add_source() {
+    if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+        echo "Usage: amir apply phd add-source <name> <url> [description] [-p|--priority N]"
+        return 0
+    fi
     local name="" url="" desc="" priority_flag=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -361,31 +381,39 @@ _phd_init() {
 }
 
 _phd_usage() {
-    echo ""
-    echo "  amir apply phd — PhD Application Tracker"
-    echo ""
-    echo "  Commands:"
-    echo "    status [--track general|finance|all]   Show all positions with urgency"
-    echo "    show   [<id>]                          Show position + draft (no ID = list)"
-    echo "    list                                   List all position IDs and titles"
-    echo "    research <id>                          Research supervisor — must run before draft"
-    echo "    lettre   <id>                          Scaffold apply folder + generate CV + copy files"
-    echo "    audit    <id>                          Manager-agent QA — run after lettre+CV are ready"
-    echo "    search                                 How to find new PhD positions"
-    echo "    add-source <name> <url> [desc]         Add a search source"
-    echo "               [-p N, --priority N]        Insert at position N (default: end)"
-    echo "    draft  <id> [--force] [--lang fr|en]   Generate email draft (DeepSeek)"
-    echo "    sent   <id> [--date YYYY-MM-DD]        Mark as sent"
-    echo "    reply  <id> --type positive|negative|bounce|info"
-    echo "    open   [general|finance|all]           Open HTML tracker in browser"
-    echo "    init   [track]                         Initialize tracking.json from files"
-    echo ""
-    echo "  Examples:"
-    echo "    amir apply phd status"
-    echo "    amir apply phd show FR_artois_llm_multiagent"
-    echo "    amir apply phd draft FR_artois_llm_multiagent"
-    echo "    amir apply phd sent FR_artois_llm_multiagent"
-    echo ""
+    usage_block <<'TXT'
+Usage: amir apply phd [subcommand] [args]
+
+Description:
+  PhD application tracker (found positions, supervisor research, drafts,
+  sent/reply status). With no args (or a lone --flag), shows pending
+  positions.
+
+Options:
+  (no args)                              Show pending positions
+  status [--track general|finance|all]   Show all positions with urgency
+  pending                                Show pending positions
+  show|list [<id>]                       Show position + draft (no ID = list all)
+  research <id>                          Research supervisor — run before draft
+  lettre <id>                            Scaffold apply folder + generate CV + copy files
+  audit <id>                             QA pass — run after lettre+CV are ready
+  search                                 How to find new PhD positions
+  sources | list-sources                 List configured search sources
+  add-source <name> <url> [desc] [-p N]  Add a search source (insert at N)
+  draft <id> [--force] [--lang fr|en] [--track T]   Generate email draft
+  sent [<id>]                            Mark <id> sent, or list sent (no id)
+  reject [<id>]                          Mark <id> rejected, or list rejected (no id)
+  reply <id> ...                         Record a reply (see tracker for flags)
+  open [general|finance|all]             Open the HTML tracker in browser
+  sync                                   Sync Gmail — PhD tracks only
+  init [track]                           Initialize tracking.json (both tracks if omitted)
+
+Examples:
+  amir apply phd status
+  amir apply phd show FR_artois_llm_multiagent
+  amir apply phd draft FR_artois_llm_multiagent --lang en
+  amir apply phd sent FR_artois_llm_multiagent
+TXT
 }
 
 # Expose urgent header for apply.sh

@@ -35,42 +35,44 @@ _research_check_env() {
 }
 
 _research_help() {
-    echo ""
-    echo "Usage: amir research <subcommand> [options]"
-    echo ""
-    echo "Subcommands:"
-    printf "  %-12s %s\n" "discover"   "Find potential supervisors by topic keywords (ArXiv + DBLP)"
-    printf "  %-12s %s\n" "professor"  "Deep-research a specific professor: papers → overlap → email"
-    echo ""
-    echo "discover options:"
-    printf "  %-30s %s\n" "--keywords KW [KW ...]"        "Topic keywords (required)"
-    printf "  %-30s %s\n" "--sources arxiv dblp"          "Sources (default: both)"
-    printf "  %-30s %s\n" "--since-year YEAR"             "Papers since year (default: 2022)"
-    printf "  %-30s %s\n" "--min-papers N"                "Min topic-relevant papers per author (default: 2)"
-    printf "  %-30s %s\n" "--top N"                       "Candidates to show (default: 10)"
-    printf "  %-30s %s\n" "--format txt|md|xlsx"          "Output format (default: txt)"
-    printf "  %-30s %s\n" "--categories cs.LG q-fin.CP"   "ArXiv category filter"
-    printf "  %-30s %s\n" "--profile PATH"                "Candidate profile .md for LLM scoring"
-    printf "  %-30s %s\n" "--save PATH"                   "Override output path"
-    echo ""
-    echo "professor options:"
-    printf "  %-30s %s\n" "--professor NAME"              "Professor full name (required)"
-    printf "  %-30s %s\n" "--institution LAB"             "Institution / lab name"
-    printf "  %-30s %s\n" "--email EMAIL"                 "Professor email"
-    printf "  %-30s %s\n" "--gender M|F"                  "For salutation (default: M)"
-    printf "  %-30s %s\n" "--lang fr|en"                  "Email language (default: fr)"
-    printf "  %-30s %s\n" "--story TEXT"                  "Your genuine motivation (overrides profile tone)"
-    printf "  %-30s %s\n" "--since-year YEAR"             "Fetch papers since year (default: 2021)"
-    printf "  %-30s %s\n" "--scholar-url URL"             "Google Scholar / personal page (for non-CS profs)"
-    printf "  %-30s %s\n" "--profile PATH"                "Candidate profile .md"
-    printf "  %-30s %s\n" "--tracking PATH"               "Path to tracking.json to update"
-    printf "  %-30s %s\n" "--position-id ID"              "Position ID in tracking.json"
-    echo ""
-    echo "Examples:"
-    echo "  amir research discover --keywords \"MARL portfolio optimization\""
-    echo "  amir research discover --keywords \"NLP sentiment finance\" --format md --top 15"
-    echo "  amir research professor --professor \"Vianney Perchet\" --institution \"CREST\" --lang fr"
-    echo ""
+    usage_block <<'TXT'
+Usage: amir research <subcommand> [options]
+
+Description:
+  Professor/supervisor research: discover candidates by topic keywords, or
+  deep-research one professor (papers, overlap, draft email). Bridges to
+  the research_toolkit repo (professor_scout pipeline).
+
+Options:
+  discover   Find potential supervisors by topic keywords (ArXiv + DBLP)
+    --keywords KW [KW ...]        Topic keywords (required)
+    --sources arxiv dblp          Sources (default: both)
+    --since-year YEAR             Papers since year (default: 2022)
+    --min-papers N                Min topic-relevant papers per author (default: 2)
+    --top N                       Candidates to show (default: 10)
+    --format txt|md|xlsx          Output format (default: txt)
+    --categories cs.LG q-fin.CP   ArXiv category filter
+    --profile PATH                Candidate profile .md for LLM scoring
+    --save PATH                   Override output path
+
+  professor   Deep-research a specific professor: papers -> overlap -> email
+    --professor NAME              Professor full name (required)
+    --institution LAB             Institution / lab name
+    --email EMAIL                 Professor email
+    --gender M|F                  For salutation (default: M)
+    --lang fr|en                  Email language (default: fr)
+    --story TEXT                  Your genuine motivation (overrides profile tone)
+    --since-year YEAR             Fetch papers since year (default: 2021)
+    --scholar-url URL             Google Scholar / personal page (for non-CS profs)
+    --profile PATH                Candidate profile .md
+    --tracking PATH                Path to tracking.json to update
+    --position-id ID              Position ID in tracking.json
+
+Examples:
+  amir research discover --keywords "MARL portfolio optimization"
+  amir research discover --keywords "NLP sentiment finance" --format md --top 15
+  amir research professor --professor "Vianney Perchet" --institution "CREST" --lang fr
+TXT
 }
 
 _run_discover() {

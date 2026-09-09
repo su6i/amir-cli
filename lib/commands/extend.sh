@@ -1,4 +1,38 @@
 #!/bin/bash
+# amir img extend — extend an image's canvas on one or more sides
+# (invoked as a standalone script by lib/commands/img.sh; not sourced by `amir`)
+
+# Help function (exit_code lets --help exit 0 while real errors still exit 1)
+usage() {
+    local exit_code="${1:-1}"
+    echo "Usage: amir img extend <input_file> [options]"
+    echo ""
+    echo "Description:"
+    echo "  Extend an image's canvas on the top/bottom/left/right, filling the new"
+    echo "  area with a given color (or the image's own average color if none is"
+    echo "  given). Saves to <name>_extended.<ext> alongside the input."
+    echo ""
+    echo "Options:"
+    echo "  input_file             Image to extend — required"
+    echo "  -i, --input FILE       Same as the positional input_file"
+    echo "  -t, --top PX [COLOR]   Extend the top by PX pixels"
+    echo "  -b, --bottom PX [COLOR]  Extend the bottom by PX pixels"
+    echo "  -l, --left PX [COLOR]  Extend the left by PX pixels"
+    echo "  -r, --right PX [COLOR] Extend the right by PX pixels"
+    echo "  -c, --color COLOR      Default color for all sides (if a side has none)"
+    echo "  -h, --help             Show this help"
+    echo ""
+    echo "Note: if no color is given at all, the image's own average color is used."
+    echo ""
+    echo "Examples:"
+    echo "  amir img extend photo.jpg --top 100 --color white"
+    echo "  amir img extend photo.jpg --top 50 --bottom 50"
+    exit "$exit_code"
+}
+
+if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" || $# -eq 0 ]]; then
+    usage 0
+fi
 
 # Check if ImageMagick is installed
 if ! command -v magick &> /dev/null; then
@@ -17,22 +51,6 @@ LEFT_PX=0
 LEFT_COL=""
 RIGHT_PX=0
 RIGHT_COL=""
-
-# Help function
-usage() {
-    echo "Usage: $0 [input_file] [options]"
-    echo ""
-    echo "Options:"
-    echo "  --top <px> [color]    Extend top side"
-    echo "  --bottom <px> [color] Extend bottom side"
-    echo "  --left <px> [color]   Extend left side"
-    echo "  --right <px> [color]  Extend right side"
-    echo "  --color <color>       Default color for all sides (if not specified)"
-    echo "  --help                Show this help"
-    echo ""
-    echo "Note: If no color is provided, the average image color is used automatically."
-    exit 1
-}
 
 # If first argument is a file (no dash), pick it up
 if [[ "$1" != -* && -n "$1" ]]; then

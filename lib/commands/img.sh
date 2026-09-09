@@ -1,7 +1,65 @@
 #!/bin/bash
 
 _img_usage() {
-    echo "Usage: amir img <resize|crop|upscale|lab|scan|round|rotate|pad|convert|stack|extend|compress|burst> <file> [opts]"
+    usage_block <<'TXT'
+Usage: amir img <subcommand> <file> [options]
+
+Description:
+  Image processing toolkit built on ImageMagick (with a sips fallback on
+  macOS): resize, crop, upscale, round corners, rotate, pad, convert, stack,
+  extend borders, compress, or reconstruct from a burst of near-duplicate
+  frames. Legacy form "amir img <file> [size] [gravity]" still works
+  (resize, or crop if gravity is given).
+
+Options:
+  resize <file> [size|preset] [circle]
+      Scale to fit (default size: img.default_size config, 1080).
+      "circle" crops the result to a circle (forces PNG output).
+  crop <file> [size|preset] [gravity] | --smart [options]
+      Fill & cut to exact size. Manual: -g|--gravity POS (default: Center).
+      Smart (subject-aware, via OpenCV): --smart (auto-crop) | --scan
+      (document mode) | --preview | --tuning; --margin PX; --expand PX;
+      --output FILE; --top/-t --bottom/-b --left/-l --right/-r PX (or a
+      single +N to set all four).
+  upscale <file> [-s|--scale N] [-m|--model NAME] [-o|--output FILE]
+      AI upscale via Real-ESRGAN (default: 4x, ultrasharp model)
+  lab <file> [-s|--scale N] [-m|--model NAME|all]
+      Generate 60 enhancement variations (420 if --model all) for comparison
+  scan <file> [--fast|--pro|--ocr|--py|--all] [-o|--output FILE]
+      Document cleanup (white background, black ink); --all (default)
+      generates all 4 methods for comparison
+  round <file> [radius] [format|output_filename]
+      Round corners (default radius: 20px, output: PNG)
+  rotate <file...> <angle> | --smart
+      Rotate by angle in degrees, or auto-deskew with --smart
+  pad <file> <size|preset> [color]
+      Fit & pad to exact size (default color: white)
+  convert <file> [format] [size|preset] [circle] [-bg|--background COLOR]
+      Convert format/size (default format: png); "circle" crops to a circle
+  stack <file1> <file2> [...] [-g|--gap N] [-bg|--background COLOR]
+      [-o|--output FILE] [-p|--paper a4|b5] [--deskew]
+      Stack images vertically (min 2 files; default gap: 20px)
+  extend <file> [options]
+      Extend canvas borders — see "amir img extend --help"
+  compress <file(s)> [--target N] [--grayscale] [--photo] [--overwrite]
+      [--max-quality N] [--min-quality N] [--uniform] [--scale N]
+      [--no-strip] [-o DIR] [--suffix STR]
+      Compress toward a target size in KB (default: 300)
+  burst <files|dirs...> [-o|--output FILE] [-r|--recursive]
+      Multi-frame reconstruction from near-duplicate/burst photos (min 2)
+
+Presets (for size|preset arguments):
+  yt-banner    2560x1440
+  yt-logo      800x800
+  yt-watermark 150x150
+
+Examples:
+  amir img resize photo.jpg 1080
+  amir img crop photo.jpg 800x800 5
+  amir img crop photo.jpg --smart --margin 20
+  amir img compress scan.jpg --grayscale --target 200
+  amir img stack front.png back.png -p a4
+TXT
 }
 
 run_img() {
@@ -147,9 +205,21 @@ run_img() {
         # Argument Parsing Loop
         while [[ $# -gt 0 ]]; do
             case "$1" in
-                --smart) 
+                --help|-h)
+                    echo "Usage: amir img crop <file> [size|preset] [gravity] | --smart [options]"
+                    echo ""
+                    echo "Options:"
+                    echo "  -g, --gravity POS   Manual crop gravity (default: Center)"
+                    echo "  --smart             Subject-aware auto-crop (OpenCV)"
+                    echo "  --scan/--preview/--tuning   Smart-crop mode variants"
+                    echo "  --margin PX / --expand PX   Smart-crop tuning"
+                    echo "  --output FILE       Output path (smart mode)"
+                    echo "  --top/-t --bottom/-b --left/-l --right/-r PX   Per-side offsets"
+                    return 0
+                    ;;
+                --smart)
                     smart=true
-                    shift 
+                    shift
                     ;;
                 --scan)
                     smart=true
@@ -321,6 +391,15 @@ run_img() {
         
         while [[ $# -gt 0 ]]; do
             case "$1" in
+                --help|-h)
+                    echo "Usage: amir img convert <file> [format] [size|preset] [circle] [-bg|--background COLOR]"
+                    echo ""
+                    echo "Options:"
+                    echo "  format         Output format, e.g. png/jpg/webp (default: png)"
+                    echo "  size|preset    Resize target (default: img.default_size config, 1080)"
+                    echo "  circle         Crop the result to a circle"
+                    echo "  -bg, --background COLOR   Background color (default: none/transparent)"
+                    return 0 ;;
                 -bg|--background)
                     if [[ -n "$2" && "$2" != -* ]]; then
                         background="$2"
@@ -545,6 +624,16 @@ run_img() {
         # Parse arguments
         while [[ $# -gt 0 ]]; do
             case "$1" in
+                --help|-h)
+                    echo "Usage: amir img stack <file1> <file2> [...] [-g|--gap N] [-bg|--background COLOR] [-o|--output FILE] [-p|--paper a4|b5] [--deskew]"
+                    echo ""
+                    echo "Options:"
+                    echo "  -g, --gap N          Gap between images in pixels (default: 20)"
+                    echo "  -bg, --background COLOR   Background color (default: white)"
+                    echo "  -p, --paper a4|b5    Frame stacked images onto one paper size"
+                    echo "  --deskew             Auto-deskew each image before stacking"
+                    return 0
+                    ;;
                 -g|--gap)
                     gap="$2"
                     shift 2
@@ -662,6 +751,15 @@ run_img() {
 
         while [[ $# -gt 0 ]]; do
             case "$1" in
+                --help|-h)
+                    echo "Usage: amir img rotate <file...> <angle> | --smart"
+                    echo ""
+                    echo "Options:"
+                    echo "  file...   One or more images to rotate"
+                    echo "  angle     Degrees to rotate (accepts negative values)"
+                    echo "  --smart   Auto-straighten (deskew) instead of a fixed angle"
+                    return 0
+                    ;;
                 --smart)
                     smart=true
                     shift
@@ -724,6 +822,15 @@ run_img() {
         # Robust Shift-Based Parsing
         while [[ $# -gt 0 ]]; do
             case "$1" in
+                --help|-h)
+                    echo "Usage: amir img upscale <file> [-s|--scale N] [-m|--model NAME] [-o|--output FILE]"
+                    echo ""
+                    echo "Options:"
+                    echo "  -s, --scale N     Upscale factor 1-4 (default: img.upscale_scale config, 4)"
+                    echo "  -m, --model NAME  Real-ESRGAN model (default: img.upscale_model config, ultrasharp)"
+                    echo "  -o, --output FILE Output path"
+                    return 0
+                    ;;
                 -s|--scale)
                     if [[ -n "$2" && ! "$2" =~ ^- ]]; then
                         scale="$2"
@@ -835,6 +942,13 @@ run_img() {
         
         while [[ $# -gt 0 ]]; do
             case "$1" in
+                --help|-h)
+                    echo "Usage: amir img lab <file> [-s|--scale N] [-m|--model NAME|all]"
+                    echo ""
+                    echo "Options:"
+                    echo "  -s, --scale N       Upscale factor before generating variations (default: 4)"
+                    echo "  -m, --model NAME    Real-ESRGAN model, or 'all' to test 7 models (420 files)"
+                    return 0 ;;
                 -s|--scale) scale="$2"; shift 2 ;;
                 -m|--model) requested_model="$2"; shift 2 ;;
                 *) input="$1"; shift ;;
@@ -1025,6 +1139,16 @@ run_img() {
         
         while [[ $# -gt 0 ]]; do
             case "$1" in
+                --help|-h)
+                    echo "Usage: amir img scan <file> [--fast|--pro|--ocr|--py|--all] [-o|--output FILE]"
+                    echo ""
+                    echo "Options:"
+                    echo "  --fast   Quick grayscale + auto-level pass"
+                    echo "  --pro    Background-flatten + normalize (default when no mode given: --all)"
+                    echo "  --ocr    Higher-blur background flatten, tuned for OCR"
+                    echo "  --py     High-fidelity Python/OpenCV scan"
+                    echo "  --all    Generate all 4 methods for side-by-side comparison"
+                    return 0 ;;
                 --fast) requested_mode="fast"; shift ;;
                 --pro) requested_mode="pro"; shift ;;
                 --ocr) requested_mode="ocr"; shift ;;
@@ -1114,6 +1238,16 @@ run_img() {
 
         while [[ $# -gt 0 ]]; do
             case "$1" in
+                --help|-h)
+                    echo "Usage: amir img compress <file(s)> [--target N] [--grayscale|--photo] [--overwrite] [-o dir]"
+                    echo ""
+                    echo "Options:"
+                    echo "  --target N       Target size in KB (default: 300)"
+                    echo "  --grayscale      Convert to grayscale before compressing"
+                    echo "  --photo          Force full-color mode"
+                    echo "  --overwrite      Overwrite the original file"
+                    echo "  -o, --output DIR Output directory (default: same as input)"
+                    return 0 ;;
                 --target|-t)
                     [[ "$2" =~ ^[0-9]+$ ]] || { echo "❌ --target requires a number (KB)"; return 1; }
                     target_kb="$2"; shift 2 ;;
@@ -1158,7 +1292,7 @@ run_img() {
             echo "  amir img compress scan.png --grayscale --target 200"
             echo "  amir img compress *.jpg --target 150 -o compressed/"
             echo "  amir img compress front.png back.png --uniform     # auto uniform size"
-            return 1
+            return 0
         fi
 
         local target_bytes=$(( target_kb * 1024 ))
@@ -1416,6 +1550,17 @@ run_img() {
         # 1. Parse Options
         while [[ $# -gt 0 ]]; do
             case "$1" in
+                --help|-h)
+                    echo "Usage: amir img burst <files|dirs...> [-o|--output FILE] [-r|--recursive]"
+                    echo ""
+                    echo "Description:"
+                    echo "  Multi-frame reconstruction from near-duplicate/burst photos (min 2 files)."
+                    echo "  Directories are expanded to their image files."
+                    echo ""
+                    echo "Options:"
+                    echo "  -o, --output FILE  Output path (default: reconstructed_<first-file>)"
+                    echo "  -r, --recursive    Recurse into directory arguments"
+                    return 0 ;;
                 -r|--recursive) recursive=1; shift ;;
                 -o|--output) output="$2"; shift 2 ;;
                 *) inputs+=("$1"); shift ;;
@@ -1423,8 +1568,8 @@ run_img() {
         done
 
         if [[ ${#inputs[@]} -eq 0 ]]; then
-            echo "Usage: amir img burst <files|dirs...> [-o output] [-r]"
-            return 1
+            echo "Usage: amir img burst <files|dirs...> [-o|--output FILE] [-r|--recursive]"
+            return 0
         fi
 
         # 2. Heuristic for output if not provided via -o
@@ -1532,7 +1677,7 @@ run_img() {
         local input="$1"
         local size="$2"
         local gravity="$3"
-        
+
         # Determine intent based on gravity presence
         if [[ -n "$gravity" ]]; then
             do_crop "$@"
@@ -1540,26 +1685,13 @@ run_img() {
             # Legacy default: Resize (Fit)
             do_resize "$@"
         fi
+    elif [[ -z "$action" ]]; then
+        _img_usage
+        return 0
     else
-        echo "Usage:"
-        echo "  amir img resize  <file> <size|preset> [circle]   (Scale & opt. Circle Crop)"
-        echo "  amir img crop    <file> <size|preset> <g>        (Fill & Crop, g=1-9)"
-        echo "  amir img upscale <file> [scale] [model]          (AI-Upscale, def: 4x, ultrasharp)"
-        echo "  amir img lab     <file> [-s scale] [-m model]    (Generate 60/420 enhancement combinations)"
-        echo "  amir img scan    <file> [--bw] [-o output]       (Professional Doc Cleanup: White BG, Black Ink)"
-        echo "  amir img round   <file> [radius] [fmt|out]       (Round corners, def: 20px, PNG/JPG)"
-        echo "  amir img rotate  <file...> <angle|--smart>      (Rotate or auto-deskew images)"
-        echo "  amir img pad     <file> <size|preset> [color]    (Fit & Pad, def: white)"
-        echo "  amir img convert <file> [fmt] [size|preset] [circle] (Convert & opt. Circle)"
-        echo "  amir img stack   <file1> <file2> [...] [-g gap] [-p a4|b5] [--deskew]"
-        echo "  amir img extend  -i <file> [opts]                (Extend borders)"
-        echo "  amir img compress <file(s)> [--target KB] [--grayscale|--photo] [--overwrite] [-o dir]"
-        echo "  amir img burst   <files...> [output]             (Multi-frame Reconstruction)"
+        echo "❌ Unknown subcommand or file not found: $action"
         echo ""
-        echo "Presets:"
-        echo "  yt-banner    : 2560x1440"
-        echo "  yt-logo      : 800x800"
-        echo "  yt-watermark : 150x150"
+        _img_usage
         return 1
     fi
 }

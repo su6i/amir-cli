@@ -10,7 +10,26 @@
 # Export formats: pdf, md, jpg (optional)
 
 _llm_lists_usage() {
-    echo "Usage: amir llm-lists [gemini|openai|deepseek|grok|anthropic] [-e|--export pdf|md|jpg]"
+    usage_block <<'TXT'
+Usage: amir llm-lists <provider> [options]
+       amir router models <provider> [options]   (same command, via the router)
+
+Description:
+  List available models for an LLM provider, reading its API key from
+  .env / config. Anthropic has no public models.list() endpoint, so its
+  list is a known-models snapshot instead of a live API call.
+
+Options:
+  provider          gemini | openai | deepseek | grok | anthropic — required
+  -e, --export FMT  Export the output: md | pdf | jpg (pdf needs pandoc,
+                     jpg export is not yet implemented — falls back to a note)
+  -p, --providers   List available providers and exit
+
+Examples:
+  amir llm-lists gemini
+  amir llm-lists deepseek --export md
+  amir llm-lists --providers
+TXT
 }
 
 llm_lists() {
@@ -57,13 +76,10 @@ llm_lists() {
         esac
     done
 
-    # Default to gemini if no provider specified
+    # No provider given — this is a required argument, show usage.
     if [[ -z "$provider" ]]; then
-        echo "🤖 No provider specified. Available providers:"
-        echo "   • gemini, openai, deepseek, grok, anthropic"
-        echo ""
-        echo "Usage: amir llm-lists <provider> [-e|--export pdf|md|jpg]"
-        return 1
+        _llm_lists_usage
+        return 0
     fi
     
     # Create Python script
