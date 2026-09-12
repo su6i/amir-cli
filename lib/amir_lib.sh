@@ -103,6 +103,270 @@ _require_external_repo() {
     return 1
 }
 
+# _amir_stdin_is_tty — true when stdin is an interactive terminal. Broken out
+# into its own function (rather than an inline `[[ -t 0 ]]`) so tests can
+# stub it to simulate an interactive session without a real TTY.
+_amir_stdin_is_tty() {
+    [[ -t 0 ]]
+}
+
+# _ensure_external_repo CMD_LABEL DEP_LABEL RESOLVED_PATH ENV_VAR DEP_KEY
+# Same 5 args as _require_external_repo (which it wraps and replaces at every
+# call site). Fast path: dir exists -> return 0, silent, zero extra work.
+# AMIR_NO_AUTO_INSTALL=1 or non-interactive stdin -> defers to
+# _require_external_repo unchanged (today's print-hints-and-fail behaviour) —
+# unattended/cron runs must never clone or prompt. Otherwise: one announce
+# line, a shallow HTTPS clone (all four companion repos are public), then the
+# per-dep bootstrap hook. A failed clone falls back to the same hints.
+_ensure_external_repo() {
+    local cmd_label="$1"
+    local dep_label="$2"
+    local resolved_path="$3"
+    local env_var="$4"
+    local dep_key="$5"
+
+    if [[ -d "$resolved_path" ]]; then
+        return 0
+    fi
+
+    if [[ "${AMIR_NO_AUTO_INSTALL:-}" == "1" ]] || ! _amir_stdin_is_tty; then
+        _require_external_repo "$cmd_label" "$dep_label" "$resolved_path" "$env_var" "$dep_key"
+        return $?
+    fi
+
+    local https_url
+    https_url="$(_amir_external_repo_https_url "$dep_key")"
+    if [[ -z "$https_url" ]]; then
+        _require_external_repo "$cmd_label" "$dep_label" "$resolved_path" "$env_var" "$dep_key"
+        return $?
+    fi
+
+    echo "📦 $dep_label not found — cloning to $resolved_path ..." >&2
+    if ! git clone --depth 1 "$https_url" "$resolved_path" >&2; then
+        echo "❌ Clone of $dep_label failed." >&2
+        _require_external_repo "$cmd_label" "$dep_label" "$resolved_path" "$env_var" "$dep_key"
+        return 1
+    fi
+
+    # Propagate the bootstrap result: a failed install.sh must not look like success,
+    # otherwise the caller's own venv check re-runs install.sh a second time.
+    _amir_bootstrap_dep "$dep_key" "$resolved_path" || {
+        echo "❌ Setup of $dep_label failed after cloning to $resolved_path." >&2
+        echo "   Fix it there, then re-run: cd $resolved_path && bash install.sh" >&2
+        return 1
+    }
+    return 0
+}
+
+# _amir_bootstrap_dep DEP_KEY RESOLVED_PATH — per-dependency first-time setup
+# run right after a fresh clone. Dispatched with a `case` (bash 3.2 has no
+# associative arrays). Unknown/no-op deps just fall through — the seam exists
+# for future companion repos even though only research_toolkit needs it today.
+_amir_bootstrap_dep() {
+    local dep_key="$1"
+    local resolved_path="$2"
+
+    case "$dep_key" in
+        research_toolkit)
+            if [[ ! -f "$resolved_path/.env" && -f "$resolved_path/.env.example" ]]; then
+                cp "$resolved_path/.env.example" "$resolved_path/.env"
+            fi
+            echo "📦 Setting up research_toolkit (first run downloads deps — this can take a few minutes) ..." >&2
+            (cd "$resolved_path" && bash install.sh)
+            ;;
+        *)
+            : # no-op — no bootstrap needed for this dep yet
+            ;;
+    esac
+}
+
+# ==============================================================================
+# API key auto-provisioning (~/.amir/config.yaml `api_keys:` section)
+# ==============================================================================
+# Never echoes, logs, or writes a key value anywhere except the target .env
+# (mode inherited) and ~/.amir/config.yaml (forced to mode 600).
+
+_amir_config_file() {
+    echo "${AMIR_CONFIG_DIR:-$HOME/.amir}/config.yaml"
+}
+
+# _amir_config_get_key KEY_NAME — prints the value under api_keys.KEY_NAME in
+# ~/.amir/config.yaml, empty if the file/section/key is absent.
+_amir_config_get_key() {
+    local key_name="$1"
+    local config_file
+    config_file="$(_amir_config_file)"
+    [[ -f "$config_file" ]] || return 0
+    awk -v key="$key_name" '
+        $1 == "api_keys:" { in_section=1; next }
+        /^[^[:space:]]/ { if (in_section) exit }
+        in_section && $1 == key":" {
+            sub("^[ \t]*" key ":", "")
+            gsub(/^[ \t]+|[ \t]+$/, "")
+            print
+            exit
+        }
+    ' "$config_file"
+}
+
+# _amir_config_set_key KEY_NAME VALUE — sets api_keys.KEY_NAME in
+# ~/.amir/config.yaml, creating the section/file as needed. Always leaves the
+# file at mode 600 (it holds secrets). python3 is a hard repo dependency
+# already (see get_media_config above), so it is used here for a safe,
+# section-aware line rewrite instead of a fragile awk in-place edit.
+_amir_config_set_key() {
+    local key_name="$1"
+    local value="$2"
+    local config_file
+    config_file="$(_amir_config_file)"
+    mkdir -p "$(dirname "$config_file")"
+    [[ -f "$config_file" ]] || : > "$config_file"
+
+    python3 - "$config_file" "$key_name" "$value" <<'PYEOF'
+import sys
+
+config_file, key_name, value = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(config_file) as f:
+    lines = f.readlines()
+
+out = []
+in_section = False
+replaced = False
+section_found = False
+for line in lines:
+    stripped = line.rstrip("\n")
+    if stripped == "api_keys:":
+        section_found = True
+        in_section = True
+        out.append(line)
+        continue
+    if in_section and stripped and not stripped[0].isspace():
+        if not replaced:
+            out.append("  %s: %s\n" % (key_name, value))
+            replaced = True
+        in_section = False
+        out.append(line)
+        continue
+    if in_section:
+        existing_key = stripped.strip().split(":", 1)[0]
+        if existing_key == key_name:
+            out.append("  %s: %s\n" % (key_name, value))
+            replaced = True
+            continue
+    out.append(line)
+
+if in_section and not replaced:
+    out.append("  %s: %s\n" % (key_name, value))
+    replaced = True
+
+if not section_found:
+    if out and out[-1].strip() != "":
+        out.append("\n")
+    out.append("api_keys:\n")
+    out.append("  %s: %s\n" % (key_name, value))
+
+with open(config_file, "w") as f:
+    f.writelines(out)
+PYEOF
+    chmod 600 "$config_file"
+}
+
+# _amir_env_file_get_key ENV_FILE KEY_NAME — prints KEY_NAME's value from a
+# dotenv-style file, empty if absent, unset, or the file doesn't exist.
+_amir_env_file_get_key() {
+    local env_file="$1"
+    local key_name="$2"
+    [[ -f "$env_file" ]] || return 0
+    local line
+    line="$(grep -m1 "^${key_name}=" "$env_file" 2>/dev/null)"
+    [[ -n "$line" ]] || return 0
+    line="${line#${key_name}=}"
+    line="${line%%#*}"
+    line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e "s/^['\"]//" -e "s/['\"]\$//")"
+    printf '%s' "$line"
+}
+
+# _amir_env_file_set_key ENV_FILE KEY_NAME VALUE — sets/replaces
+# KEY_NAME=VALUE in a dotenv-style file (creating it if needed).
+_amir_env_file_set_key() {
+    local env_file="$1"
+    local key_name="$2"
+    local value="$3"
+    mkdir -p "$(dirname "$env_file")" 2>/dev/null
+    [[ -f "$env_file" ]] || : > "$env_file"
+
+    if grep -q "^${key_name}=" "$env_file" 2>/dev/null; then
+        local tmp
+        tmp="$(mktemp "${env_file}.XXXXXX")"
+        awk -v key="$key_name" -v val="$value" -F= '
+            $1 == key { print key "=" val; next }
+            { print }
+        ' "$env_file" > "$tmp" && mv "$tmp" "$env_file"
+    else
+        printf '%s=%s\n' "$key_name" "$value" >> "$env_file"
+    fi
+}
+
+# _amir_prompt_for_key KEY_NAME HELP_URL — the actual interactive prompt,
+# broken out so tests can stub it (never simulate real TTY input in a test).
+# Prints ONLY the prompt text (to stderr) and the user's answer to stdout;
+# never echoes the answer back after reading it.
+_amir_prompt_for_key() {
+    local key_name="$1"
+    local help_url="$2"
+    local value
+
+    echo "🔑 $key_name is not set. Get one here: $help_url" >&2
+    printf "   Paste %s now (leave blank to skip): " "$key_name" >&2
+    read -r value
+    printf '%s' "$value"
+}
+
+# _amir_ensure_api_key KEY_NAME ENV_FILE HELP_URL
+# Resolution order: exported env var -> ~/.amir/config.yaml (api_keys
+# section) -> ENV_FILE. Found anywhere -> mirrored into ENV_FILE, return 0,
+# NO prompt. Missing everywhere: AMIR_NO_AUTO_INSTALL=1 or non-interactive
+# stdin -> silently return 0 (never prompt an unattended run). Otherwise
+# prompt exactly ONCE (via _amir_prompt_for_key); empty answer -> warn once
+# and continue (return 0) — never loop, never re-prompt in the same run.
+# The key value is never echoed, logged, or committed anywhere.
+_amir_ensure_api_key() {
+    local key_name="$1"
+    local env_file="$2"
+    local help_url="$3"
+    local value=""
+
+    eval "value=\"\${${key_name}:-}\""
+
+    if [[ -z "$value" ]]; then
+        value="$(_amir_config_get_key "$key_name")"
+    fi
+
+    if [[ -z "$value" ]]; then
+        value="$(_amir_env_file_get_key "$env_file" "$key_name")"
+    fi
+
+    if [[ -n "$value" ]]; then
+        _amir_env_file_set_key "$env_file" "$key_name" "$value"
+        return 0
+    fi
+
+    if [[ "${AMIR_NO_AUTO_INSTALL:-}" == "1" ]] || ! _amir_stdin_is_tty; then
+        return 0
+    fi
+
+    value="$(_amir_prompt_for_key "$key_name" "$help_url")"
+
+    if [[ -z "$value" ]]; then
+        echo "⚠️  $key_name left empty — continuing without it." >&2
+        return 0
+    fi
+
+    _amir_config_set_key "$key_name" "$value"
+    _amir_env_file_set_key "$env_file" "$key_name" "$value"
+    return 0
+}
+
 copy_to_clipboard() {
     local response="$1"
     

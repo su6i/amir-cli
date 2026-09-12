@@ -67,14 +67,22 @@ run_trend() {
     local toolkit_dir
     toolkit_dir="$(_trend_toolkit_dir)"
 
-    _require_external_repo "amir trend" "research_toolkit" "$toolkit_dir" "RESEARCH_TOOLKIT_DIR" "research_toolkit" || return 1
+    _ensure_external_repo "amir trend" "research_toolkit" "$toolkit_dir" "RESEARCH_TOOLKIT_DIR" "research_toolkit" || return 1
 
     # Use the toolkit's own venv python directly to avoid venv conflicts
     local python_bin="$toolkit_dir/.venv/bin/python"
     if [[ ! -x "$python_bin" ]]; then
-        echo "❌ research_toolkit venv not found at: $toolkit_dir/.venv"
-        echo "   Run: cd $toolkit_dir && bash install.sh"
-        return 1
+        if [[ "${AMIR_NO_AUTO_INSTALL:-}" == "1" ]] || ! _amir_stdin_is_tty; then
+            echo "❌ research_toolkit venv not found at: $toolkit_dir/.venv"
+            echo "   Run: cd $toolkit_dir && bash install.sh"
+            return 1
+        fi
+        echo "📦 research_toolkit venv not found — running install.sh (this can take a few minutes) ..." >&2
+        (cd "$toolkit_dir" && bash install.sh) || { echo "❌ install.sh failed" >&2; return 1; }
+        if [[ ! -x "$python_bin" ]]; then
+            echo "❌ research_toolkit venv still not found after install.sh" >&2
+            return 1
+        fi
     fi
 
     # ── Defaults ──────────────────────────────────────────────────────────────
@@ -129,6 +137,30 @@ run_trend() {
         _trend_help
         return 0
     fi
+
+    # ── Auto-provision the API key(s) this run actually needs ────────────────
+    local -a _trend_needed_keys=()
+    case "$source" in
+        youtube)     _trend_needed_keys+=(YOUTUBE_API_KEY) ;;
+        github)      _trend_needed_keys+=(GITHUB_TOKEN) ;;
+        reddit)      _trend_needed_keys+=(REDDIT_CLIENT_ID REDDIT_CLIENT_SECRET) ;;
+        producthunt) _trend_needed_keys+=(PRODUCTHUNT_API_TOKEN) ;;
+        *) ;;
+    esac
+    [[ "$ideas" == true ]] && _trend_needed_keys+=(GEMINI_API_KEY)
+
+    local _trend_key _trend_help_url
+    for _trend_key in "${_trend_needed_keys[@]}"; do
+        case "$_trend_key" in
+            YOUTUBE_API_KEY)       _trend_help_url="https://console.cloud.google.com/apis/library/youtube.googleapis.com" ;;
+            GITHUB_TOKEN)          _trend_help_url="https://github.com/settings/tokens" ;;
+            REDDIT_CLIENT_ID|REDDIT_CLIENT_SECRET)
+                                   _trend_help_url="https://www.reddit.com/prefs/apps" ;;
+            PRODUCTHUNT_API_TOKEN) _trend_help_url="https://api.producthunt.com/v2/docs" ;;
+            GEMINI_API_KEY)        _trend_help_url="https://aistudio.google.com/app/apikey" ;;
+        esac
+        _amir_ensure_api_key "$_trend_key" "$toolkit_dir/.env" "$_trend_help_url"
+    done
 
     # ── Ideas mode ────────────────────────────────────────────────────────────
     if [[ "$ideas" == true ]]; then

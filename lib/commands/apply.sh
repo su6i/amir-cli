@@ -6,7 +6,7 @@
 _tracker_py() {
     local script="$1"; shift
     local applyforge_dir="${APPLYFORGE_DIR:-$HOME/@-github/ApplyForge}"
-    _require_external_repo "amir apply" "ApplyForge" "$applyforge_dir" "APPLYFORGE_DIR" "ApplyForge" || return 1
+    _ensure_external_repo "amir apply" "ApplyForge" "$applyforge_dir" "APPLYFORGE_DIR" "ApplyForge" || return 1
     (cd "$applyforge_dir" && uv run python -m "src.apply_tracker.${script%.py}" "$@")
 }
 
@@ -157,7 +157,7 @@ run_apply() {
     esac
 
     # ── ApplyForge CV generator ───────────────────────────────────────────────
-    _require_external_repo "amir apply" "ApplyForge" "$CV_DIR" "APPLYFORGE_DIR" "ApplyForge" || return 1
+    _ensure_external_repo "amir apply" "ApplyForge" "$CV_DIR" "APPLYFORGE_DIR" "ApplyForge" || return 1
 
     if [[ "$1" == "preview" ]]; then
         shift
@@ -187,7 +187,7 @@ _apply_sync_both() {
 _gmail_sync_direct() {
     local base_dir="$1"
     local applyforge_dir="${APPLYFORGE_DIR:-$HOME/@-github/ApplyForge}"
-    _require_external_repo "amir apply sync" "ApplyForge" "$applyforge_dir" "APPLYFORGE_DIR" "ApplyForge" || return 1
+    _ensure_external_repo "amir apply sync" "ApplyForge" "$applyforge_dir" "APPLYFORGE_DIR" "ApplyForge" || return 1
     (cd "$applyforge_dir" && uv run python - <<PYEOF
 import sys
 from pathlib import Path

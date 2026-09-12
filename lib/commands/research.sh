@@ -26,10 +26,19 @@ _research_check_env() {
     toolkit_dir="$(_research_toolkit_dir)"
     python_bin="$(_research_python)"
 
-    _require_external_repo "amir research" "research_toolkit" "$toolkit_dir" "RESEARCH_TOOLKIT_DIR" "research_toolkit" || return 1
+    _ensure_external_repo "amir research" "research_toolkit" "$toolkit_dir" "RESEARCH_TOOLKIT_DIR" "research_toolkit" || return 1
+
     if [[ ! -x "$python_bin" ]]; then
-        echo "❌ research_toolkit venv not found. Run: cd $toolkit_dir && bash install.sh"
-        return 1
+        if [[ "${AMIR_NO_AUTO_INSTALL:-}" == "1" ]] || ! _amir_stdin_is_tty; then
+            echo "❌ research_toolkit venv not found. Run: cd $toolkit_dir && bash install.sh"
+            return 1
+        fi
+        echo "📦 research_toolkit venv not found — running install.sh (this may take a minute) ..." >&2
+        (cd "$toolkit_dir" && bash install.sh) || { echo "❌ install.sh failed" >&2; return 1; }
+        if [[ ! -x "$python_bin" ]]; then
+            echo "❌ research_toolkit venv still not found after install.sh" >&2
+            return 1
+        fi
     fi
     return 0
 }

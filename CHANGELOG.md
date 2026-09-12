@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-09-12 — feat: clone and set up companion repos automatically on first use
+
+### Fixed
+
+- A failed `install.sh` during auto-bootstrap no longer reports success. The
+  bootstrap hook's exit status now propagates out of `_ensure_external_repo`,
+  so the caller stops with a clear message instead of falling through to its
+  own venv check and running `install.sh` a second time.
+- Setup messages say "this can take a few minutes" rather than "a minute" —
+  the first run of `research_toolkit/install.sh` downloads the Playwright
+  browsers and is genuinely slow.
+
+### Added
+
+- **Companion repos (`research_toolkit`, `ApplyForge`, `ai-router`) now
+  auto-install on first use** instead of erroring out with manual `git
+  clone` instructions. `_ensure_external_repo` (`lib/amir_lib.sh`) replaces
+  `_require_external_repo` at every call site (`trend.sh`, `research.sh`,
+  `router.sh`, `apply.sh`, `phd.sh`): if the repo directory is missing and
+  the session is interactive, it runs a shallow `git clone --depth 1` (all
+  four companion repos are public — no SSH key needed) and then a
+  per-dependency bootstrap hook (`_amir_bootstrap_dep`, dispatched by a
+  `case` — bash 3.2 has no associative arrays). `research_toolkit` gets its
+  `.env` seeded from `.env.example` and its `.venv` built via `install.sh`.
+  Unattended/non-interactive runs (`AMIR_NO_AUTO_INSTALL=1`, or stdin not a
+  TTY — e.g. cron) are unaffected: they keep the exact old print-hints-and-
+  fail behavior, and never clone or prompt.
+- **Self-healing venv**: `amir trend` and `amir research` now run
+  `research_toolkit`'s `install.sh` automatically if its `.venv` is missing
+  (same TTY / `AMIR_NO_AUTO_INSTALL` guard as above) instead of just
+  printing "Run: cd ... && bash install.sh" and giving up.
+- **`_amir_ensure_api_key KEY_NAME ENV_FILE HELP_URL`** (`lib/amir_lib.sh`):
+  resolves a key from the exported environment, then
+  `~/.amir/config.yaml` (`api_keys:` section, mode 600), then the target
+  `.env`; found anywhere, it's mirrored into the target `.env` with no
+  prompt. Missing everywhere and interactive, it prompts exactly once,
+  never loops, and persists the answer to both `~/.amir/config.yaml` and
+  the target `.env`. The key value is never echoed, logged, or committed.
+  `amir trend` now calls this for only the key(s) its chosen `--source`
+  actually needs (`YOUTUBE_API_KEY`, `GITHUB_TOKEN`,
+  `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET`, `PRODUCTHUNT_API_TOKEN`; none
+  for `arxiv`/`indiehackers`), plus `GEMINI_API_KEY` when `--ideas` is used.
+- **New `tests/test_bootstrap.sh`**: covers the `AMIR_NO_AUTO_INSTALL=1`
+  guard, the non-TTY guard, the fast path (existing dir, zero output), and
+  `_amir_ensure_api_key`'s three-way resolution order plus its stubbed
+  prompt-once behavior. Never touches the network or the real
+  `~/.amir/config.yaml`.
+
+### Fixed
+
+- The Intel-Mac bug that started this work: `amir trend` used to dead-end
+  with `❌ ... not found at: <path>` and three manual `git clone` hints
+  instead of just working.
+
+---
+
 ## 2026-09-10 — feat: show per-command usage on --help and on missing arguments
 
 ### Added

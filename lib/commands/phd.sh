@@ -208,7 +208,7 @@ _phd_lettre() {
     fi
 
     local applyforge_dir="${APPLYFORGE_DIR:-$HOME/@-github/ApplyForge}"
-    _require_external_repo "amir apply phd lettre" "ApplyForge" "$applyforge_dir" "APPLYFORGE_DIR" "ApplyForge" || return 1
+    _ensure_external_repo "amir apply phd lettre" "ApplyForge" "$applyforge_dir" "APPLYFORGE_DIR" "ApplyForge" || return 1
     local out_dir="$_PHD_SEARCH_DIR/applied/${pos_id}"
 
     # Locate position file

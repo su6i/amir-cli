@@ -88,9 +88,9 @@ During installation, you will be asked to provide the following API key for AI f
 | **`GROK_API_KEY`** | For `amir router models grok`/`amir router --model grok` (optional). | [xAI Console](https://console.x.ai/) |
 | **`ANTHROPIC_API_KEY`** | For `amir router models anthropic` (optional). | [Anthropic Console](https://console.anthropic.com/) |
 
-### Optional Dependencies (public companion repos)
+### Optional Dependencies (public companion repos, auto-installed on first use)
 
-A few commands bridge to their own sibling repo instead of vendoring that code here. `install.sh` never clones these automatically — so on a fresh machine they simply aren't there until you clone them yourself. All of these repos are **public** on GitHub, so a plain HTTPS clone is enough — no SSH key, no passphrase, no port 22 required. SSH is only needed if you intend to push changes back to one of them (it requires your own SSH key registered on that GitHub account). Run `amir doctor` any time to see exactly what's missing and get a copy-pasteable fix (both HTTPS and SSH) for each.
+A few commands bridge to their own sibling repo instead of vendoring that code here. `install.sh` never clones these upfront — but the first time you actually run a command that needs one, `amir` clones it for you automatically (a shallow `git clone --depth 1`, plus any repo-specific setup — e.g. `research_toolkit` also gets its `.env` seeded from `.env.example` and its `install.sh` run to build the venv). All of these repos are **public** on GitHub, so a plain HTTPS clone is enough — no SSH key, no passphrase, no port 22 required.
 
 | Command | Needs repo | Default path | Override env var |
 | :--- | :--- | :--- | :--- |
@@ -98,7 +98,9 @@ A few commands bridge to their own sibling repo instead of vendoring that code h
 | `amir apply`, `amir apply phd`, `amir apply job` | `ApplyForge` | `~/@-github/ApplyForge` | `APPLYFORGE_DIR` |
 | `amir router` | `ai-router` | `~/@-github/ai-router` | `AI_ROUTER_DIR` |
 
-If a repo is missing, the command fails fast with the exact `git clone` command (HTTPS first, SSH as a second line, and the `export ..._DIR=` alternative if you already have a clone elsewhere) instead of a generic "not found" dead end.
+**`AMIR_NO_AUTO_INSTALL=1`** — set this (or run from a non-interactive/non-TTY context, e.g. cron) to disable auto-clone entirely. In that case the command falls back to the old behavior: it fails fast and prints the exact `git clone` command (HTTPS first, SSH as a second line, and the `export ..._DIR=` alternative if you already have a clone elsewhere) instead of cloning anything. Run `amir doctor` any time to see exactly what's missing and get the same copy-pasteable fix.
+
+`amir trend` also auto-provisions the one or two API keys the chosen `--source` actually needs (e.g. `YOUTUBE_API_KEY` for the default `--source youtube`, nothing for `--source arxiv`) — it checks your exported environment, then `~/.amir/config.yaml`, then the target repo's `.env`; only if the key is genuinely missing everywhere does it prompt once (interactive sessions only) and remember your answer in both places for next time.
 
 ## ⚙️ Configuration
 
