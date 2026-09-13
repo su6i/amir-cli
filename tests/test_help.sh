@@ -137,6 +137,33 @@ check "pdf linkedin-post --help"   pdf linkedin-post --help
 check "pdf split --help"           pdf split --help
 
 echo ""
+echo "=== leaf-flag help content (WO-amir-cli-0011 regression) ==="
+check_contains() {
+    local desc="$1" needle="$2"
+    shift 2
+    local out
+    out=$("$AMIR" --no-venv "$@" 2>&1 </dev/null)
+    if printf '%s\n' "$out" | grep -qF -- "$needle"; then
+        PASS=$((PASS + 1))
+        printf "  OK   [has '%s'] %s\n" "$needle" "$desc"
+    else
+        FAIL=$((FAIL + 1))
+        FAILED_CASES+=("$desc (missing '$needle')")
+        printf "  FAIL [missing '%s'] %s\n" "$needle" "$desc"
+    fi
+}
+check_contains "img compress --help documents --min-quality" "--min-quality" img compress --help
+check_contains "img compress --help documents --max-quality" "--max-quality" img compress --help
+check_contains "img compress --help documents --uniform"     "--uniform"     img compress --help
+check_contains "img compress --help documents --scale"       "--scale"       img compress --help
+check_contains "img compress --help documents --no-strip"    "--no-strip"    img compress --help
+check_contains "img compress --help documents --suffix"      "--suffix"      img compress --help
+check_contains "img crop --help documents +N shorthand"      "+N"            img crop --help
+check_contains "video cut --help documents --guest-tag"      "--guest-tag"      video cut --help
+check_contains "video cut --help documents --subtitle-logo"  "--subtitle-logo"  video cut --help
+check_contains "video cut --help documents --pad-bottom"     "--pad-bottom"     video cut --help
+
+echo ""
 echo "=== no-arg behavior (REQUIRES args -> usage, exit 0) ==="
 check "video (no args)"            video
 check "audio (no args)"            audio

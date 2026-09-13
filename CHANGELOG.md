@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-09-13 — fix: retry transient network failures in update and document leaf-level flags
+
+### Fixed
+
+- `amir update` no longer reports a transient network blip (timeout/DNS/TLS/
+  5xx, e.g. a pypi timeout during `uv tool upgrade`) as a hard failure. Every
+  network step (git pull, `uv sync`, `uv tool upgrade` — both the fixed list
+  and `--all-tools`, `npm install`, `brew upgrade`) is now retried ONCE after
+  a short backoff on a transient-looking error, on top of `uv`'s own internal
+  retries. Still failing after the retry, it's reported under a new
+  `Warnings (transient, retry later):` block and no longer flips the exit
+  code — only a real (non-network) failure does that, under the existing
+  `Failures:` block. Exit-code contract documented in `--help` and README.
+- `amir img crop --help`, `amir img compress --help`, and `amir video cut
+  --help` were left over from the previous per-command usage pass
+  (2026-09-10): each shared a master usage block, so its own `--help` was
+  incomplete or drifted from what its parser actually accepts (`amir img
+  compress --help` was missing `--max-quality`, `--min-quality`, `--uniform`,
+  `--scale`, `--no-strip`, and `--suffix`; `amir video cut --help` was
+  missing more than a dozen subtitle/render flags). All three now print a
+  full Usage/Description/Options/Examples block via `usage_block`, with
+  every flag grep-verified against its parser. `amir img compress`'s
+  duplicated no-args usage text was also deduplicated into the same helper
+  to prevent this kind of drift recurring.
+
+### Testing
+
+- New `tests/test_update_resilience.sh`: stubs `uv` on `PATH` (never touches
+  the network) and asserts a transient failure is retried exactly once,
+  listed under `Warnings:`, and exits 0; a hard failure is not retried, is
+  listed under `Failures:`, and exits non-zero.
+- `tests/test_help.sh` gained content-verification cases (not just
+  exit-code/line-count smoke) for the newly-complete `img compress`, `img
+  crop`, and `video cut` leaf help.
+
+---
+
 ## 2026-09-12 — feat: clone and set up companion repos automatically on first use
 
 ### Fixed

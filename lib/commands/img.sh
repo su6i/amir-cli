@@ -206,15 +206,34 @@ run_img() {
         while [[ $# -gt 0 ]]; do
             case "$1" in
                 --help|-h)
-                    echo "Usage: amir img crop <file> [size|preset] [gravity] | --smart [options]"
-                    echo ""
-                    echo "Options:"
-                    echo "  -g, --gravity POS   Manual crop gravity (default: Center)"
-                    echo "  --smart             Subject-aware auto-crop (OpenCV)"
-                    echo "  --scan/--preview/--tuning   Smart-crop mode variants"
-                    echo "  --margin PX / --expand PX   Smart-crop tuning"
-                    echo "  --output FILE       Output path (smart mode)"
-                    echo "  --top/-t --bottom/-b --left/-l --right/-r PX   Per-side offsets"
+                    usage_block <<'CROPHELP'
+Usage: amir img crop <file> [size|preset] [gravity] | --smart [options]
+
+Description:
+  Fill & cut to an exact size. Manual mode uses a fixed gravity; --smart
+  uses OpenCV to auto-detect the subject instead of a fixed gravity.
+
+Options:
+  -g, --gravity POS   Manual crop gravity (default: Center)
+  --smart             Subject-aware auto-crop (OpenCV)
+  --scan              Smart-crop document mode
+  --preview           Smart-crop preview mode (no file written)
+  --tuning            Smart-crop tuning/debug mode
+  --margin PX         Margin kept around the detected subject
+  --expand PX         Smart-crop dilation/expand amount (default: 9)
+  --output FILE       Output path (smart mode)
+  --top, -t PX        Per-side offset: top
+  --bottom, -b PX     Per-side offset: bottom
+  --left, -l PX       Per-side offset: left
+  --right, -r PX      Per-side offset: right
+  +N                  Shorthand for --top N --bottom N --left N --right N
+
+Examples:
+  amir img crop photo.jpg 800x800 5
+  amir img crop photo.jpg --smart --margin 20
+  amir img crop photo.jpg --smart --scan --output doc.png
+  amir img crop photo.jpg +40
+CROPHELP
                     return 0
                     ;;
                 --smart)
@@ -1224,6 +1243,35 @@ run_img() {
 
 
     do_compress() {
+        _do_compress_usage() {
+            usage_block <<'COMPRESSHELP'
+Usage: amir img compress <file(s)> [options]
+
+Description:
+  Compress image(s) toward a target size in KB by stepping down JPEG
+  quality (and optionally resizing) until the file fits, or the quality
+  floor is hit.
+
+Options:
+  --target, -t N     Target size in KB (default: 300)
+  --grayscale        Convert to grayscale before compressing (documents)
+  --photo            Force full-color mode
+  --overwrite        Overwrite the original file (converts to .jpg if needed)
+  --max-quality N    Maximum JPEG quality to start from (default: 85)
+  --min-quality N    Minimum JPEG quality floor (default: 50)
+  --uniform          Auto-detect a common scale so all files share dimensions
+  --scale N          Force a specific resize percentage for all files
+  --no-strip         Keep EXIF metadata (default: metadata is stripped)
+  -o, --output DIR   Output directory (default: same as input)
+  --suffix STR       Filename suffix (default: _compressed)
+
+Examples:
+  amir img compress scan.jpg
+  amir img compress scan.png --grayscale --target 200
+  amir img compress *.jpg --target 150 -o compressed/
+  amir img compress front.png back.png --uniform
+COMPRESSHELP
+        }
         local target_kb=300
         local min_quality=50
         local max_quality=85
@@ -1239,14 +1287,7 @@ run_img() {
         while [[ $# -gt 0 ]]; do
             case "$1" in
                 --help|-h)
-                    echo "Usage: amir img compress <file(s)> [--target N] [--grayscale|--photo] [--overwrite] [-o dir]"
-                    echo ""
-                    echo "Options:"
-                    echo "  --target N       Target size in KB (default: 300)"
-                    echo "  --grayscale      Convert to grayscale before compressing"
-                    echo "  --photo          Force full-color mode"
-                    echo "  --overwrite      Overwrite the original file"
-                    echo "  -o, --output DIR Output directory (default: same as input)"
+                    _do_compress_usage
                     return 0 ;;
                 --target|-t)
                     [[ "$2" =~ ^[0-9]+$ ]] || { echo "❌ --target requires a number (KB)"; return 1; }
@@ -1272,26 +1313,7 @@ run_img() {
         done
 
         if [[ ${#files[@]} -eq 0 ]]; then
-            echo "Usage: amir img compress <file(s)> [options]"
-            echo ""
-            echo "Options:"
-            echo "  --target N       Target size in KB (default: 300)"
-            echo "  --grayscale      Convert to grayscale before compressing (ideal for official documents)"
-            echo "  --photo          Force full-color mode"
-            echo "  --overwrite      Overwrite original file (converts to .jpg if needed)"
-            echo "  --max-quality N  Maximum JPEG quality to start from (default: 85)"
-            echo "  --min-quality N  Minimum JPEG quality floor (default: 50)"
-            echo "  --uniform        Auto-detect common scale so all files get the same dimensions"
-            echo "  --scale N        Force a specific resize % for all files"
-            echo "  --no-strip       Keep EXIF metadata (default: stripped)"
-            echo "  -o <dir>         Output directory (default: same as input)"
-            echo "  --suffix <str>   Filename suffix (default: _compressed)"
-            echo ""
-            echo "Examples:"
-            echo "  amir img compress scan.jpg"
-            echo "  amir img compress scan.png --grayscale --target 200"
-            echo "  amir img compress *.jpg --target 150 -o compressed/"
-            echo "  amir img compress front.png back.png --uniform     # auto uniform size"
+            _do_compress_usage
             return 0
         fi
 

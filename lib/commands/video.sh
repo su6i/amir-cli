@@ -1404,6 +1404,51 @@ video() {
 }
 
 run_video_cut() {
+    _run_video_cut_usage() {
+        usage_block <<'CUTHELP'
+Usage: amir video cut <file> [options]
+
+Description:
+  Trim, delete a range, or extract a range from a video (single-pass
+  filter_complex for multiple ranges). Also the entry point for the final
+  encode/render pass used by "amir subtitle" (banner, logo, guest tags).
+
+Options:
+  -s, --start T             Keep from T to --end (stream copy when possible)
+  -e, --end T               End of the keep range
+  -t, --to T                Alias for --end
+  --duration D              Duration from --start instead of an end time
+  -d, --delete S E          Delete range S..E, keep the rest (repeatable)
+  -x, --extract S E         Extract only S..E into a new clip
+  -o, --output F            Output filename
+  --subtitles FILE          Burn in a subtitle file while cutting
+  --fonts-dir DIR           Font directory for subtitle rendering
+  --cover-frame IMG         Still image to prepend as a cover frame
+  --resolution H            Final-render output height (e.g. 720, 1080)
+  --quality Q               Final-render quality (1-100, higher = better)
+  --fps N                   Force output frame rate
+  --split MB                Split the output into ~N MB chunks
+  --pad-bottom N            Black padding at bottom, % of height
+  --subtitle-banner-image IMG   Banner image behind the subtitle area
+  --subtitle-banner-color C     Fallback banner color (no image given)
+  --subtitle-banner-height N    Banner strip height, % of frame (default: 18)
+  --subtitle-logo IMG        Channel logo, bottom-right of the banner
+  --subtitle-logo-animated   Try animated logo rendering if the codec allows
+  --subtitle-logo-width N    Logo width, % of video width (default: 10)
+  --subtitle-logo-margin-right N    Logo right margin, px (default: 24)
+  --subtitle-logo-margin-bottom N   Logo bottom margin, px (default: 24)
+  --guest-tag 'start,duration,name,title[,pos]'   Guest lower-third overlay
+  --guest-tag-pos POS        Default guest position: br|bl|tr|tl|bc|tc
+  --render                   Force the final encode pass
+  --display-input NAME      Internal: display name for the input (temp files)
+  --display-output NAME     Internal: display name for the output (temp files)
+
+Examples:
+  amir video cut clip.mp4 -s 00:01:00 -e 00:03:00
+  amir video cut clip.mp4 -d 00:01:00 00:02:00 -d 00:05:00 00:06:00
+  amir video cut clip.mp4 -x 00:01:00 00:03:00 -o highlight.mp4
+CUTHELP
+    }
     local input_file=""
     local start_time=""
     local end_time=""
@@ -1444,14 +1489,7 @@ run_video_cut() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --help|-h)
-                echo "Usage: amir video cut <file> [-s start] [-e end] [--duration d] [-d start end ...] [-x start end] [-o output] [--resolution H] [--quality Q] [--fps N] [--split MB] [--cover-frame IMG] [--subtitle-banner-image IMG|--subtitle-banner-color C] [--subtitle-logo IMG] [--guest-tag 'start,duration,name,title[,pos]'] [--render]"
-                echo ""
-                echo "Options:"
-                echo "  -s/-e/-t/--duration   Keep range (start/end/end-alias/duration-from-start)"
-                echo "  -d, --delete S E      Delete range(s), stitch the remainder (repeatable)"
-                echo "  -x, --extract S E     Extract only S..E into a new clip"
-                echo "  -o, --output F        Output filename"
-                echo "  --resolution/--quality/--fps/--split   Final-render passthrough options"
+                _run_video_cut_usage
                 return 0 ;;
             -s|--start) start_time="$2"; shift 2 ;;
             -e|--end) end_time="$2"; shift 2 ;;
@@ -1515,7 +1553,7 @@ run_video_cut() {
     done
 
     if [[ -z "$input_file" ]]; then
-        echo "Usage: amir video cut <file> [-s start] [-e end] [--duration d] [-d start end ...] [-x start end] [-o output] [--resolution H] [--quality Q] [--fps N] [--split MB] [--cover-frame IMG] [--subtitle-banner-image IMG|--subtitle-banner-color C] [--subtitle-logo IMG] [--guest-tag 'start,duration,name,title[,pos]'] [--render]"
+        _run_video_cut_usage
         return 0
     fi
 

@@ -35,11 +35,77 @@ Options:
   --all-tools    Upgrade all uv tools instead of the fixed list (Step 3)
   -h, --help     Show this help message and exit
 
+Exit codes:
+  0    Everything finished, including if a step hit a transient network
+       blip (timeout/DNS/TLS/5xx) that was retried once and is now a
+       warning, not a failure.
+  1    A real (non-network) failure occurred in at least one step -- see
+       the "Failures:" block.
+
 Examples:
   amir update
   amir update --check
   amir update --brew --all-tools
 TXT
+}
+
+# _is_transient_failure LOGFILE -- true (0) if a failed step's captured
+# output looks like a network blip (timeout/DNS/TLS/5xx) rather than a real
+# problem. Conservative: only known network-error substrings match; anything
+# else stays a hard failure. Defined at file scope (not nested in run_update)
+# so it can be exercised directly by tests after sourcing this file.
+_is_transient_failure() {
+    grep -qiE \
+        'operation timed out|failed to fetch|error sending request|could not resolve host|temporary failure in name resolution|connection (reset|refused|timed out)|network is unreachable|ssl handshake|tls handshake|http/[0-9.]+ 5[0-9]{2}|: connect:' \
+        "$1" 2>/dev/null
+}
+
+# _run_retryable LABEL [--] cmd...
+# Runs cmd with its live output still streamed to the terminal (via tee), and
+# on a transient-looking failure retries it ONCE after a short (~5s) backoff.
+# uv already retries network calls up to 3x internally; this sits on top of
+# that as a single extra attempt -- never a loop, never more than one retry.
+#   Returns: 0 = ok, 1 = hard failure, 2 = still transient after the retry.
+_run_retryable() {
+    local label="$1"
+    shift
+    [[ "${1:-}" == "--" ]] && shift
+
+    local logfile
+    logfile="$(mktemp "${TMPDIR:-/tmp}/amir_update.XXXXXX" 2>/dev/null)" || logfile=""
+
+    if [[ -n "$logfile" ]]; then
+        "$@" 2>&1 | tee "$logfile"
+    else
+        "$@"
+    fi
+    local rc=${PIPESTATUS[0]}
+
+    if [[ $rc -eq 0 ]]; then
+        [[ -n "$logfile" ]] && rm -f "$logfile"
+        return 0
+    fi
+
+    if [[ -n "$logfile" ]] && _is_transient_failure "$logfile"; then
+        echo "⚠️  ${label}: network timeout — retrying once ..."
+        sleep 5
+        : > "$logfile"
+        "$@" 2>&1 | tee "$logfile"
+        rc=${PIPESTATUS[0]}
+        if [[ $rc -eq 0 ]]; then
+            rm -f "$logfile"
+            return 0
+        fi
+        if _is_transient_failure "$logfile"; then
+            rm -f "$logfile"
+            return 2
+        fi
+        rm -f "$logfile"
+        return 1
+    fi
+
+    [[ -n "$logfile" ]] && rm -f "$logfile"
+    return 1
 }
 
 run_update() {
@@ -49,6 +115,7 @@ run_update() {
     local DO_BREW=0
     local ALL_TOOLS=0
     local FAILURES=""
+    local WARNINGS=""
 
     # ── parse args ──────────────────────────────────────────────────────────
     while [[ $# -gt 0 ]]; do
@@ -73,6 +140,16 @@ run_update() {
             FAILURES="  - $msg"
         else
             FAILURES="$FAILURES
+  - $msg"
+        fi
+    }
+
+    _record_warning() {
+        local msg="$1"
+        if [[ -z "$WARNINGS" ]]; then
+            WARNINGS="  - $msg"
+        else
+            WARNINGS="$WARNINGS
   - $msg"
         fi
     }
@@ -176,7 +253,9 @@ run_update() {
                 else
                     local before_sha
                     before_sha=$(git -C "$AMIR_ROOT" rev-parse --short HEAD 2>/dev/null)
-                    if git -C "$AMIR_ROOT" pull --ff-only; then
+                    _run_retryable "git pull" -- git -C "$AMIR_ROOT" pull --ff-only
+                    local pull_rc=$?
+                    if [[ $pull_rc -eq 0 ]]; then
                         local after_sha
                         after_sha=$(git -C "$AMIR_ROOT" rev-parse --short HEAD 2>/dev/null)
                         if [[ "$before_sha" == "$after_sha" ]]; then
@@ -184,6 +263,9 @@ run_update() {
                         else
                             echo "$before_sha -> $after_sha"
                         fi
+                    elif [[ $pull_rc -eq 2 ]]; then
+                        echo "⚠️  git pull: still timing out after retry — try again later"
+                        _record_warning "git pull: network timeout"
                     else
                         echo "❌ git pull failed"
                         _record_failure "git pull failed"
@@ -199,8 +281,13 @@ run_update() {
     if [[ $CHECK_MODE -eq 1 ]]; then
         echo "would run: uv sync --project \"$AMIR_ROOT\" (uv.lock is never modified by this command)"
     else
-        if uv sync --project "$AMIR_ROOT"; then
+        _run_retryable "uv sync" -- uv sync --project "$AMIR_ROOT"
+        local sync_rc=$?
+        if [[ $sync_rc -eq 0 ]]; then
             echo "Python dependencies synchronized"
+        elif [[ $sync_rc -eq 2 ]]; then
+            echo "⚠️  uv sync: still timing out after retry — try again later"
+            _record_warning "uv sync: network timeout"
         else
             echo "❌ uv sync failed"
             _record_failure "uv sync failed"
@@ -215,8 +302,13 @@ run_update() {
             echo "would run: uv tool upgrade --all"
         else
             echo "Upgrading all uv tools..."
-            if uv tool upgrade --all; then
+            _run_retryable "uv tool upgrade --all" -- uv tool upgrade --all
+            local alltools_rc=$?
+            if [[ $alltools_rc -eq 0 ]]; then
                 echo "All uv tools upgraded successfully"
+            elif [[ $alltools_rc -eq 2 ]]; then
+                echo "⚠️  uv tool upgrade --all: still timing out after retry — try again later"
+                _record_warning "uv tool upgrade --all: network timeout"
             else
                 echo "❌ uv tool upgrade --all failed"
                 _record_failure "uv tool upgrade --all failed"
@@ -233,8 +325,13 @@ run_update() {
                     echo "would upgrade: $tool (installed)"
                 else
                     echo "Upgrading $tool..."
-                    if uv tool upgrade "$tool"; then
+                    _run_retryable "$tool" -- uv tool upgrade "$tool"
+                    local tool_rc=$?
+                    if [[ $tool_rc -eq 0 ]]; then
                         echo "  $tool upgraded successfully"
+                    elif [[ $tool_rc -eq 2 ]]; then
+                        echo "⚠️  $tool: still timing out after retry — try again later"
+                        _record_warning "$tool: network timeout"
                     else
                         echo "❌ uv tool upgrade $tool failed"
                         _record_failure "uv tool upgrade $tool failed"
@@ -259,8 +356,13 @@ run_update() {
         echo "would run: npm install --prefix \"$AMIR_ROOT/lib/nodejs\" --no-audit --no-fund"
     else
         echo "Installing Node.js dependencies..."
-        if npm install --prefix "$AMIR_ROOT/lib/nodejs" --no-audit --no-fund; then
+        _run_retryable "npm install" -- npm install --prefix "$AMIR_ROOT/lib/nodejs" --no-audit --no-fund
+        local npm_rc=$?
+        if [[ $npm_rc -eq 0 ]]; then
             echo "Node.js dependencies installed successfully"
+        elif [[ $npm_rc -eq 2 ]]; then
+            echo "⚠️  npm install: still timing out after retry — try again later"
+            _record_warning "npm install: network timeout"
         else
             echo "❌ npm install failed"
             _record_failure "npm install failed"
@@ -283,8 +385,13 @@ run_update() {
                     echo "would upgrade: $formula (installed)"
                 else
                     echo "Upgrading $formula..."
-                    if brew upgrade "$formula"; then
+                    _run_retryable "$formula" -- brew upgrade "$formula"
+                    local brew_rc=$?
+                    if [[ $brew_rc -eq 0 ]]; then
                         echo "  $formula upgraded successfully"
+                    elif [[ $brew_rc -eq 2 ]]; then
+                        echo "⚠️  $formula: still timing out after retry — try again later"
+                        _record_warning "$formula: network timeout"
                     else
                         echo "❌ brew upgrade $formula failed"
                         _record_failure "brew upgrade $formula failed"
@@ -337,11 +444,17 @@ run_update() {
     _format_version_row "openai-whisper"   "$b_openai_whisper" "$a_openai_whisper"
 
     # ── Cleanup helper functions ─────────────────────────────────────────────
-    unset -f _record_failure _format_version_row _uv_tool_snapshot _uv_tool_ver 2>/dev/null
+    unset -f _record_failure _record_warning _format_version_row _uv_tool_snapshot _uv_tool_ver 2>/dev/null
 
     # ── Finish / Error reporting ─────────────────────────────────────────────
     if [[ $CHECK_MODE -eq 1 ]]; then
         return 0
+    fi
+
+    if [[ -n "$WARNINGS" ]]; then
+        echo ""
+        echo "Warnings (transient, retry later):"
+        echo "$WARNINGS"
     fi
 
     if [[ -n "$FAILURES" ]]; then
