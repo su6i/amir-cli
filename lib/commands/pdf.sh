@@ -1,6 +1,23 @@
 #!/bin/bash
 
 # ──────────────────────────────────────────────────────────────────
+# Shared setup for every render path below: config lookups (get_config,
+# e.g. pdf.font_fa) and the WeasyPrint DYLD fix both need to work
+# whether we're building a LinkedIn post or a plain PDF, so compute
+# them once here instead of copy-pasting into each function.
+# ──────────────────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$(dirname "$SCRIPT_DIR")"
+if [[ -f "$LIB_DIR/config.sh" ]]; then
+    source "$LIB_DIR/config.sh"
+else
+    get_config() { echo "$3"; }
+fi
+# WeasyPrint needs the Homebrew native libs (pango/cairo/gobject) on both
+# the linkedin-post path and the default multi-engine render path.
+export DYLD_FALLBACK_LIBRARY_PATH="/opt/homebrew/lib:/usr/local/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+
+# ──────────────────────────────────────────────────────────────────
 # amir pdf linkedin-post <folder> [carousel | guide [fr|en|fa]]
 #
 # Renders a trilingual (FR/EN/FA) LinkedIn post with WeasyPrint via
@@ -72,10 +89,9 @@ run_pdf_linkedin_post() {
     esac
     echo ""
 
-    # WeasyPrint needs the Homebrew native libs (pango/cairo/gobject); the
-    # renderer pins its own restricted fontconfig. The `markdown` package isn't
+    # The renderer pins its own restricted fontconfig (DYLD_FALLBACK_LIBRARY_PATH
+    # is exported once at the top of this file). The `markdown` package isn't
     # in the venv, so run isolated via uv (no permanent dep added).
-    export DYLD_FALLBACK_LIBRARY_PATH="/opt/homebrew/lib:/usr/local/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
     if uv run --no-project --python 3.12 --with weasyprint --with markdown --with pyyaml \
         python "$LIB_DIR/python/render_post.py" "$folder" "$LIB_DIR/fonts" "$mode" "${targets[@]}"; then
         echo ""
@@ -222,11 +238,13 @@ run_pdf() {
             elif [[ "$engine" == "weasyprint" ]]; then
                 if [[ "$free_size" == "true" ]]; then echo "⚠️  --free-size is only fully supported on Puppeteer. Output may vary."; fi
                 if [[ -n "$page_width" || -n "$page_height" ]]; then echo "⚠️  --page-width/--page-height are only supported on Puppeteer. Output may vary."; fi
-                $python_cmd "${LIB_DIR}/python/render_weasy.py" "$abs_file" "$tmp_out" "$font_fa" &>/dev/null && success=true
+                $python_cmd "${LIB_DIR}/python/render_weasy.py" "$abs_file" "$tmp_out" "$font_fa" "$force_rtl" &>/dev/null && success=true
             elif [[ "$engine" == "pandoc" ]]; then
                 if [[ "$free_size" == "true" ]]; then echo "⚠️  --free-size is only fully supported on Puppeteer. Output may vary."; fi
                 if [[ -n "$page_width" || -n "$page_height" ]]; then echo "⚠️  --page-width/--page-height are only supported on Puppeteer. Output may vary."; fi
-                pandoc "$abs_file" -o "$tmp_out" --pdf-engine=pdfkit &>/dev/null && success=true
+                local pandoc_args=(-o "$tmp_out" --pdf-engine=pdfkit)
+                [[ "$force_rtl" == "true" ]] && pandoc_args+=(-V dir=rtl)
+                pandoc "$abs_file" "${pandoc_args[@]}" &>/dev/null && success=true
             fi
 
             if [[ "$success" == "true" && -f "$tmp_out" ]]; then
@@ -240,11 +258,14 @@ run_pdf() {
                 
                 if [[ -f "$tmp_img" ]]; then processed+=("$tmp_img"); fi
                 
-                # Robust collection of PIL pages
+                # Robust collection of PIL pages. Process substitution (not a
+                # pipe) so the while loop runs in THIS shell -- a piped
+                # `... | while read` runs the loop in a subshell and any
+                # `processed+=()` inside it is lost once the pipeline exits.
                 local bname=$(basename "${tmp_img%.*}")
-                find "$tmp_dir" -name "${bname}_page_*.png" | sort | while read -r p; do
+                while read -r p; do
                     processed+=("$p")
-                done
+                done < <(find "$tmp_dir" -name "${bname}_page_*.png" | sort)
             fi
         else
             processed+=("$file")

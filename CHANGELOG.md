@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-09-13 — fix: resolve pdf config and RTL bugs, add cache cleanup, prefer free translation providers
+
+### Fixed
+
+- **`amir pdf`: the configured Persian font (`AMIR_PDF_FONT_FA` / `pdf.font_fa`)
+  was silently ignored.** `run_pdf()` never sourced `lib/config.sh`, so
+  `get_config` was undefined and every render fell through to the hardcoded
+  `/Library/Fonts/B-NAZANIN.TTF`. `lib/commands/pdf.sh` now sources
+  `lib/config.sh` once at the top of the file (the same idiom used
+  elsewhere in the codebase), so both `run_pdf()` and
+  `run_pdf_linkedin_post()` get a working `get_config`.
+- **`amir pdf`: WeasyPrint's `DYLD_FALLBACK_LIBRARY_PATH` fix now applies to
+  every render path**, not just `linkedin-post`. It's exported once at the
+  top of `pdf.sh` instead of being copy-pasted inside
+  `run_pdf_linkedin_post()`.
+- **`amir pdf`: the PIL-fallback renderer could report "No rendered pages
+  found" even when pages existed.** The page-collection loop piped `find |
+  sort | while read`, which runs the loop in a subshell — every
+  `processed+=(...)` inside it was discarded once the pipeline exited. Now
+  uses `done < <(find ... | sort)` (process substitution) so the loop runs
+  in the current shell and the collected pages survive.
+- **`amir pdf --rtl`: mixed-language text no longer flips to LTR just
+  because it happens to start with a Latin character.** The per-element
+  direction check only looked at the *first* Latin/Persian character in an
+  element's text; a Latin-leading sentence containing a single Persian
+  word was wrongly forced left-to-right (see the direction table in
+  `tests/test_pdf_rtl.js` for exact cases). Any Persian character anywhere
+  in the text now keeps the element at the document's RTL default.
+  `--force-rtl`/`--rtl` also now reaches the WeasyPrint and Pandoc engines
+  (previously only Puppeteer received it).
+- **Subtitle translation no longer tries two paid providers before the
+  free one.** The fallback chain was `deepseek → minimax → gemini → grok`;
+  it's now `gemini → deepseek → minimax → grok` (Gemini is the only $0
+  channel). Paid providers stay in the chain as fallbacks exactly as
+  before — nothing is disabled. The pipeline now prints which provider
+  actually produced each batch's translation (`🌐 translating via
+  <provider>`, once per provider per run) and logs a visible warning
+  whenever it falls through to a paid provider, naming the provider and
+  why the prior one failed.
+
+### Added
+
+- **`amir clean`: two new checklist entries, "uv Cache" and "npm Cache".**
+  Both show their reclaimable size before acting and clean via the tool's
+  own cache command (`uv cache clean`, `npm cache clean --force`) rather
+  than `rm -rf` on a guessed path; either is skipped cleanly if that tool
+  isn't installed.
+- `tests/test_pdf.sh` — covers the four `pdf.sh` fixes above (config
+  resolution, the hoisted DYLD export, PIL-fallback page collection via a
+  live extraction of the fixed code, and `--rtl` reaching all three render
+  engines via stubbed `node`/`pandoc` binaries).
+- `tests/test_pdf_rtl.js` — direction-decision table for the
+  Puppeteer renderer (pure Latin / pure Persian / mixed-language cases).
+- `lib/python/subtitle/tests/test_fallback_chain_provider_order.py` —
+  covers the free-first provider order, the paid-fallthrough warning, and
+  the all-providers-exhausted path.
+
+---
+
 ## 2026-09-13 — fix: retry transient network failures in update and document leaf-level flags
 
 ### Fixed

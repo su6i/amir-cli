@@ -69,9 +69,14 @@ def render_weasy(input_path, output_path, font_path):
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         sys.exit(1)
-        
+
     in_md = sys.argv[1]
     out_pdf = sys.argv[2]
     f_path = sys.argv[3] if len(sys.argv) > 3 else "/Library/Fonts/B-NAZANIN.TTF"
-    
+    # This renderer always outputs RTL/Persian (dir="rtl" throughout the
+    # fixed CSS/HTML above) -- it's the Persian-content path. force_rtl is
+    # accepted here purely so `amir pdf --rtl --weasyprint` doesn't silently
+    # drop the flag; it's a no-op today and reserved for future LTR support.
+    force_rtl = sys.argv[4] if len(sys.argv) > 4 else "false"  # noqa: F841
+
     render_weasy(in_md, out_pdf, f_path)

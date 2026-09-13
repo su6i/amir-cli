@@ -36,6 +36,8 @@ test_*
 # ...but real suites living in a tests/ directory are tracked (the rule above is
 # only meant to ignore ad-hoc scratch scripts like ./test_scratch.py).
 !**/tests/test_*.py
+!**/tests/test_*.sh
+!**/tests/test_*.js
 scratch/
 scratch_debug/
 scratch_staging/

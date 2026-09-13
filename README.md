@@ -82,8 +82,8 @@ During installation, you will be asked to provide the following API key for AI f
 
 | Key | Purpose (Why do I need this?) | Get it here |
 | :--- | :--- | :--- |
-| **`GEMINI_API_KEY`** | Enables the free tier of `amir router` (gemini/gemma), smart summaries, and intelligent help responses. | [Google AI Studio](https://aistudio.google.com/app/apikey) |
-| **`DEEPSEEK_API_KEY`** | Powers the subtitle translation system for 32 languages. Optional: fallback to Gemini if not set. | [DeepSeek Platform](https://platform.deepseek.com/) |
+| **`GEMINI_API_KEY`** | Enables the free tier of `amir router` (gemini/gemma), smart summaries, intelligent help responses, and is the **default ($0) provider** for the subtitle translation system's fallback chain (32 languages). | [Google AI Studio](https://aistudio.google.com/app/apikey) |
+| **`DEEPSEEK_API_KEY`** | Paid fallback for subtitle translation, tried only if Gemini is unavailable or fails (the pipeline prints which provider actually ran, and warns when it falls through to a paid one). | [DeepSeek Platform](https://platform.deepseek.com/) |
 | **`OPENAI_API_KEY`** | For `amir router models openai` (optional). | [OpenAI Platform](https://platform.openai.com/api-keys) |
 | **`GROK_API_KEY`** | For `amir router models grok`/`amir router --model grok` (optional). | [xAI Console](https://console.x.ai/) |
 | **`ANTHROPIC_API_KEY`** | For `amir router models anthropic` (optional). | [Anthropic Console](https://console.anthropic.com/) |
@@ -307,7 +307,7 @@ Full PhD and job application tracker with SQLite backend, web UI, and Gmail sync
 | Command | Description |
 | :--- | :--- |
 | `amir clip [input]` | **Piped Clipboard**: Copies text/files to clipboard, or outputs clipboard content to stdout when piped (e.g., `amir clip | amir pdf`). Single-word arg naming a file that doesn't exist yet (e.g. `amir clip notes.md`) saves the current clipboard content into that file instead. |
-| `amir clean` | Interactive cleanup menu — toggle items on/off with Space/numbers, navigate with ↑↓, confirm with Enter. Covers: Trash, User Caches, System Logs, VS Code workspaceStorage, macOS Aerials Screensaver, Claude Desktop VM, Claude Desktop update cache, Docker installer leftover, and orphaned UTM/Docker Desktop containers (auto-detected only when those apps are no longer installed — never touched otherwise). |
+| `amir clean` | Interactive cleanup menu — toggle items on/off with Space/numbers, navigate with ↑↓, confirm with Enter. Covers: Trash, User Caches, System Logs, VS Code workspaceStorage, macOS Aerials Screensaver, Claude Desktop VM, Claude Desktop update cache, Docker installer leftover, orphaned UTM/Docker Desktop containers (auto-detected only when those apps are no longer installed — never touched otherwise), **uv cache** (`uv cache clean`), and **npm cache** (`npm cache clean --force`) — each shows its reclaimable size first and is skipped cleanly if the tool isn't installed. |
 | `amir keyboard [fr\|en\|fa\|auto]` | Show keyboard layout for Apple Compact keyboard. Flags: `--opt` (Option layer), `--shift` (Shift layer), `--normal`, `--find <char>` (locate any character), `--auto` (detect active OS layout). |
 
 `amir transfer`, `qr`, `short`, `pass`, `lock`/`unlock`, `speed`, `weather` moved to [`amir scripts`](#-ai--productivity) 2026-07-13 (low real-world usage) — still directly callable, just no longer listed here or in `amir help`.

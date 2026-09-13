@@ -4,6 +4,12 @@ from typing import Dict, List, Optional
 
 from tqdm import tqdm
 
+# $0-first policy (owner decision, flagged 2026-08-03 / N-032 2026-08-22): only
+# "gemini" is a free channel here. Everything else in model_chain is a paid
+# fallback and must not be reached silently -- see the fallthrough warning
+# below.
+FREE_PROVIDERS = frozenset({"gemini"})
+
 
 def translate_with_batch_fallback_chain(
     processor,
@@ -18,7 +24,12 @@ def translate_with_batch_fallback_chain(
     if not texts or target_lang == source_lang:
         return texts
 
-    model_chain = ["deepseek", "minimax", "gemini", "grok"]
+    # $0-first (WO-amir-cli-0012 item 3): gemini is the only free provider and
+    # now leads the chain; deepseek/minimax/grok remain exactly as they were,
+    # as paid fallbacks for when gemini is unavailable or fails. batch_sizes
+    # is unchanged -- gemini already had the largest batch (40), so it's a
+    # fine default for the new head of the chain.
+    model_chain = ["gemini", "deepseek", "minimax", "grok"]
     batch_sizes = {
         "deepseek": 25,
         "minimax": 20,
@@ -77,13 +88,30 @@ def translate_with_batch_fallback_chain(
 
     pbar = tqdm(total=len(unique_texts), unit="item", desc=f"  Translating ({target_lang.upper()}) [Fallback Chain]")
 
+    # Printed once per provider actually used (not once per batch) so a run
+    # that stays on gemini the whole way through doesn't spam the log, while
+    # still making it unambiguous which engine(s) produced these subtitles.
+    printed_provider_used = set()
+
     for batch_num, batch_indices in enumerate(batch_indices_list):
         batch = [unique_texts[idx] for idx in batch_indices]
         success_batch = False
+        last_failure_reason = None
 
         for model_name in model_chain:
             if success_batch:
                 break
+
+            if model_name not in FREE_PROVIDERS:
+                reason = last_failure_reason or "no prior free provider available"
+                pbar.write(
+                    f"⚠️  Batch {batch_num + 1}: falling through to PAID provider "
+                    f"{model_name.upper()} -- {reason}"
+                )
+                processor.logger.warning(
+                    f"⚠️  Falling through to PAID provider {model_name} for batch "
+                    f"{batch_num + 1}: {reason}"
+                )
 
             try:
                 batch_size = batch_sizes[model_name]
@@ -117,6 +145,10 @@ def translate_with_batch_fallback_chain(
                 pbar.update(len(batch))
                 success_batch = True
 
+                if model_name not in printed_provider_used:
+                    processor.logger.info(f"🌐 translating via {model_name}")
+                    printed_provider_used.add(model_name)
+
                 done_frac = (batch_num + 1) / max(1, batch_count)
                 batch_pct = int(55 + done_frac * 22)
                 processor.logger.info(f"PROGRESS:{batch_pct}:🌐 Translation ({batch_num+1}/{batch_count})")
@@ -132,8 +164,10 @@ def translate_with_batch_fallback_chain(
 
                 if is_api_key:
                     pbar.write(f"⚠️ Batch {batch_num + 1}: {model_name.upper()} - API Key issue, skipping.")
+                    last_failure_reason = f"{model_name} API Key issue"
                 else:
                     pbar.write(f"⚠️ Batch {batch_num + 1}: {model_name.upper()} failed - {error_msg[:80]}")
+                    last_failure_reason = f"{model_name} failed - {error_msg[:80]}"
 
         if not success_batch:
             processor.logger.error(f"❌ Batch {batch_num + 1} FAILED: All models exhausted. Using original text.")

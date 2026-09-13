@@ -64,6 +64,8 @@ run_clean() {
         "Docker Installer Leftover"
         "UTM Container (orphaned)"
         "Docker Desktop Container (orphaned)"
+        "uv Cache"
+        "npm Cache"
     )
 
     printf "\n📊 Analyzing system clutter...\n"
@@ -88,11 +90,21 @@ run_clean() {
     else
         SIZES[9]="Docker.app installed — skipped"
     fi
+    if command -v uv &>/dev/null; then
+        SIZES[10]="$(_sz "$(uv cache dir 2>/dev/null)")"
+    else
+        SIZES[10]="uv not installed — skipped"
+    fi
+    if command -v npm &>/dev/null; then
+        SIZES[11]="$(_sz "$(npm config get cache 2>/dev/null)")"
+    else
+        SIZES[11]="npm not installed — skipped"
+    fi
 
     for i in "${!SIZES[@]}"; do [[ -z "${SIZES[$i]}" ]] && SIZES[$i]="—"; done
 
     # ── State ─────────────────────────────────────────────────────────────────
-    local -a SEL=(1 1 1 0 0 0 0 0 0 0)   # first 3 on by default
+    local -a SEL=(1 1 1 0 0 0 0 0 0 0 0 0)   # first 3 on by default
     local cursor=0
     local n=${#LABELS[@]}
     local msg=""
@@ -206,6 +218,22 @@ run_clean() {
                         rm -rf ~/Library/Containers/com.docker.docker 2>/dev/null
                     else
                         printf "  → Skipping Docker Desktop container — Docker.app is installed.\n"
+                    fi
+                }
+                [[ "${SEL[10]}" == "1" ]] && {
+                    if command -v uv &>/dev/null; then
+                        printf "  → Cleaning uv cache...\n"
+                        uv cache clean 2>/dev/null
+                    else
+                        printf "  → Skipping uv cache — uv is not installed.\n"
+                    fi
+                }
+                [[ "${SEL[11]}" == "1" ]] && {
+                    if command -v npm &>/dev/null; then
+                        printf "  → Cleaning npm cache...\n"
+                        npm cache clean --force 2>/dev/null
+                    else
+                        printf "  → Skipping npm cache — npm is not installed.\n"
                     fi
                 }
 
