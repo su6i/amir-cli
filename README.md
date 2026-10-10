@@ -274,10 +274,10 @@ Same `RESEARCH_TOOLKIT_DIR` setup as `amir trend` above.
 | `amir router cost` | Cost dashboard (points to `amir router audit` for the raw ledger). |
 | `amir router audit` | Show the cost/usage ledger (provider-echoed proof of which model actually ran). |
 | `amir router models <provider> [-e fmt]` | Fetch model lists from LLM providers (gemini, openai, deepseek, grok, anthropic). Export to PDF/MD/JPG. |
-| `amir todo "task"` | Add a task to the local to-do list. |
+| `amir todo add <text...>` | Add a task (quoted or unquoted multi-word). `amir todo "task text"` also works. Mutations reprint the list. |
 | `amir todo list` | Show all pending tasks. |
-| `amir todo done <n>` | Remove task number `<n>` from the list. |
-| `amir todo clear` | Clear all tasks. |
+| `amir todo done <n>` | Remove task number `<n>`; refuses an out-of-range number. |
+| `amir todo clear` | Clear all tasks after a `[y/N]` confirmation (`AMIR_YES=1` skips it; refuses when non-interactive). |
 | `amir scripts` | Interactive picker for saved one-off / low-traffic scripts — shows a numbered menu and prompts for a selection. |
 | `amir scripts list` | List saved scripts without prompting. |
 | `amir scripts <id> [args...]` | Run a saved script directly by its id, skipping the menu. Registry: `lib/config/scripts.txt` (`id\|description\|command` per line) — add new entries by editing that file, no code changes needed. `weather`, `qr`, `pass`, `dashboard`, `transfer`, `short`, `lock`, `unlock`, `speed` moved here 2026-07-13 (low real-world usage per `~/.zsh_history`) — still callable directly too (e.g. `amir pass`), just dropped from `amir help` and top-level tab-completion. |

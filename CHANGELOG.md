@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 2026-10-11 — fix: implement todo add and clear, validate indexes, and correct convert hints
+
+### Fixed
+
+- **`amir todo add` / `clear` did not exist.** Completion offered both, but the
+  dispatcher's catch-all appended any unknown first word as a task, so
+  `amir todo add "x"` stored the literal line `- add`. `add <text...>` and
+  `clear` (confirmation or `AMIR_YES=1`; refuses without a TTY) are now real,
+  unknown verbs print usage and exit 1, `done <n>` rejects numbers outside the
+  list instead of claiming success, and every mutation reprints the list.
+  `AMIR_TODO_FILE` overrides the list location.
+- **`amir video convert` on a truncated mp4/mov** (no `moov` atom) now fails early
+  with "incomplete or truncated download" instead of ffmpeg's error wall, and
+  the failure hint recommends `--cpu` (the removed `--reencode` flag is no
+  longer mentioned).
+
+### Added
+
+- `tests/test_todo.sh`, `tests/test_convert_truncated.sh` and
+  `tests/test_completion_parity.sh` (every completion verb must have a
+  dispatcher arm).
+
 ## 2026-09-13 — fix: resolve pdf config and RTL bugs, add cache cleanup, prefer free translation providers
 
 ### Fixed

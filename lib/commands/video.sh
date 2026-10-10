@@ -630,6 +630,17 @@ video_convert() {
         output="${stem}_converted.${target_fmt}"
     fi
 
+    # Pre-flight: an interrupted mp4/mov download has ftyp+mdat but no moov
+    # index, so ffprobe cannot read it. Fail early with the real cause.
+    local probe_err
+    probe_err=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$input" 2>&1 >/dev/null)
+    if [[ "$probe_err" == *"moov atom not found"* ]] || \
+       { [[ "$probe_err" == *"Invalid data found when processing input"* ]] && [[ "${input##*.}" =~ ^([mM][pP]4|[mM][oO][vV]|[mM]4[vV])$ ]]; }; then
+        echo "❌ $input looks like an incomplete or truncated download (no 'moov' index)."
+        echo "   The file cannot be converted; re-download it."
+        return 1
+    fi
+
     # Detect codecs for smart copy decision
     local vcodec acodec
     vcodec=$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_name \
@@ -696,7 +707,7 @@ video_convert() {
         "$output"; then
         echo "✅ Done: $output"
     else
-        echo "❌ Conversion failed. Try adding --reencode if stream-copy is incompatible."
+        echo "❌ Conversion failed. If the stream-copy is incompatible, try --cpu to re-encode."
         rm -f "$output"
         return 1
     fi
